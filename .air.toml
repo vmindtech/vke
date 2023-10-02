@@ -1,0 +1,29 @@
+# Working directory
+root = "."
+tmp_dir = ".tmp"
+
+[build]
+cmd = "go mod download && go build -o ./.tmp/app/bin ./cmd/api"
+bin = ".tmp/app"
+
+# Customize binary.
+full_bin = "VAULT_ENV=Development ./.tmp/app/bin"
+
+# This log file places in your tmp_dir.
+log = "air_errors.log"
+# Watch these filename extensions.
+include_ext = ["go", "yaml"]
+# Exclude specific regular expressions.
+exclude_regex = ["_test.go"]
+# Ignore these filename extensions or directories.
+exclude_dir = [".tmp"]
+# It's not necessary to trigger build each time file changes if it's too frequent.
+delay = 1000 # ms
+
+[log]
+# Show log time
+time = true
+
+[misc]
+# Delete tmp directory on exit
+clean_on_exit = true
