@@ -20,6 +20,10 @@ type LanguageConfig struct {
 	Languages []language.Tag
 }
 
+type MysqlDBConfig struct {
+	URL string
+}
+
 func (w WebConfig) IsProductionEnv() bool {
 	return w.Env == productionEnv
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/vmindtech/vke/pkg/healthcheck"
 	"github.com/vmindtech/vke/pkg/localizer"
 	"github.com/vmindtech/vke/pkg/logging"
+	"github.com/vmindtech/vke/pkg/mysqldb"
 )
 
 func main() {
@@ -23,15 +24,22 @@ func main() {
 
 	logger.Info("starting app")
 
+	mysqlInstance, mysqlErr := mysqldb.InitMysqlDB(configureManager.GetMysqlDBConfig().URL)
+	if mysqlErr != nil {
+		logger.Fatalf("connection: mysqldb %v", mysqlErr)
+	}
+	defer mysqlInstance.Close()
+
 	app := initApplication(&application{
 		Logger: logger,
 		LanguageBundle: localizer.InitLocalizer(
 			configureManager.GetLanguageConfig().Default, configureManager.GetLanguageConfig().Languages,
 		),
+		MysqlInstance: mysqlInstance,
 	})
 
 	go func() {
-		healthcheck.InitHealthCheck()
+		healthcheck.InitHealthCheck(mysqlInstance)
 
 		if serveErr := app.Listen(fmt.Sprintf(":%s", configureManager.GetWebConfig().Port)); serveErr != nil {
 			logger.Fatalf("connection: web server %v", serveErr)

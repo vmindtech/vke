@@ -7,6 +7,7 @@ import (
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"github.com/sirupsen/logrus"
 
+	"github.com/vmindtech/vke/pkg/mysqldb"
 	"github.com/vmindtech/vke/pkg/response"
 	"github.com/vmindtech/vke/pkg/utils"
 	"github.com/vmindtech/vke/pkg/validation"
@@ -19,6 +20,7 @@ import (
 type application struct {
 	Logger         *logrus.Logger
 	LanguageBundle *i18n.Bundle
+	MysqlInstance  mysqldb.IMysqlInstance
 }
 
 func initApplication(a *application) *fiber.App {
@@ -42,7 +44,7 @@ func initApplication(a *application) *fiber.App {
 	// Common middleware
 	a.addCommonMiddleware(app)
 
-	r := di.InitRoute(a.Logger)
+	r := di.InitRoute(a.Logger, a.MysqlInstance)
 	r.SetupRoutes(&route.AppContext{
 		App: app,
 	})
