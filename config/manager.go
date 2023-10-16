@@ -13,11 +13,13 @@ var GlobalConfig IConfigureManager
 
 type IConfigureManager interface {
 	GetWebConfig() WebConfig
+	GetMysqlDBConfig() MysqlDBConfig
 	GetLanguageConfig() LanguageConfig
 }
 
 type configureManager struct {
 	Web      WebConfig
+	Mysql    MysqlDBConfig
 	Language LanguageConfig
 }
 
@@ -31,6 +33,7 @@ func NewConfigureManager() IConfigureManager {
 	GlobalConfig = &configureManager{
 		Web:      loadWebConfig(),
 		Language: loadLanguageConfig(),
+		Mysql:    loadMysqlDBConfig(),
 	}
 
 	return GlobalConfig
@@ -54,10 +57,20 @@ func loadLanguageConfig() LanguageConfig {
 	}
 }
 
+func loadMysqlDBConfig() MysqlDBConfig {
+	return MysqlDBConfig{
+		URL: viper.GetString("MYSQL_URL"),
+	}
+}
+
 func (c *configureManager) GetWebConfig() WebConfig {
 	return c.Web
 }
 
 func (c *configureManager) GetLanguageConfig() LanguageConfig {
 	return c.Language
+}
+
+func (c *configureManager) GetMysqlDBConfig() MysqlDBConfig {
+	return c.Mysql
 }
