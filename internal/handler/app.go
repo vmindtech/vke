@@ -49,6 +49,10 @@ func (a *appHandler) ListClusters(c *fiber.Ctx) error {
 	ctx := context.Background()
 	projectUUID := c.Query("project_uuid")
 
+	if projectUUID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(response.NewErrorResponse(ctx, fiber.ErrBadRequest))
+	}
+
 	clusters, err := a.appService.ListClusters(ctx, projectUUID)
 	if err != nil {
 		return c.JSON(response.NewErrorResponse(ctx, err))
