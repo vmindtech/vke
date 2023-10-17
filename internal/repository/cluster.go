@@ -9,6 +9,7 @@ import (
 
 type IClusterRepository interface {
 	GetClusterByUUID(ctx context.Context, uuid string) (*model.Cluster, error)
+	ListClustersByProjectUUID(ctx context.Context, projectUUID string) ([]*model.Cluster, error)
 }
 
 type ClusterRepository struct {
@@ -35,4 +36,20 @@ func (c *ClusterRepository) GetClusterByUUID(ctx context.Context, uuid string) (
 		return nil, err
 	}
 	return &cluster, nil
+}
+
+func (c *ClusterRepository) ListClustersByProjectUUID(ctx context.Context, projectUUID string) ([]*model.Cluster, error) {
+	var clusters []*model.Cluster
+
+	err := c.mysqlInstance.
+		Database().
+		WithContext(ctx).
+		Where(&model.Cluster{ClusterProjectUUID: projectUUID}).
+		Find(&clusters).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+	return clusters, nil
 }

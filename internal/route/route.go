@@ -37,6 +37,10 @@ func (r *route) SetupRoutes(ac *AppContext) {
 
 	app.Get("/cluster-info", r.appHandler.ClusterInfo)
 
+	// cluster routes
+	cluster := v1Group.Group("/cluster")
+	cluster.Get("/", r.appHandler.ListClusters)
+
 	r.appRoutes(v1Group)
 }
 

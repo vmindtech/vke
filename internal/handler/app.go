@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -15,6 +16,7 @@ import (
 type IAppHandler interface {
 	App(c *fiber.Ctx) error
 	ClusterInfo(c *fiber.Ctx) error
+	ListClusters(c *fiber.Ctx) error
 }
 
 type appHandler struct {
@@ -41,4 +43,16 @@ func (a *appHandler) ClusterInfo(c *fiber.Ctx) error {
 		ClusterName: "vke-test-cluster",
 		ClusterID:   "vke-test-cluster",
 	}))
+}
+
+func (a *appHandler) ListClusters(c *fiber.Ctx) error {
+	ctx := context.Background()
+	projectUUID := c.Query("project_uuid")
+
+	clusters, err := a.appService.ListClusters(ctx, projectUUID)
+	if err != nil {
+		return c.JSON(response.NewErrorResponse(ctx, err))
+	}
+
+	return c.JSON(response.NewSuccessResponse(clusters))
 }
