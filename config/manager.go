@@ -15,12 +15,14 @@ type IConfigureManager interface {
 	GetWebConfig() WebConfig
 	GetMysqlDBConfig() MysqlDBConfig
 	GetLanguageConfig() LanguageConfig
+	GetEndpointsConfig() APIEndpointsConfig
 }
 
 type configureManager struct {
-	Web      WebConfig
-	Mysql    MysqlDBConfig
-	Language LanguageConfig
+	Web          WebConfig
+	Mysql        MysqlDBConfig
+	APIEndpoints APIEndpointsConfig
+	Language     LanguageConfig
 }
 
 func NewConfigureManager() IConfigureManager {
@@ -31,9 +33,10 @@ func NewConfigureManager() IConfigureManager {
 	_ = viper.ReadInConfig()
 
 	GlobalConfig = &configureManager{
-		Web:      loadWebConfig(),
-		Language: loadLanguageConfig(),
-		Mysql:    loadMysqlDBConfig(),
+		Web:          loadWebConfig(),
+		Language:     loadLanguageConfig(),
+		Mysql:        loadMysqlDBConfig(),
+		APIEndpoints: loadAPIEndpointsConfig(),
 	}
 
 	return GlobalConfig
@@ -63,6 +66,14 @@ func loadMysqlDBConfig() MysqlDBConfig {
 	}
 }
 
+func loadAPIEndpointsConfig() APIEndpointsConfig {
+	return APIEndpointsConfig{
+		ComputeEndpoint:      viper.GetString("COMPUTE_ENDPOINT"),
+		NetworkEndpoint:      viper.GetString("NETWORK_ENDPOINT"),
+		LoadBalancerEndpoint: viper.GetString("LOAD_BALANCER_ENDPOINT"),
+	}
+}
+
 func (c *configureManager) GetWebConfig() WebConfig {
 	return c.Web
 }
@@ -73,4 +84,12 @@ func (c *configureManager) GetLanguageConfig() LanguageConfig {
 
 func (c *configureManager) GetMysqlDBConfig() MysqlDBConfig {
 	return c.Mysql
+}
+
+func (c *configureManager) GetEndpointsConfig() APIEndpointsConfig {
+	return APIEndpointsConfig{
+		ComputeEndpoint:      viper.GetString("COMPUTE_ENDPOINT"),
+		NetworkEndpoint:      viper.GetString("NETWORK_ENDPOINT"),
+		LoadBalancerEndpoint: viper.GetString("LOAD_BALANCER_ENDPOINT"),
+	}
 }

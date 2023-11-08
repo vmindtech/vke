@@ -24,6 +24,12 @@ type MysqlDBConfig struct {
 	URL string
 }
 
+type APIEndpointsConfig struct {
+	ComputeEndpoint      string
+	NetworkEndpoint      string
+	LoadBalancerEndpoint string
+}
+
 func (w WebConfig) IsProductionEnv() bool {
 	return w.Env == productionEnv
 }

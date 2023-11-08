@@ -18,7 +18,8 @@ func InitRoute(l *logrus.Logger, mysqlInstance mysqldb.IMysqlInstance) route.IRo
 	iClusterRepository := repository.NewClusterRepository(mysqlInstance)
 	iRepository := repository.NewRepository(mysqlInstance, iClusterRepository)
 
-	iAppService := service.NewAppService(l, iRepository)
+	iClusterService := service.NewClusterService(l, iRepository)
+	iAppService := service.NewAppService(l, iRepository, iClusterService)
 	iAppHandler := handler.NewAppHandler(iAppService)
 	iRoute := route.NewRoute(iAppHandler)
 	return iRoute
