@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/k0kubun/pp"
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/config"
 	"github.com/vmindtech/vke/internal/dto/request"
@@ -31,13 +32,17 @@ func NewClusterService(l *logrus.Logger, r repository.IRepository) IClusterServi
 	}
 }
 
+const (
+	createComputePath = "servers"
+)
+
 func (a *clusterService) CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest) (resource.CreateClusterResponse, error) {
 
 	masterRequest := &request.CreateComputeRequest{
 		Server: request.Server{
 			Name:             "ServerName",
 			ImageRef:         "ae5f8cea-303c-4093-89fc-934c946d5012",
-			FlavorRef:        "29542b1f-0b0f-4fe3-93d9-398916a4dd67",
+			FlavorRef:        req.MasterInstanceFlavorID,
 			KeyName:          req.NodeKeyPairName,
 			AvailabilityZone: "nova",
 			SecurityGroups: []request.SecurityGroups{
@@ -53,7 +58,7 @@ func (a *clusterService) CreateCluster(ctx context.Context, authToken string, re
 				},
 			},
 			Networks: []request.Networks{
-				{Port: "33269d7d-132a-4589-9da2-79c8c5696a91"},
+				{UUID: "33269d7d-132a-4589-9da2-79c8c5696a91"},
 			},
 			UserData: "IyEvYmluL2Jhc2gKY3VybCAtTE8gaHR0cHM6Ly90ci1pc3QtMDEtczMucG9ydHZtaW5kLmNvbS50ci9zd2lmdC92MS92a2UtaW5pdC92a2UtYWdlbnQKY3VybCAtTE8gaHR0cHM6Ly90ci1pc3QtMDEtczMucG9ydHZtaW5kLmNvbS50ci9zd2lmdC92MS92a2UtaW5pdC9jb25maWcueWFtbApjaG1vZCAreCB2a2UtYWdlbnQKLi92a2UtYWdlbnQgCi4vdmtlLWFnZW50IC1pbml0aWFsaXplPXRydWUgLXJrZTJBZ2VudFR5cGU9InNlcnZlciIgLXJrZTJUb2tlbj0idGlOSTlzNjJPbjc3SDA1WTZ2c1d0VmtjWlc3ZWw3VGZVMno9Z3dSSnQiIC1zZXJ2ZXJBZGRyZXNzPSJ0ZXN0LWs4cy5zYWtsYS5tZSIgLWt1YmV2ZXJzaW9uPSJ2MS4yOC4yK3JrZTJyMSIgIC10bHNTYW49InRlc3QtazhzLnNha2xhLm1lIg==",
 		},
@@ -65,6 +70,7 @@ func (a *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	if err != nil {
 		return resource.CreateClusterResponse{}, err
 	}
+	fmt.Println("firstMasterResp: ")
 	fmt.Println(firstMasterResp)
 
 	return resource.CreateClusterResponse{
@@ -72,19 +78,26 @@ func (a *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ProjectID: "vke-test-project",
 	}, nil
 }
+
 func (a *clusterService) CreateCompute(ctx context.Context, authToken string, req request.CreateComputeRequest) (resource.CreateComputeResponse, error) {
-	r, err := http.NewRequest("POST", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, bytes.NewBuffer([]byte(fmt.Sprintf("%v", req))))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, createComputePath), bytes.NewBuffer([]byte(fmt.Sprintf("%v", req))))
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
+	pp.Print(req)
 	if err != nil {
 		return resource.CreateComputeResponse{}, err
 	}
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		panic(err)
+		return resource.CreateComputeResponse{}, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		a.logger.Errorf("failed to create compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.CreateComputeResponse{}, fmt.Errorf("failed to create compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
 
 	var respDecoder resource.CreateComputeResponse
 
@@ -92,6 +105,8 @@ func (a *clusterService) CreateCompute(ctx context.Context, authToken string, re
 	if err != nil {
 		return resource.CreateComputeResponse{}, err
 	}
+
+	fmt.Println(respDecoder)
 
 	return respDecoder, nil
 }

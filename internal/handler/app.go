@@ -61,7 +61,7 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 
 	resp, err := a.appService.Cluster().CreateCluster(ctx, authToken, req)
 	if err != nil {
-		return c.JSON(response.NewErrorResponse(ctx, err))
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
 	}
 
 	return c.JSON(response.NewSuccessResponse(resp))

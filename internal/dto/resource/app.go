@@ -22,6 +22,9 @@ type CreateClusterResponse struct {
 }
 
 type CreateComputeResponse struct {
-	ComputeID string `json:"computeId"`
-	ComputeIP string `json:"computeIp"`
+	Server Server `json:"server"`
+}
+
+type Server struct {
+	ID string `json:"id"`
 }
