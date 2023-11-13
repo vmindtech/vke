@@ -61,7 +61,7 @@ func (a *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Networks: []request.Networks{
 				{UUID: "33269d7d-132a-4589-9da2-79c8c5696a91"},
 			},
-			UserData: "IyEvYmluL2Jhc2gKY3VybCAtTE8gaHR0cHM6Ly90ci1pc3QtMDEtczMucG9ydHZtaW5kLmNvbS50ci9zd2lmdC92MS92a2UtaW5pdC92a2UtYWdlbnQKY3VybCAtTE8gaHR0cHM6Ly90ci1pc3QtMDEtczMucG9ydHZtaW5kLmNvbS50ci9zd2lmdC92MS92a2UtaW5pdC9jb25maWcueWFtbApjaG1vZCAreCB2a2UtYWdlbnQKLi92a2UtYWdlbnQgCi4vdmtlLWFnZW50IC1pbml0aWFsaXplPXRydWUgLXJrZTJBZ2VudFR5cGU9InNlcnZlciIgLXJrZTJUb2tlbj0idGlOSTlzNjJPbjc3SDA1WTZ2c1d0VmtjWlc3ZWw3VGZVMno9Z3dSSnQiIC1zZXJ2ZXJBZGRyZXNzPSJ0ZXN0LWs4cy5zYWtsYS5tZSIgLWt1YmV2ZXJzaW9uPSJ2MS4yOC4yK3JrZTJyMSIgIC10bHNTYW49InRlc3QtazhzLnNha2xhLm1lIg==",
+			UserData: "IyEvYmluL2Jhc2gKY3VybCAtTE8gLWsgaHR0cHM6Ly90ci1pc3QtMDEtczMucG9ydHZtaW5kLmNvbS50ci9zd2lmdC92MS92a2UtaW5pdC92a2UtYWdlbnQKY3VybCAtTE8gLWsgIGh0dHBzOi8vdHItaXN0LTAxLXMzLnBvcnR2bWluZC5jb20udHIvc3dpZnQvdjEvdmtlLWluaXQvY29uZmlnLnlhbWwKY2htb2QgK3ggdmtlLWFnZW50Ci4vdmtlLWFnZW50IAouL3ZrZS1hZ2VudCAtaW5pdGlhbGl6ZT10cnVlIC1ya2UyQWdlbnRUeXBlPSJzZXJ2ZXIiIC1ya2UyVG9rZW49InRpTkk5czYyT243N0gwNVk2dnNXdFZrY1pXN2VsN1RmVTJ6PWd3Ukp0IiAtc2VydmVyQWRkcmVzcz0idGVzdC1rOHMuc2FrbGEubWUiIC1rdWJldmVyc2lvbj0idjEuMjguMitya2UycjEiICAtdGxzU2FuPSJ0ZXN0LWs4cy5zYWtsYS5tZSI=",
 		},
 	}
 
@@ -74,10 +74,10 @@ func (a *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	fmt.Println("firstMasterResp: ")
 	fmt.Println(firstMasterResp)
 
-	//	return resource.CreateClusterResponse{
-	//		ClusterID: "vke-test-cluster",
-	//		ProjectID: "vke-test-project",
-	//	}, nil
+	return resource.CreateClusterResponse{
+		ClusterID: "vke-test-cluster",
+		ProjectID: "vke-test-project",
+	}, nil
 }
 
 func (a *clusterService) CreateCompute(ctx context.Context, authToken string, req request.CreateComputeRequest) (resource.CreateComputeResponse, error) {
@@ -106,9 +106,12 @@ func (a *clusterService) CreateCompute(ctx context.Context, authToken string, re
 		return resource.CreateComputeResponse{}, fmt.Errorf("failed to create compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
-	//var respDecoder resource.CreateComputeResponse
+	var respDecoder resource.CreateComputeResponse
 
-	// err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	return resource.CreateComputeResponse{}, err
+	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	if err != nil {
+		return resource.CreateComputeResponse{}, err
+	}
 
+	return respDecoder, nil
 }
