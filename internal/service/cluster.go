@@ -55,6 +55,7 @@ func (a *clusterService) CreateCluster(ctx context.Context, authToken string, re
 					DeleteOnTermination: true,
 					SourceType:          "image",
 					UUID:                "ae5f8cea-303c-4093-89fc-934c946d5012",
+					VolumeSize:          50,
 				},
 			},
 			Networks: []request.Networks{
@@ -73,14 +74,21 @@ func (a *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	fmt.Println("firstMasterResp: ")
 	fmt.Println(firstMasterResp)
 
-	return resource.CreateClusterResponse{
-		ClusterID: "vke-test-cluster",
-		ProjectID: "vke-test-project",
-	}, nil
+	//	return resource.CreateClusterResponse{
+	//		ClusterID: "vke-test-cluster",
+	//		ProjectID: "vke-test-project",
+	//	}, nil
 }
 
 func (a *clusterService) CreateCompute(ctx context.Context, authToken string, req request.CreateComputeRequest) (resource.CreateComputeResponse, error) {
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, createComputePath), bytes.NewBuffer([]byte(fmt.Sprintf("%v", req))))
+	data, err := json.Marshal(req)
+	if err != nil {
+		return resource.CreateComputeResponse{}, err
+	}
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, createComputePath), bytes.NewBuffer(data))
+	if err != nil {
+		return resource.CreateComputeResponse{}, err
+	}
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 	pp.Print(req)
@@ -93,20 +101,14 @@ func (a *clusterService) CreateCompute(ctx context.Context, authToken string, re
 		return resource.CreateComputeResponse{}, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusAccepted {
 		a.logger.Errorf("failed to create compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 		return resource.CreateComputeResponse{}, fmt.Errorf("failed to create compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
-	var respDecoder resource.CreateComputeResponse
+	//var respDecoder resource.CreateComputeResponse
 
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		return resource.CreateComputeResponse{}, err
-	}
+	// err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	return resource.CreateComputeResponse{}, err
 
-	fmt.Println(respDecoder)
-
-	return respDecoder, nil
 }

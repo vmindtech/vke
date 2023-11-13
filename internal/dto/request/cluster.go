@@ -34,6 +34,7 @@ type BlockDeviceMappingV2 struct {
 	SourceType          string `json:"source_type"`
 	DestinationType     string `json:"destination_type"`
 	DeleteOnTermination bool   `json:"delete_on_termination"`
+	VolumeSize          int    `json:"volume_size"`
 }
 
 type Networks struct {
