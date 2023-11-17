@@ -14,6 +14,7 @@ var GlobalConfig IConfigureManager
 type IConfigureManager interface {
 	GetWebConfig() WebConfig
 	GetMysqlDBConfig() MysqlDBConfig
+	GetCloudflareConfig() CloudflareConfig
 	GetLanguageConfig() LanguageConfig
 	GetEndpointsConfig() APIEndpointsConfig
 }
@@ -22,6 +23,7 @@ type configureManager struct {
 	Web          WebConfig
 	Mysql        MysqlDBConfig
 	APIEndpoints APIEndpointsConfig
+	Cloudflare   CloudflareConfig
 	Language     LanguageConfig
 }
 
@@ -36,6 +38,7 @@ func NewConfigureManager() IConfigureManager {
 		Web:          loadWebConfig(),
 		Language:     loadLanguageConfig(),
 		Mysql:        loadMysqlDBConfig(),
+		Cloudflare:   loadCloudflareConfig(),
 		APIEndpoints: loadAPIEndpointsConfig(),
 	}
 
@@ -57,6 +60,14 @@ func loadLanguageConfig() LanguageConfig {
 		Languages: []language.Tag{
 			language.English,
 		},
+	}
+}
+
+func loadCloudflareConfig() CloudflareConfig {
+	return CloudflareConfig{
+		AuthToken: viper.GetString("CLOUDFLARE_AUTH_TOKEN"),
+		ZoneID:    viper.GetString("CLOUDFLARE_ZONE_ID"),
+		Domain:    viper.GetString("CLOUDFLARE_DOMAIN"),
 	}
 }
 
@@ -84,6 +95,10 @@ func (c *configureManager) GetLanguageConfig() LanguageConfig {
 
 func (c *configureManager) GetMysqlDBConfig() MysqlDBConfig {
 	return c.Mysql
+}
+
+func (c *configureManager) GetCloudflareConfig() CloudflareConfig {
+	return c.Cloudflare
 }
 
 func (c *configureManager) GetEndpointsConfig() APIEndpointsConfig {

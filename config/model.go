@@ -30,6 +30,12 @@ type APIEndpointsConfig struct {
 	LoadBalancerEndpoint string
 }
 
+type CloudflareConfig struct {
+	AuthToken string
+	ZoneID    string
+	Domain    string
+}
+
 func (w WebConfig) IsProductionEnv() bool {
 	return w.Env == productionEnv
 }

@@ -18,6 +18,10 @@ import (
 type IClusterService interface {
 	CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest) (resource.CreateClusterResponse, error)
 	CreateCompute(ctx context.Context, authToken string, req request.CreateComputeRequest) (resource.CreateComputeResponse, error)
+	CreateLoadBalancer(ctx context.Context, authToken string, req request.CreateLoadBalancerRequest) (resource.CreateLoadBalancerResponse, error)
+	ListLoadBalancer(ctx context.Context, authToken, LoadBalancerID string) (resource.ListLoadBalancerResponse, error)
+	AddDNSRecordToCloudflare(ctx context.Context, loadBalancerIP, loadBalancerSubdomainHash, clusterName string) (resource.AddDNSRecordResponse, error)
+	ListSubnetByName(ctx context.Context, subnetName, authToken string) (resource.ListSubnetByNameResponse, error)
 }
 
 type clusterService struct {
@@ -34,6 +38,12 @@ func NewClusterService(l *logrus.Logger, r repository.IRepository) IClusterServi
 
 const (
 	createComputePath = "servers"
+	loadBalancerPath  = "v2/lbaas/loadbalancers"
+	subnetsPath       = "v2.0/subnets"
+)
+
+const (
+	cloudflareEndpoint = "https://api.cloudflare.com/client/v4/zones"
 )
 
 func (a *clusterService) CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest) (resource.CreateClusterResponse, error) {
@@ -74,6 +84,39 @@ func (a *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	fmt.Println("firstMasterResp: ")
 	fmt.Println(firstMasterResp)
 
+	createLBReq := &request.CreateLoadBalancerRequest{
+		LoadBalancer: request.LoadBalancer{
+			Name:         fmt.Sprintf("%v-lb", req.ClusterName),
+			Description:  fmt.Sprintf("%v-lb", req.ClusterName),
+			AdminStateUp: true,
+			VIPSubnetID:  "06b7f82c-f55d-4e4e-a0b7-fd8bad5695eb",
+		},
+	}
+
+	lbResp, err := a.CreateLoadBalancer(ctx, authToken, *createLBReq)
+	if err != nil {
+		a.logger.Errorf("failed to create load balancer, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	fmt.Println("lbResp: ")
+	fmt.Println(lbResp)
+
+	listLBResp, err := a.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
+	if err != nil {
+		a.logger.Errorf("failed to list load balancer, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	addDNSResp, err := a.AddDNSRecordToCloudflare(ctx, listLBResp.LoadBalancer.VIPAddress, GenerateSubdomainHash(), req.ClusterName)
+	if err != nil {
+		a.logger.Errorf("failed to add dns record, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	fmt.Println("addDNSResp: ")
+	fmt.Println(addDNSResp)
+
 	return resource.CreateClusterResponse{
 		ClusterID: "vke-test-cluster",
 		ProjectID: "vke-test-project",
@@ -92,9 +135,6 @@ func (a *clusterService) CreateCompute(ctx context.Context, authToken string, re
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 	pp.Print(req)
-	if err != nil {
-		return resource.CreateComputeResponse{}, err
-	}
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
@@ -111,6 +151,158 @@ func (a *clusterService) CreateCompute(ctx context.Context, authToken string, re
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
 		return resource.CreateComputeResponse{}, err
+	}
+
+	return respDecoder, nil
+}
+
+func (a *clusterService) CreateLoadBalancer(ctx context.Context, authToken string, req request.CreateLoadBalancerRequest) (resource.CreateLoadBalancerResponse, error) {
+	data, err := json.Marshal(req)
+	if err != nil {
+		a.logger.Errorf("failed to marshal request, error: %v", err)
+		return resource.CreateLoadBalancerResponse{}, err
+	}
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath), bytes.NewBuffer(data))
+	if err != nil {
+		a.logger.Errorf("failed to create request, error: %v", err)
+		return resource.CreateLoadBalancerResponse{}, err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		a.logger.Errorf("failed to send request, error: %v", err)
+		return resource.CreateLoadBalancerResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		a.logger.Errorf("failed to create load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.CreateLoadBalancerResponse{}, fmt.Errorf("failed to create load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	var respDecoder resource.CreateLoadBalancerResponse
+
+	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	if err != nil {
+		a.logger.Errorf("failed to decode response, error: %v", err)
+		return resource.CreateLoadBalancerResponse{}, err
+	}
+
+	return respDecoder, nil
+}
+
+func (a *clusterService) ListLoadBalancer(ctx context.Context, authToken, LoadBalancerID string) (resource.ListLoadBalancerResponse, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, LoadBalancerID), nil)
+	if err != nil {
+		a.logger.Errorf("failed to create request, error: %v", err)
+		return resource.ListLoadBalancerResponse{}, err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		a.logger.Errorf("failed to send request, error: %v", err)
+		return resource.ListLoadBalancerResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		a.logger.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.ListLoadBalancerResponse{}, fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	var respDecoder resource.ListLoadBalancerResponse
+
+	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	if err != nil {
+		a.logger.Errorf("failed to decode response, error: %v", err)
+		return resource.ListLoadBalancerResponse{}, err
+	}
+
+	return respDecoder, nil
+}
+
+func (a *clusterService) AddDNSRecordToCloudflare(ctx context.Context, loadBalancerIP, loadBalancerSubdomainHash, clusterName string) (resource.AddDNSRecordResponse, error) {
+	data, err := json.Marshal(request.AddDNSRecordCFRequest{
+		Content: loadBalancerIP,
+		Name:    fmt.Sprintf("%s.%s", loadBalancerSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
+		Proxied: false,
+		Type:    "A",
+		Comment: clusterName,
+		Tags:    []string{},
+		TTL:     3600,
+	})
+	if err != nil {
+		a.logger.Errorf("failed to marshal request, error: %v", err)
+		return resource.AddDNSRecordResponse{}, err
+	}
+
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/dns_records", cloudflareEndpoint, config.GlobalConfig.GetCloudflareConfig().ZoneID), bytes.NewBuffer(data))
+	if err != nil {
+		a.logger.Errorf("failed to create request, error: %v", err)
+		return resource.AddDNSRecordResponse{}, err
+	}
+
+	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		a.logger.Errorf("failed to send request, error: %v", err)
+		return resource.AddDNSRecordResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		a.logger.Errorf("failed to add dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.AddDNSRecordResponse{}, fmt.Errorf("failed to add dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	var respDecoder resource.AddDNSRecordResponse
+
+	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	if err != nil {
+		a.logger.Errorf("failed to decode response, error: %v", err)
+		return resource.AddDNSRecordResponse{}, err
+	}
+
+	return respDecoder, nil
+}
+
+func (a *clusterService) ListSubnetByName(ctx context.Context, subnetName, authToken string) (resource.ListSubnetByNameResponse, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s?name=%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, subnetsPath, subnetName), nil)
+	if err != nil {
+		a.logger.Errorf("failed to create request, error: %v", err)
+		return resource.ListSubnetByNameResponse{}, err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		a.logger.Errorf("failed to send request, error: %v", err)
+		return resource.ListSubnetByNameResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		a.logger.Errorf("failed to list subnet, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.ListSubnetByNameResponse{}, fmt.Errorf("failed to list subnet, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	var respDecoder resource.ListSubnetByNameResponse
+
+	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	if err != nil {
+		a.logger.Errorf("failed to decode response, error: %v", err)
+		return resource.ListSubnetByNameResponse{}, err
 	}
 
 	return respDecoder, nil
