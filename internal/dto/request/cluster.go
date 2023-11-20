@@ -10,4 +10,5 @@ type CreateClusterRequest struct {
 	WorkerCount            int      `json:"workerCount"`
 	WorkerInstanceFlavorID string   `json:"workerInstanceFlavorID"`
 	MasterInstanceFlavorID string   `json:"masterInstanceFlavorID"`
+	WorkerDiskSizeGB       int      `json:"workerDiskSizeGB"`
 }

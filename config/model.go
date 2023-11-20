@@ -36,6 +36,14 @@ type CloudflareConfig struct {
 	Domain    string
 }
 
+type ImageRef struct {
+	ImageRef string
+}
+
+type PublicSubnetID struct {
+	PublicSubnetID string
+}
+
 func (w WebConfig) IsProductionEnv() bool {
 	return w.Env == productionEnv
 }

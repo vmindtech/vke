@@ -16,12 +16,12 @@ type CreateListenerRequest struct {
 }
 
 type Listener struct {
-	Name           string `json:"name"`
-	AdminStateUp   bool   `json:"admin_state_up"`
-	Protocol       string `json:"protocol"`
-	ProtocolPort   int    `json:"protocol_port"`
-	LoadbalancerID string `json:"loadbalancer_id"`
-	AllowedCIDRS   string `json:"allowed_cidrs"`
+	Name           string   `json:"name"`
+	AdminStateUp   bool     `json:"admin_state_up"`
+	Protocol       string   `json:"protocol"`
+	ProtocolPort   int      `json:"protocol_port"`
+	LoadbalancerID string   `json:"loadbalancer_id"`
+	AllowedCIDRS   []string `json:"allowed_cidrs"`
 }
 
 type CreatePoolRequest struct {
@@ -31,7 +31,6 @@ type CreatePoolRequest struct {
 type Pool struct {
 	LBAlgorithm  string `json:"lb_algorithm"`
 	Protocol     string `json:"protocol"`
-	Description  string `json:"description"`
 	AdminStateUp bool   `json:"admin_state_up"`
 	ListenerID   string `json:"listener_id"`
 	Name         string `json:"name"`

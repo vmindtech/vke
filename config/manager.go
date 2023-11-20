@@ -15,16 +15,20 @@ type IConfigureManager interface {
 	GetWebConfig() WebConfig
 	GetMysqlDBConfig() MysqlDBConfig
 	GetCloudflareConfig() CloudflareConfig
+	GetImageRefConfig() ImageRef
+	GetPublicSubnetIDConfig() PublicSubnetID
 	GetLanguageConfig() LanguageConfig
 	GetEndpointsConfig() APIEndpointsConfig
 }
 
 type configureManager struct {
-	Web          WebConfig
-	Mysql        MysqlDBConfig
-	APIEndpoints APIEndpointsConfig
-	Cloudflare   CloudflareConfig
-	Language     LanguageConfig
+	Web            WebConfig
+	Mysql          MysqlDBConfig
+	APIEndpoints   APIEndpointsConfig
+	ImageRef       ImageRef
+	PublicSubnetID PublicSubnetID
+	Cloudflare     CloudflareConfig
+	Language       LanguageConfig
 }
 
 func NewConfigureManager() IConfigureManager {
@@ -35,11 +39,13 @@ func NewConfigureManager() IConfigureManager {
 	_ = viper.ReadInConfig()
 
 	GlobalConfig = &configureManager{
-		Web:          loadWebConfig(),
-		Language:     loadLanguageConfig(),
-		Mysql:        loadMysqlDBConfig(),
-		Cloudflare:   loadCloudflareConfig(),
-		APIEndpoints: loadAPIEndpointsConfig(),
+		Web:            loadWebConfig(),
+		Language:       loadLanguageConfig(),
+		Mysql:          loadMysqlDBConfig(),
+		Cloudflare:     loadCloudflareConfig(),
+		ImageRef:       loadImageRefConfig(),
+		PublicSubnetID: loadPublicSubnetIDConfig(),
+		APIEndpoints:   loadAPIEndpointsConfig(),
 	}
 
 	return GlobalConfig
@@ -71,6 +77,18 @@ func loadCloudflareConfig() CloudflareConfig {
 	}
 }
 
+func loadImageRefConfig() ImageRef {
+	return ImageRef{
+		ImageRef: viper.GetString("IMAGE_REF"),
+	}
+}
+
+func loadPublicSubnetIDConfig() PublicSubnetID {
+	return PublicSubnetID{
+		PublicSubnetID: viper.GetString("PUBLIC_SUBNET_ID"),
+	}
+}
+
 func loadMysqlDBConfig() MysqlDBConfig {
 	return MysqlDBConfig{
 		URL: viper.GetString("MYSQL_URL"),
@@ -99,6 +117,14 @@ func (c *configureManager) GetMysqlDBConfig() MysqlDBConfig {
 
 func (c *configureManager) GetCloudflareConfig() CloudflareConfig {
 	return c.Cloudflare
+}
+
+func (c *configureManager) GetImageRefConfig() ImageRef {
+	return c.ImageRef
+}
+
+func (c *configureManager) GetPublicSubnetIDConfig() PublicSubnetID {
+	return c.PublicSubnetID
 }
 
 func (c *configureManager) GetEndpointsConfig() APIEndpointsConfig {

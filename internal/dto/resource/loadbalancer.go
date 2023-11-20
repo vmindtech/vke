@@ -36,3 +36,19 @@ type CreateLoadBalancerResponse struct {
 type CreateLoadBalancer struct {
 	ID string `json:"id"`
 }
+
+type CreatePoolResponse struct {
+	Pool CreatePool `json:"pool"`
+}
+
+type CreatePool struct {
+	ID string `json:"id"`
+}
+
+type AddMemberResponse struct {
+	Member AddMember `json:"member"`
+}
+
+type AddMember struct {
+	ID string `json:"id"`
+}
