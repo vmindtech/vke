@@ -25,15 +25,29 @@ type SecurityGroup struct {
 	Description string `json:"description"`
 }
 
-type CreateSecurityGroupRuleRequest struct {
-	SecurityGroupRule SecurityGroupRule `json:"security_group_rule"`
+type CreateSecurityGroupRuleForIpRequest struct {
+	SecurityGroupRule SecurityGroupRuleForIP `json:"security_group_rule"`
 }
 
-type SecurityGroupRule struct {
+type SecurityGroupRuleForIP struct {
 	Direction       string `json:"direction"`
 	PortRangeMin    string `json:"port_range_min"`
 	Ethertype       string `json:"ethertype"`
 	PortRangeMax    string `json:"port_range_max"`
 	Protocol        string `json:"protocol"`
 	SecurityGroupID string `json:"security_group_id"`
+	RemoteIPPrefix  string `json:"remote_ip_prefix"`
+}
+type CreateSecurityGroupRuleForSgRequest struct {
+	SecurityGroupRule SecurityGroupRuleForSG `json:"security_group_rule"`
+}
+
+type SecurityGroupRuleForSG struct {
+	Direction string `json:"direction"`
+	//PortRangeMin string `json:"port_range_min"`
+	Ethertype string `json:"ethertype"`
+	//PortRangeMax    string `json:"port_range_max"`
+	//Protocol        string `json:"protocol"`
+	SecurityGroupID string `json:"security_group_id"`
+	RemoteGroupID   string `json:"remote_group_id"`
 }

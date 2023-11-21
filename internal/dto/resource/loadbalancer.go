@@ -8,6 +8,7 @@ type ListLoadBalancer struct {
 	ID                 string `json:"id"`
 	Name               string `json:"name"`
 	ProvisioningStatus string `json:"provisioning_status"`
+	OperatingStatus    string `json:"operating_status"`
 	VIPAddress         string `json:"vip_address"`
 }
 
@@ -42,7 +43,8 @@ type CreatePoolResponse struct {
 }
 
 type CreatePool struct {
-	ID string `json:"id"`
+	ID                 string `json:"id"`
+	ProvisioningStatus string `json:"provisioning_status"`
 }
 
 type AddMemberResponse struct {
@@ -51,4 +53,15 @@ type AddMemberResponse struct {
 
 type AddMember struct {
 	ID string `json:"id"`
+}
+
+type CreateHealthMonitorResponse struct {
+	HealthMonitor HealthMonitor `json:"healthmonitor"`
+}
+type ListHealthMonitorResponse struct {
+	HealthMonitor HealthMonitor `json:"healthmonitor"`
+}
+type HealthMonitor struct {
+	ID                 string `json:"id"`
+	ProvisioningStatus string `json:"provisioning_status"`
 }

@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/hex"
-	"html/template"
 	"math/rand"
+	"text/template"
 	"time"
 )
 
@@ -28,6 +28,7 @@ func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serv
 	}
 
 	var tpl bytes.Buffer
+
 	if err := t.Execute(&tpl, map[string]string{
 		"initiliazeFlag": initiliazeFlag,
 		"rke2AgentType":  rke2AgentType,
