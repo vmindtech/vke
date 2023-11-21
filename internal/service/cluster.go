@@ -261,23 +261,24 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	// waitIterator := 0
-	// waitSeconds := 10
-	// for {
-	// 	if waitIterator < 5 {
-	// 		time.Sleep(time.Duration(waitSeconds) * time.Second)
-	// 		waitIterator++
-	// 		waitSeconds = waitSeconds + 5
-	// 	}
-	// 	listLBResp, err := c.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
-	// 	if err != nil {
-	// 		c.logger.Errorf("failed to list load balancer, error: %v", err)
-	// 		return resource.CreateClusterResponse{}, err
-	// 	}
-	// 	if listLBResp.LoadBalancer.ProvisioningStatus == LoadBalancerStatusActive {
-	// 		break
-	// 	}
-	// }
+	waitIterator := 0
+	waitSeconds := 10
+	for {
+		if waitIterator < 8 {
+			time.Sleep(time.Duration(waitSeconds) * time.Second)
+			fmt.Printf("Waiting for load balancer to be active, waited %v seconds\n", waitSeconds)
+			waitIterator++
+			waitSeconds = waitSeconds + 5
+		}
+		listLBResp, err := c.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
+		if err != nil {
+			c.logger.Errorf("failed to list load balancer, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
+		if listLBResp.LoadBalancer.ProvisioningStatus == LoadBalancerStatusActive {
+			break
+		}
+	}
 
 	createListenerReq := &request.CreateListenerRequest{
 		Listener: request.Listener{
@@ -305,7 +306,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createListenerReq.Listener.Name = fmt.Sprintf("%v-register-listener", req.ClusterName)
 	createListenerReq.Listener.ProtocolPort = 9345
 
-	fmt.Println(createListenerReq)
+	// fmt.Println(createListenerReq)
 
 	time.Sleep(30 * time.Second)
 
