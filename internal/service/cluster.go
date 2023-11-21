@@ -26,7 +26,11 @@ type IClusterService interface {
 	ListSubnetByName(ctx context.Context, subnetName, authToken string) (resource.ListSubnetByNameResponse, error)
 	CreateListener(ctx context.Context, authToken string, req request.CreateListenerRequest) (resource.CreateListenerResponse, error)
 	CreatePool(ctx context.Context, authToken string, req request.CreatePoolRequest) (resource.CreatePoolResponse, error)
-	CreateMember(ctx context.Context, authToken, poolID string, req request.AddMemberRequest) (resource.AddMemberResponse, error)
+	CreateMember(ctx context.Context, authToken, poolID string, req request.AddMemberRequest) error
+	GetNetworkID(ctx context.Context, authToken, subnetID string) (resource.GetNetworkIdResponse, error)
+	CreateSecurityGroup(ctx context.Context, authToken string, req request.CreateSecurityGroupRequest) (resource.CreateSecurityGroupResponse, error)
+	CreateNetworkPort(ctx context.Context, authToken string, req request.CreateNetworkPortRequest) (resource.CreateNetworkPortResponse, error)
+	CreateSecurityGroupRule(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleRequest) error
 }
 
 type clusterService struct {
@@ -60,11 +64,14 @@ const (
 )
 
 const (
-	createComputePath = "servers"
-	loadBalancerPath  = "v2/lbaas/loadbalancers"
-	listenersPath     = "v2/lbaas/listeners"
-	subnetsPath       = "v2.0/subnets"
-	createMemberPath  = "v2/lbaas/pools"
+	createComputePath      = "servers"
+	loadBalancerPath       = "v2/lbaas/loadbalancers"
+	listenersPath          = "v2/lbaas/listeners"
+	subnetsPath            = "v2.0/subnets"
+	createMemberPath       = "v2/lbaas/pools"
+	networkPort            = "v2.0/ports"
+	securityGroupPath      = "v2.0/security-groups"
+	SecurityGroupRulesPath = "v2.0/security-group-rules"
 )
 
 const (
@@ -84,22 +91,67 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	getNetworkIdResp, err := c.GetNetworkID(ctx, req.SubnetIDs[0], authToken)
+	getNetworkIdResp, err := c.GetNetworkID(ctx, authToken, req.SubnetIDs[0])
 	if err != nil {
 		c.logger.Errorf("failed to get networkId, error: %v", err)
-		return resource.GetNetworkIdResponse{}, err
+		return resource.CreateClusterResponse{}, err
 	}
-	// burada kaldım.
-	portRequest:= &request.CreateNetworkPortRequest{
+
+	createSecurityGroupReq := &request.CreateSecurityGroupRequest{
+		SecurityGroup: request.SecurityGroup{
+			Name:        fmt.Sprintf("%v-sg", req.ClusterName),
+			Description: fmt.Sprintf("%v-sg", req.ClusterName),
+		},
+	}
+	createSecurityResp, err := c.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+	if err != nil {
+		c.logger.Errorf("failed to create security group, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	createSecurityGroupRuleReq := &request.CreateSecurityGroupRuleRequest{
+		SecurityGroupRule: request.SecurityGroupRule{
+			Direction:       "ingress",
+			PortRangeMin:    "6443",
+			Ethertype:       "IPv4",
+			PortRangeMax:    "6443",
+			Protocol:        "tcp",
+			SecurityGroupID: createSecurityResp.SecurityGroup.ID,
+		},
+	}
+	err = c.CreateSecurityGroupRule(ctx, authToken, *createSecurityGroupRuleReq)
+	if err != nil {
+		c.logger.Errorf("failed to create security group rule, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "9345"
+	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "9345"
+	err = c.CreateSecurityGroupRule(ctx, authToken, *createSecurityGroupRuleReq)
+	if err != nil {
+		c.logger.Errorf("failed to create security group rule, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+	randSubnetId := GetRandomStringFromArray(req.SubnetIDs)
+	portRequest := &request.CreateNetworkPortRequest{
 		Port: request.Port{
-			NetworkID: getNetworkIdResp.Subnet.NetworkID,
-			Name: "PortName",
+			NetworkID:    getNetworkIdResp.Subnet.NetworkID,
+			Name:         "PortName",
 			AdminStateUp: true,
-			FixedIps: [req.SubnetIDs[0]],
-			SecurityGroups: [req],
-		}
+			FixedIps: []request.FixedIp{
+				{
+					SubnetID: randSubnetId,
+				},
+			},
+			SecurityGroups: []string{createSecurityResp.SecurityGroup.ID},
+		},
 	}
-	masterRequest.Server.Name = fmt.Sprintf("%v-master-1", req.ClusterName)
+	portRequest.Port.Name = fmt.Sprintf("%v-master-1-port", req.ClusterName)
+
+	portResp, err := c.CreateNetworkPort(ctx, authToken, *portRequest)
+	if err != nil {
+		c.logger.Errorf("failed to create network port, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 
 	masterRequest := &request.CreateComputeRequest{
 		Server: request.Server{
@@ -123,7 +175,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			},
 			// ToDo: Need to create port and pass it here
 			Networks: []request.Networks{
-				{port: "33269d7d-132a-4589-9da2-79c8c5696a91"},
+				{Port: portResp.Port.ID},
 			},
 			UserData: Base64Encoder(rke2InitScript),
 		},
@@ -264,12 +316,23 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	fmt.Println("registerPoolResp: ")
 	fmt.Println(registerPoolResp)
 
-	// createMemberReq := &request.AddMemberRequest{
-	// 	Member: request.Member{
-	// 		Name:         fmt.Sprintf("%v-master-1", req.ClusterName),
-	// 		AdminStateUp: true,
-	// 		SubnetID:     req.SubnetIDs[0],
-	// 		Address: firstMasterResp.Server.
+	createMemberReq := &request.AddMemberRequest{
+		Member: request.Member{
+			Name:         fmt.Sprintf("%v-master-1", req.ClusterName),
+			AdminStateUp: true,
+			SubnetID:     randSubnetId,
+			Address:      portResp.Port.FixedIps[0].IpAddress,
+			ProtocolPort: 6443,
+			MonitorPort:  6443,
+			Backup:       false,
+		},
+	}
+
+	err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
+	if err != nil {
+		c.logger.Errorf("failed to create member, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 
 	// masterRequest.Server.Name = fmt.Sprintf("%s-master-2", req.ClusterName)
 	// rke2InitScript, err = GenerateUserDataFromTemplate("false",
@@ -302,8 +365,8 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	// fmt.Println("thirdMasterResp: ")
 	// fmt.Println(thirdMasterResp)
 
-	fmt.Println("addDNSResp: ")
-	fmt.Println(addDNSResp)
+	// fmt.Println("addDNSResp: ")
+	// fmt.Println(addDNSResp)
 
 	return resource.CreateClusterResponse{
 		ClusterID: "vke-test-cluster",
@@ -578,17 +641,17 @@ func (c *clusterService) CreatePool(ctx context.Context, authToken string, req r
 	return respDecoder, nil
 }
 
-func (c *clusterService) CreateMember(ctx context.Context, authToken, poolID string, req request.AddMemberRequest) (resource.AddMemberResponse, error) {
+func (c *clusterService) CreateMember(ctx context.Context, authToken, poolID string, req request.AddMemberRequest) error {
 	data, err := json.Marshal(req)
 	if err != nil {
 		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return resource.AddMemberResponse{}, err
+		return err
 	}
 
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/%s/members", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, createMemberPath, poolID), bytes.NewBuffer(data))
 	if err != nil {
 		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.AddMemberResponse{}, err
+		return err
 	}
 
 	r.Header.Add("X-Auth-Token", authToken)
@@ -598,14 +661,14 @@ func (c *clusterService) CreateMember(ctx context.Context, authToken, poolID str
 	resp, err := client.Do(r)
 	if err != nil {
 		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.AddMemberResponse{}, err
+		return err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
 		c.logger.Errorf("failed to create member, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.AddMemberResponse{}, fmt.Errorf("failed to create member, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to create member, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
 	var respDecoder resource.AddMemberResponse
@@ -613,12 +676,12 @@ func (c *clusterService) CreateMember(ctx context.Context, authToken, poolID str
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
 		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.AddMemberResponse{}, err
+		return err
 	}
 
-	return respDecoder, nil
+	return nil
 }
-func (c *clusterService) GetNetworkID(ctx context.Context, subnetID, authToken string) (resource.GetNetworkIdResponse, error) {
+func (c *clusterService) GetNetworkID(ctx context.Context, authToken, subnetID string) (resource.GetNetworkIdResponse, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, subnetsPath, subnetID), nil)
 	if err != nil {
 		c.logger.Errorf("failed to create request, error: %v", err)
@@ -650,13 +713,13 @@ func (c *clusterService) GetNetworkID(ctx context.Context, subnetID, authToken s
 
 	return respDecoder, nil
 }
-func (c *clusterService) CreateNetworkPort(ctx context.Context, req request.CreateNetworkPortRequest, authToken string) (resource.CreateNetworkPortResponse, error) {
+func (c *clusterService) CreateNetworkPort(ctx context.Context, authToken string, req request.CreateNetworkPortRequest) (resource.CreateNetworkPortResponse, error) {
 	data, err := json.Marshal(req)
 	if err != nil {
 		c.logger.Errorf("failed to marshal request, error: %v", err)
 		return resource.CreateNetworkPortResponse{}, err
 	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort), bytes.NewBuffer(data))
 	if err != nil {
 		c.logger.Errorf("failed to create request, error: %v", err)
 		return resource.CreateNetworkPortResponse{}, err
@@ -686,4 +749,71 @@ func (c *clusterService) CreateNetworkPort(ctx context.Context, req request.Crea
 	}
 
 	return respDecoder, nil
+}
+
+func (c *clusterService) CreateSecurityGroup(ctx context.Context, authToken string, req request.CreateSecurityGroupRequest) (resource.CreateSecurityGroupResponse, error) {
+	data, err := json.Marshal(req)
+	if err != nil {
+		c.logger.Errorf("failed to marshal request, error: %v", err)
+		return resource.CreateSecurityGroupResponse{}, err
+	}
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath), bytes.NewBuffer(data))
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return resource.CreateSecurityGroupResponse{}, err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return resource.CreateSecurityGroupResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		c.logger.Errorf("failed to create security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.CreateSecurityGroupResponse{}, fmt.Errorf("failed to create security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	var respDecoder resource.CreateSecurityGroupResponse
+
+	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	if err != nil {
+		c.logger.Errorf("failed to decode response, error: %v", err)
+		return resource.CreateSecurityGroupResponse{}, err
+	}
+
+	return respDecoder, nil
+}
+
+func (c *clusterService) CreateSecurityGroupRule(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleRequest) error {
+	data, err := json.Marshal(req)
+	if err != nil {
+		c.logger.Errorf("failed to marshal request, error: %v", err)
+		return err
+	}
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, SecurityGroupRulesPath), bytes.NewBuffer(data))
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		c.logger.Errorf("failed to create security group rule, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to create security group rule, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+	return nil
 }

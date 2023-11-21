@@ -45,7 +45,7 @@ type Member struct {
 	AdminStateUp bool   `json:"admin_state_up"`
 	SubnetID     string `json:"subnet_id"`
 	Address      string `json:"address"`
-	ProtocolPort string `json:"protocol_port"`
+	ProtocolPort int    `json:"protocol_port"`
 	MonitorPort  int    `json:"monitor_port"`
 	Backup       bool   `json:"backup"`
 }

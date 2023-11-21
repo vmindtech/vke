@@ -26,7 +26,7 @@ type BlockDeviceMappingV2 struct {
 }
 
 type Networks struct {
-	UUID string `json:"uuid"`
+	Port string `json:"port"`
 }
 
 type SecurityGroups struct {

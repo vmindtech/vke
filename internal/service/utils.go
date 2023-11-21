@@ -2,10 +2,11 @@ package service
 
 import (
 	"bytes"
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"html/template"
+	"math/rand"
+	"time"
 )
 
 func GenerateUUID(len int) string {
@@ -42,4 +43,10 @@ func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serv
 
 func Base64Encoder(data string) string {
 	return base64.StdEncoding.EncodeToString([]byte(data))
+}
+
+func GetRandomStringFromArray(a []string) string {
+	rand.Seed(time.Now().UnixNano())
+	i := rand.Intn(len(a))
+	return a[i]
 }
