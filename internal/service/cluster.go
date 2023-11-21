@@ -84,6 +84,23 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
+	getNetworkIdResp, err := c.GetNetworkID(ctx, req.SubnetIDs[0], authToken)
+	if err != nil {
+		c.logger.Errorf("failed to get networkId, error: %v", err)
+		return resource.GetNetworkIdResponse{}, err
+	}
+	// burada kaldım.
+	portRequest:= &request.CreateNetworkPortRequest{
+		Port: request.Port{
+			NetworkID: getNetworkIdResp.Subnet.NetworkID,
+			Name: "PortName",
+			AdminStateUp: true,
+			FixedIps: [req.SubnetIDs[0]],
+			SecurityGroups: [req],
+		}
+	}
+	masterRequest.Server.Name = fmt.Sprintf("%v-master-1", req.ClusterName)
+
 	masterRequest := &request.CreateComputeRequest{
 		Server: request.Server{
 			Name:             "ServerName",
@@ -106,7 +123,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			},
 			// ToDo: Need to create port and pass it here
 			Networks: []request.Networks{
-				{UUID: "33269d7d-132a-4589-9da2-79c8c5696a91"},
+				{port: "33269d7d-132a-4589-9da2-79c8c5696a91"},
 			},
 			UserData: Base64Encoder(rke2InitScript),
 		},
@@ -597,6 +614,75 @@ func (c *clusterService) CreateMember(ctx context.Context, authToken, poolID str
 	if err != nil {
 		c.logger.Errorf("failed to decode response, error: %v", err)
 		return resource.AddMemberResponse{}, err
+	}
+
+	return respDecoder, nil
+}
+func (c *clusterService) GetNetworkID(ctx context.Context, subnetID, authToken string) (resource.GetNetworkIdResponse, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, subnetsPath, subnetID), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return resource.GetNetworkIdResponse{}, err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return resource.GetNetworkIdResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Errorf("failed to list subnet, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.GetNetworkIdResponse{}, fmt.Errorf("failed to list subnet, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	var respDecoder resource.GetNetworkIdResponse
+
+	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	if err != nil {
+		c.logger.Errorf("failed to decode response, error: %v", err)
+		return resource.GetNetworkIdResponse{}, err
+	}
+
+	return respDecoder, nil
+}
+func (c *clusterService) CreateNetworkPort(ctx context.Context, req request.CreateNetworkPortRequest, authToken string) (resource.CreateNetworkPortResponse, error) {
+	data, err := json.Marshal(req)
+	if err != nil {
+		c.logger.Errorf("failed to marshal request, error: %v", err)
+		return resource.CreateNetworkPortResponse{}, err
+	}
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath), bytes.NewBuffer(data))
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return resource.CreateNetworkPortResponse{}, err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return resource.CreateNetworkPortResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		c.logger.Errorf("failed to create network port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.CreateNetworkPortResponse{}, fmt.Errorf("failed to create network port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	var respDecoder resource.CreateNetworkPortResponse
+
+	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	if err != nil {
+		c.logger.Errorf("failed to decode response, error: %v", err)
+		return resource.CreateNetworkPortResponse{}, err
 	}
 
 	return respDecoder, nil
