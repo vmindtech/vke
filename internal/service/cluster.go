@@ -53,6 +53,15 @@ const (
 )
 
 const (
+	LoadBalancerStatusActive        = "ACTIVE"
+	LoadBalancerStatusDeleted       = "DELETED"
+	LoadBalancerStatusError         = "ERROR"
+	LoadBalancerStatusPendingCreate = "PENDING_CREATE"
+	LoadBalancerStatusPendingUpdate = "PENDING_UPDATE"
+	LoadBalancerStatusPendingDelete = "PENDING_DELETE"
+)
+
+const (
 	MasterServerType = "server"
 	WorkerServerType = "agent"
 )
@@ -252,6 +261,24 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
+	// waitIterator := 0
+	// waitSeconds := 10
+	// for {
+	// 	if waitIterator < 5 {
+	// 		time.Sleep(time.Duration(waitSeconds) * time.Second)
+	// 		waitIterator++
+	// 		waitSeconds = waitSeconds + 5
+	// 	}
+	// 	listLBResp, err := c.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
+	// 	if err != nil {
+	// 		c.logger.Errorf("failed to list load balancer, error: %v", err)
+	// 		return resource.CreateClusterResponse{}, err
+	// 	}
+	// 	if listLBResp.LoadBalancer.ProvisioningStatus == LoadBalancerStatusActive {
+	// 		break
+	// 	}
+	// }
+
 	createListenerReq := &request.CreateListenerRequest{
 		Listener: request.Listener{
 			Name:           fmt.Sprintf("%v-api-listener", req.ClusterName),
@@ -264,26 +291,29 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		},
 	}
 
+	pp.Print(createListenerReq)
+
 	apiListenerResp, err := c.CreateListener(ctx, authToken, *createListenerReq)
 	if err != nil {
-		c.logger.Errorf("failed to create listener, error: %v", err)
+		c.logger.Errorf("1234failed to create listener, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
-	fmt.Println("apiListenerResp: ")
-	fmt.Println(apiListenerResp)
+	// fmt.Println("apiListenerResp: ")
+	// fmt.Println(apiListenerResp)
 
 	createListenerReq.Listener.Name = fmt.Sprintf("%v-register-listener", req.ClusterName)
 	createListenerReq.Listener.ProtocolPort = 9345
+
+	fmt.Println(createListenerReq)
+
+	time.Sleep(30 * time.Second)
 
 	registerListenerResp, err := c.CreateListener(ctx, authToken, *createListenerReq)
 	if err != nil {
 		c.logger.Errorf("failed to create listener, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-
-	fmt.Println("registerListenerResp: ")
-	fmt.Println(registerListenerResp)
 
 	createPoolReq := &request.CreatePoolRequest{
 		Pool: request.Pool{
