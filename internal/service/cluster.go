@@ -514,6 +514,63 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	fmt.Println("addDNSResp: ")
 	fmt.Println(addDNSResp)
 
+	// Worker Create
+
+	rke2WorkerInitScript, err := GenerateUserDataFromTemplate("false",
+		WorkerServerType,
+		rke2Token,
+		fmt.Sprintf("%s.%s", clusterSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
+		req.KubernetesVersion)
+	if err != nil {
+		c.logger.Errorf("failed to generate user data from template, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+	fmt.Print("rke2WorkerInitScript: ")
+	fmt.Print(rke2WorkerInitScript)
+
+	WorkerRequest := &request.CreateComputeRequest{
+		Server: request.Server{
+			Name:             "ServerName",
+			ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
+			FlavorRef:        req.WorkerInstanceFlavorID,
+			KeyName:          req.NodeKeyPairName,
+			AvailabilityZone: "nova",
+			SecurityGroups: []request.SecurityGroups{
+				{Name: "default"},
+			},
+			BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
+				{
+					BootIndex:           0,
+					DestinationType:     "volume",
+					DeleteOnTermination: true,
+					SourceType:          "image",
+					UUID:                config.GlobalConfig.GetImageRefConfig().ImageRef,
+					VolumeSize:          req.WorkerDiskSizeGB,
+				},
+			},
+			Networks: []request.Networks{
+				{Port: portResp.Port.ID},
+			},
+			UserData: Base64Encoder(rke2WorkerInitScript),
+		},
+	}
+	for i := 1; i <= req.WorkerCount; i++ {
+		portRequest.Port.Name = fmt.Sprintf("%v-worker-%v-port", req.ClusterName, i)
+		portResp, err = c.CreateNetworkPort(ctx, authToken, *portRequest)
+		if err != nil {
+			c.logger.Errorf("failed to create network port, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
+		WorkerRequest.Server.Networks[0].Port = portResp.Port.ID
+		WorkerRequest.Server.Name = fmt.Sprintf("%v-worker-%v", req.ClusterName, i)
+
+		WorkerResp, err := c.CreateCompute(ctx, authToken, *WorkerRequest)
+		if err != nil {
+			return resource.CreateClusterResponse{}, err
+		}
+		fmt.Println(WorkerResp)
+	}
+
 	return resource.CreateClusterResponse{
 		ClusterID: "vke-test-cluster",
 		ProjectID: "vke-test-project",
