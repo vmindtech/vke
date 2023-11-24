@@ -39,6 +39,8 @@ type IClusterService interface {
 	CreateHealthTCPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorTCPRequest) error
 	CheckLoadBalancerOperationStatus(ctx context.Context, authToken, LoadBalancerID string) (resource.ListLoadBalancerResponse, error)
 	CreateSecurityGroupRuleForSG(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForSgRequest) error
+	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
+	ListCompute(ctx context.Context, authToken string) bool
 }
 
 type clusterService struct {
@@ -91,6 +93,7 @@ const (
 	SecurityGroupRulesPath = "v2.0/security-group-rules"
 	ListenerPoolPath       = "v2/lbaas/pools"
 	healthMonitorPath      = "v2/lbaas/healthmonitors"
+	computePath            = "v2.1/servers"
 )
 
 const (
@@ -326,6 +329,8 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		WorkerType:              req.WorkerInstanceFlavorID,
 		WorkerDiskSize:          req.WorkerDiskSizeGB,
 		ClusterEndpoint:         fmt.Sprintf("https://%s", addDNSResp.Result.Name),
+		//ToDo: set from subnetids
+		ClusterAPIAccess: "public",
 	}
 
 	err = c.repository.Cluster().CreateCluster(ctx, clModel)
@@ -1264,4 +1269,53 @@ func (c *clusterService) CreateHealthTCPMonitor(ctx context.Context, authToken s
 	}
 
 	return nil
+}
+
+func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error) {
+	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
+	if err != nil {
+		return resource.GetClusterResponse{}, err
+	}
+
+	if cluster == nil {
+		return resource.GetClusterResponse{}, nil
+	}
+
+	if c.ListCompute(ctx, authToken) != true {
+		return resource.GetClusterResponse{}, nil
+	}
+
+	clusterResp := resource.GetClusterResponse{
+		ClusterID:         cluster.ClusterUUID,
+		ProjectID:         cluster.ClusterProjectUUID,
+		KubernetesVersion: cluster.ClusterVersion,
+		ClusterAPIAccess:  cluster.ClusterAPIAccess,
+		ClusterStatus:     cluster.ClusterStatus,
+	}
+
+	return clusterResp, nil
+}
+
+func (c *clusterService) ListCompute(ctx context.Context, authToken string) bool {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return false
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Errorf("failed to list compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return false
+	}
+
+	return true
 }
