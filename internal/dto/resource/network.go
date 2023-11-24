@@ -30,5 +30,6 @@ type CreateSecurityGroupResponse struct {
 }
 
 type SecurityGroup struct {
-	ID string `json:"id"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }

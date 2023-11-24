@@ -126,12 +126,24 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Description: fmt.Sprintf("%v-sg", req.ClusterName),
 		},
 	}
-	createSecurityResp, err := c.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+
+	// create security group for master
+	createMasterSecurityResp, err := c.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
 	if err != nil {
 		c.logger.Errorf("failed to create security group, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	//for k8s api server with IP
+	// create security group for worker
+	createSecurityGroupReq.SecurityGroup.Name = fmt.Sprintf("%v-worker-sg", req.ClusterName)
+	createSecurityGroupReq.SecurityGroup.Description = fmt.Sprintf("%v-worker-sg", req.ClusterName)
+
+	createWorkerSecurityResp, err := c.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+	if err != nil {
+		c.logger.Errorf("failed to create security group, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	// acces with ip
 	createSecurityGroupRuleReq := &request.CreateSecurityGroupRuleForIpRequest{
 		SecurityGroupRule: request.SecurityGroupRuleForIP{
 			Direction:       "ingress",
@@ -139,18 +151,38 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Ethertype:       "IPv4",
 			PortRangeMax:    "6443",
 			Protocol:        "tcp",
-			SecurityGroupID: createSecurityResp.SecurityGroup.ID,
+			SecurityGroupID: createMasterSecurityResp.SecurityGroup.ID,
 			RemoteIPPrefix:  "0.0.0.0/0",
 		},
 	}
-	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+
+	//for any access between cluster nodes
+
+	createSecurityGroupRuleReqSG := &request.CreateSecurityGroupRuleForSgRequest{
+		SecurityGroupRule: request.SecurityGroupRuleForSG{
+			Direction: "ingress",
+			Ethertype: "IPv4",
+			//Protocol:        "any",
+			SecurityGroupID: createMasterSecurityResp.SecurityGroup.ID,
+			RemoteGroupID:   createMasterSecurityResp.SecurityGroup.ID,
+		},
+	}
+	err = c.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	//for k8s register server with IP
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "9345"
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "9345"
+
+	//k8s access between master and worker
+
+	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
+	err = c.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
+	if err != nil {
+		c.logger.Errorf("failed to create security group rule, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createWorkerSecurityResp.SecurityGroup.ID
 	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
@@ -160,22 +192,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "22"
 	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "22"
 	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
-	if err != nil {
-		c.logger.Errorf("failed to create security group rule, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
-	//for any access between cluster nodes
-
-	createSecurityGroupRuleReqSG := &request.CreateSecurityGroupRuleForSgRequest{
-		SecurityGroupRule: request.SecurityGroupRuleForSG{
-			Direction: "ingress",
-			Ethertype: "IPv4",
-			//Protocol:        "any",
-			SecurityGroupID: createSecurityResp.SecurityGroup.ID,
-			RemoteGroupID:   createSecurityResp.SecurityGroup.ID,
-		},
-	}
-	err = c.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -191,7 +207,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 					SubnetID: randSubnetId,
 				},
 			},
-			SecurityGroups: []string{createSecurityResp.SecurityGroup.ID},
+			SecurityGroups: []string{createMasterSecurityResp.SecurityGroup.ID},
 		},
 	}
 	portRequest.Port.Name = fmt.Sprintf("%v-master-1-port", req.ClusterName)
@@ -210,7 +226,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			KeyName:          req.NodeKeyPairName,
 			AvailabilityZone: "nova",
 			SecurityGroups: []request.SecurityGroups{
-				{Name: "default"},
+				{Name: createMasterSecurityResp.SecurityGroup.Name},
 			},
 			BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
 				{
@@ -262,6 +278,27 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to list load balancer, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
+	// create security group rule for load balancer
+	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "6443"
+	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "6443"
+	createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = fmt.Sprintf("%s/32", listLBResp.LoadBalancer.VIPAddress)
+	createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createMasterSecurityResp.SecurityGroup.ID
+	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+	if err != nil {
+		c.logger.Errorf("failed to create security group rule, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "9345"
+	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "9345"
+	createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = fmt.Sprintf("%s/32", listLBResp.LoadBalancer.VIPAddress)
+	createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createMasterSecurityResp.SecurityGroup.ID
+	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+	if err != nil {
+		c.logger.Errorf("failed to create security group rule, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	// add DNS record to cloudflare
 
 	addDNSResp, err := c.AddDNSRecordToCloudflare(ctx, listLBResp.LoadBalancer.VIPAddress, clusterSubdomainHash, req.ClusterName)
 	if err != nil {
@@ -306,8 +343,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Protocol:       "TCP",
 			ProtocolPort:   6443,
 			LoadbalancerID: lbResp.LoadBalancer.ID,
-			// ToDo: Get from request
-			AllowedCIDRS: []string{"0.0.0.0/0"},
+			AllowedCIDRS:   []string(req.AllowedCIDRS),
 		},
 	}
 
@@ -536,7 +572,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			KeyName:          req.NodeKeyPairName,
 			AvailabilityZone: "nova",
 			SecurityGroups: []request.SecurityGroups{
-				{Name: "default"},
+				{Name: createWorkerSecurityResp.SecurityGroup.Name},
 			},
 			BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
 				{
