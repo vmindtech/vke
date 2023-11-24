@@ -24,6 +24,26 @@ type MysqlDBConfig struct {
 	URL string
 }
 
+type APIEndpointsConfig struct {
+	ComputeEndpoint      string
+	NetworkEndpoint      string
+	LoadBalancerEndpoint string
+}
+
+type CloudflareConfig struct {
+	AuthToken string
+	ZoneID    string
+	Domain    string
+}
+
+type ImageRef struct {
+	ImageRef string
+}
+
+type PublicSubnetID struct {
+	PublicSubnetID string
+}
+
 func (w WebConfig) IsProductionEnv() bool {
 	return w.Env == productionEnv
 }

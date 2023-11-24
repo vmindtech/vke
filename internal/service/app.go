@@ -6,16 +6,23 @@ import (
 )
 
 type IAppService interface {
+	Cluster() IClusterService
 }
 
 type appService struct {
-	logger     *logrus.Logger
-	repository repository.IRepository
+	logger         *logrus.Logger
+	repository     repository.IRepository
+	clusterService IClusterService
 }
 
-func NewAppService(l *logrus.Logger, r repository.IRepository) IAppService {
+func NewAppService(l *logrus.Logger, r repository.IRepository, cs IClusterService) IAppService {
 	return &appService{
-		logger:     l,
-		repository: r,
+		logger:         l,
+		repository:     r,
+		clusterService: cs,
 	}
+}
+
+func (a *appService) Cluster() IClusterService {
+	return a.clusterService
 }

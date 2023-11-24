@@ -43,4 +43,5 @@ func (r *route) SetupRoutes(ac *AppContext) {
 func (r *route) appRoutes(fr fiber.Router) {
 	appGroup := fr.Group("/")
 	appGroup.Get("/", r.appHandler.App)
+	appGroup.Post("/cluster", r.appHandler.CreateCluster)
 }
