@@ -28,6 +28,7 @@ type APIEndpointsConfig struct {
 	ComputeEndpoint      string
 	NetworkEndpoint      string
 	LoadBalancerEndpoint string
+	IdentityEndpoint     string
 }
 
 type CloudflareConfig struct {
