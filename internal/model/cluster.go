@@ -24,6 +24,7 @@ type Cluster struct {
 	WorkerDiskSize          int            `json:"worker_disk_size" gorm:"type:int(11)"`
 	ClusterEndpoint         string         `json:"cluster_endpoint" gorm:"type:varchar(144)"`
 	ClusterSecurityGroups   datatypes.JSON `json:"cluster_security_groups" gorm:"type:json"`
+	ClusterAPIAccess        string         `json:"cluster_api_access" gorm:"type:varchar(255)"`
 }
 
 func (Cluster) TableName() string {

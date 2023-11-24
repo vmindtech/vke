@@ -100,6 +100,7 @@ func loadAPIEndpointsConfig() APIEndpointsConfig {
 		ComputeEndpoint:      viper.GetString("COMPUTE_ENDPOINT"),
 		NetworkEndpoint:      viper.GetString("NETWORK_ENDPOINT"),
 		LoadBalancerEndpoint: viper.GetString("LOAD_BALANCER_ENDPOINT"),
+		IdentityEndpoint:     viper.GetString("IDENTITY_ENDPOINT"),
 	}
 }
 
@@ -132,5 +133,6 @@ func (c *configureManager) GetEndpointsConfig() APIEndpointsConfig {
 		ComputeEndpoint:      viper.GetString("COMPUTE_ENDPOINT"),
 		NetworkEndpoint:      viper.GetString("NETWORK_ENDPOINT"),
 		LoadBalancerEndpoint: viper.GetString("LOAD_BALANCER_ENDPOINT"),
+		IdentityEndpoint:     viper.GetString("IDENTITY_ENDPOINT"),
 	}
 }
