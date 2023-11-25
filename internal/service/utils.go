@@ -3,22 +3,10 @@ package service
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/hex"
 	"math/rand"
 	"text/template"
 	"time"
 )
-
-func GenerateUUID(len int) string {
-	b := make([]byte, len)
-	_, err := rand.Read(b)
-	if err != nil {
-		panic(err)
-	}
-
-	uniqueString := hex.EncodeToString(b)[:len]
-	return uniqueString
-}
 
 func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serverAddress, kubeVersion string) (string, error) {
 	shFile := "scripts/rke2-init-sh.tpl"
