@@ -30,5 +30,12 @@ type GetClusterResponse struct {
 	KubernetesVersion             string   `json:"kubernetesVersion"`
 	ClusterAPIAccess              string   `json:"clusterApiAccess"`
 	ClusterWorkerServerGroupsUUID []string `json:"clusterWorkerServerGroupsUUID"`
+	ClusterMasterServerGroupUUID  string   `json:"clusterMasterServerGroupUUID"`
+	ClusterMasterSecurityGroup    string   `json:"clusterMasterSecurityGroup"`
+	ClusterWorkerSecurityGroup    string   `json:"clusterWorkerSecurityGroup"`
 	ClusterStatus                 string   `json:"clusterStatus"`
+}
+
+type DestroyCluster struct {
+	ClusterID string `json:"cluster_id"`
 }

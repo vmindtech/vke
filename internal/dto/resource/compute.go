@@ -13,5 +13,8 @@ type CreateServerGroupResponse struct {
 }
 
 type ServerGroup struct {
-	ID string `json:"id"`
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Policies []string `json:"policies"`
+	Members  []string `json:"members"`
 }
