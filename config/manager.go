@@ -16,19 +16,19 @@ type IConfigureManager interface {
 	GetMysqlDBConfig() MysqlDBConfig
 	GetCloudflareConfig() CloudflareConfig
 	GetImageRefConfig() ImageRef
-	GetPublicSubnetIDConfig() PublicSubnetID
+	GetPublicNetworkIDConfig() PublicNetworkID
 	GetLanguageConfig() LanguageConfig
 	GetEndpointsConfig() APIEndpointsConfig
 }
 
 type configureManager struct {
-	Web            WebConfig
-	Mysql          MysqlDBConfig
-	APIEndpoints   APIEndpointsConfig
-	ImageRef       ImageRef
-	PublicSubnetID PublicSubnetID
-	Cloudflare     CloudflareConfig
-	Language       LanguageConfig
+	Web             WebConfig
+	Mysql           MysqlDBConfig
+	APIEndpoints    APIEndpointsConfig
+	ImageRef        ImageRef
+	PublicNetworkID PublicNetworkID
+	Cloudflare      CloudflareConfig
+	Language        LanguageConfig
 }
 
 func NewConfigureManager() IConfigureManager {
@@ -39,13 +39,13 @@ func NewConfigureManager() IConfigureManager {
 	_ = viper.ReadInConfig()
 
 	GlobalConfig = &configureManager{
-		Web:            loadWebConfig(),
-		Language:       loadLanguageConfig(),
-		Mysql:          loadMysqlDBConfig(),
-		Cloudflare:     loadCloudflareConfig(),
-		ImageRef:       loadImageRefConfig(),
-		PublicSubnetID: loadPublicSubnetIDConfig(),
-		APIEndpoints:   loadAPIEndpointsConfig(),
+		Web:             loadWebConfig(),
+		Language:        loadLanguageConfig(),
+		Mysql:           loadMysqlDBConfig(),
+		Cloudflare:      loadCloudflareConfig(),
+		ImageRef:        loadImageRefConfig(),
+		PublicNetworkID: loadPublicNetworkIDConfig(),
+		APIEndpoints:    loadAPIEndpointsConfig(),
 	}
 
 	return GlobalConfig
@@ -83,9 +83,9 @@ func loadImageRefConfig() ImageRef {
 	}
 }
 
-func loadPublicSubnetIDConfig() PublicSubnetID {
-	return PublicSubnetID{
-		PublicSubnetID: viper.GetString("PUBLIC_SUBNET_ID"),
+func loadPublicNetworkIDConfig() PublicNetworkID {
+	return PublicNetworkID{
+		PublicNetworkID: viper.GetString("PUBLIC_NETWORK_ID"),
 	}
 }
 
@@ -124,8 +124,8 @@ func (c *configureManager) GetImageRefConfig() ImageRef {
 	return c.ImageRef
 }
 
-func (c *configureManager) GetPublicSubnetIDConfig() PublicSubnetID {
-	return c.PublicSubnetID
+func (c *configureManager) GetPublicNetworkIDConfig() PublicNetworkID {
+	return c.PublicNetworkID
 }
 
 func (c *configureManager) GetEndpointsConfig() APIEndpointsConfig {

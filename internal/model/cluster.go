@@ -11,7 +11,7 @@ type Cluster struct {
 	ClusterUUID                   string         `json:"cluster_uuid" gorm:"type:varchar(36)"`
 	ClusterName                   string         `json:"cluster_name" gorm:"type:varchar(50)"`
 	ClusterCreateDate             time.Time      `json:"cluster_create_date" gorm:"type:datetime"`
-	ClusterDeleteDate             time.Time      `json:"cluster_delete_date" gorm:"type:datetime;default:null"`
+	ClusterDeleteDate             *time.Time     `json:"cluster_delete_date" gorm:"type:datetime;default:null"`
 	ClusterUpdateDate             time.Time      `json:"cluster_update_date" gorm:"type:datetime;default:null"`
 	ClusterVersion                string         `json:"cluster_version" gorm:"type:varchar(30)"`
 	ClusterStatus                 string         `json:"cluster_status" gorm:"type:varchar(10)"`

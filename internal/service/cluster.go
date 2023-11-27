@@ -41,6 +41,7 @@ type IClusterService interface {
 	CreateSecurityGroupRuleForSG(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForSgRequest) error
 	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
 	CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.CreateServerGroupResponse, error)
+	CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error)
 }
 
 type clusterService struct {
@@ -64,12 +65,9 @@ const (
 )
 
 const (
-	LoadBalancerStatusActive        = "ACTIVE"
-	LoadBalancerStatusDeleted       = "DELETED"
-	LoadBalancerStatusError         = "ERROR"
-	LoadBalancerStatusPendingCreate = "PENDING_CREATE"
-	LoadBalancerStatusPendingUpdate = "PENDING_UPDATE"
-	LoadBalancerStatusPendingDelete = "PENDING_DELETE"
+	LoadBalancerStatusActive  = "ACTIVE"
+	LoadBalancerStatusDeleted = "DELETED"
+	LoadBalancerStatusError   = "ERROR"
 )
 
 const (
@@ -91,6 +89,7 @@ const (
 	projectPath            = "v3/projects"
 	serverGroupPath        = "v2.1/os-server-groups"
 	amphoraePath           = "v2/octavia/amphorae"
+	floatingIPPath         = "v2.0/floatingips"
 )
 
 const (
@@ -98,19 +97,14 @@ const (
 )
 
 func (c *clusterService) CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest) (resource.CreateClusterResponse, error) {
-
 	// Create Load Balancer for masters
 	createLBReq := &request.CreateLoadBalancerRequest{
 		LoadBalancer: request.LoadBalancer{
 			Name:         fmt.Sprintf("%v-lb", req.ClusterName),
 			Description:  fmt.Sprintf("%v-lb", req.ClusterName),
 			AdminStateUp: true,
-			VIPSubnetID:  config.GlobalConfig.GetPublicSubnetIDConfig().PublicSubnetID,
+			VIPSubnetID:  req.SubnetIDs[0],
 		},
-	}
-
-	if req.ClusterAPIAccess != "public" {
-		createLBReq.LoadBalancer.VIPSubnetID = req.SubnetIDs[0]
 	}
 
 	lbResp, err := c.CreateLoadBalancer(ctx, authToken, *createLBReq)
@@ -118,13 +112,35 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to create load balancer, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-
+	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	//get amphoras ip
+	amphoraesResp, err := GetAmphoraesVrrpIp(authToken, lbResp.LoadBalancer.ID)
+	if err != nil {
+		c.logger.Errorf("failed to get amphoraes, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 	listLBResp, err := c.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
 	if err != nil {
 		c.logger.Errorf("failed to list load balancer, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-
+	loadbalancerIP := listLBResp.LoadBalancer.VIPAddress
+	// Control plane access type
+	if req.ClusterAPIAccess == "public" {
+		createFloatingIPreq := &request.CreateFloatingIPRequest{
+			FloatingIP: request.FloatingIP{
+				FloatingNetworkID: config.GlobalConfig.GetPublicNetworkIDConfig().PublicNetworkID,
+				PortID:            listLBResp.LoadBalancer.VipPortID,
+			},
+		}
+		createFloatingIPResponse, err := c.CreateFloatingIP(ctx, authToken, *createFloatingIPreq)
+		if err != nil {
+			c.logger.Errorf("failed to create floating ip, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
+		loadbalancerIP = createFloatingIPResponse.FloatingIP.FloatingIP
+	}
+	// Create security group for master and worker
 	createSecurityGroupReq := &request.CreateSecurityGroupRequest{
 		SecurityGroup: request.SecurityGroup{
 			Name:        fmt.Sprintf("%v-master-sg", req.ClusterName),
@@ -238,7 +254,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	//for any access between cluster nodes
-
+	// master to master
 	createSecurityGroupRuleReqSG := &request.CreateSecurityGroupRuleForSgRequest{
 		SecurityGroupRule: request.SecurityGroupRuleForSG{
 			Direction:       "ingress",
@@ -252,22 +268,31 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-
-	//k8s access between master and worker
-
+	//worker to master
 	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
 	err = c.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
+	// master to worker
+	createSecurityGroupRuleReqSG.SecurityGroupRule.SecurityGroupID = createWorkerSecurityResp.SecurityGroup.ID
+	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createMasterSecurityResp.SecurityGroup.ID
+	err = c.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
+	if err != nil {
+		c.logger.Errorf("failed to create security group rule, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 
-	createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createWorkerSecurityResp.SecurityGroup.ID
+	//worker to worker
+
+	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
 	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
+
 	// temporary for ssh access
 	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "22"
 	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "22"
@@ -336,28 +361,28 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	// create security group rule for load balancer
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "6443"
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "6443"
-	createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = fmt.Sprintf("%s/32", listLBResp.LoadBalancer.VIPAddress)
-	createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createMasterSecurityResp.SecurityGroup.ID
-	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
-	if err != nil {
-		c.logger.Errorf("failed to create security group rule, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "9345"
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "9345"
-	createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = fmt.Sprintf("%s/32", listLBResp.LoadBalancer.VIPAddress)
-	createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createMasterSecurityResp.SecurityGroup.ID
-	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
-	if err != nil {
-		c.logger.Errorf("failed to create security group rule, error: %v", err)
-		return resource.CreateClusterResponse{}, err
+	for _, ip := range amphoraesResp.Amphorae {
+		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "6443"
+		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "6443"
+		createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createMasterSecurityResp.SecurityGroup.ID
+		createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = fmt.Sprintf("%s/32", ip.VrrpIP)
+		err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		if err != nil {
+			c.logger.Errorf("failed to create security group rule, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
+		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "9345"
+		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "9345"
+		err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		if err != nil {
+			c.logger.Errorf("failed to create security group rule, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
 	}
 
 	// add DNS record to cloudflare
 
-	addDNSResp, err := c.AddDNSRecordToCloudflare(ctx, listLBResp.LoadBalancer.VIPAddress, clusterSubdomainHash, req.ClusterName)
+	addDNSResp, err := c.AddDNSRecordToCloudflare(ctx, loadbalancerIP, clusterSubdomainHash, req.ClusterName)
 	if err != nil {
 		c.logger.Errorf("failed to add dns record, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -537,7 +562,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	masterRequest.Server.Name = fmt.Sprintf("%s-master-3", req.ClusterName)
 	masterRequest.Server.Networks[0].Port = portResp.Port.ID
-	c.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	//	c.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 	_, err = c.CreateCompute(ctx, authToken, *masterRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create compute, error: %v", err)
@@ -625,7 +650,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	clModel.WorkerSecurityGroup = createWorkerSecurityResp.SecurityGroup.ID
 	clModel.ClusterStatus = ActiveClusterStatus
 	clModel.ClusterEndpoint = addDNSResp.Result.Name
-	clModel.ClusterDeleteDate = time.Time{}
 	clModel.ClusterUpdateDate = time.Now()
 
 	err = c.repository.Cluster().UpdateCluster(ctx, clModel)
@@ -674,11 +698,12 @@ func (c *clusterService) CreateCompute(ctx context.Context, authToken string, re
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
-		c.logger.Errorf("failed to create compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 		b, err := httputil.DumpResponse(resp, true)
 		if err != nil {
 			log.Fatalln(err)
 		}
+		c.logger.Errorf("failed to create compute, status code: %v, error msg: %v full: %v", resp.StatusCode, resp.Status, string(b))
+
 		return resource.CreateComputeResponse{}, fmt.Errorf("failed to create compute, status code: %v, error msg: %v", resp.StatusCode, string(b))
 	}
 
@@ -761,7 +786,7 @@ func (c *clusterService) ListLoadBalancer(ctx context.Context, authToken, loadBa
 	return respDecoder, nil
 }
 func (c *clusterService) AddDNSRecordToCloudflare(ctx context.Context, loadBalancerIP, loadBalancerSubdomainHash, clusterName string) (resource.AddDNSRecordResponse, error) {
-	data, err := json.Marshal(request.AddDNSRecordCFRequest{
+	addDNSRecordCFRequest := &request.AddDNSRecordCFRequest{
 		Content: loadBalancerIP,
 		Name:    fmt.Sprintf("%s.%s", loadBalancerSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
 		Proxied: false,
@@ -769,7 +794,8 @@ func (c *clusterService) AddDNSRecordToCloudflare(ctx context.Context, loadBalan
 		Comment: clusterName,
 		Tags:    []string{},
 		TTL:     3600,
-	})
+	}
+	data, err := json.Marshal(addDNSRecordCFRequest)
 	if err != nil {
 		c.logger.Errorf("failed to marshal request, error: %v", err)
 		return resource.AddDNSRecordResponse{}, err
@@ -1182,7 +1208,8 @@ func (c *clusterService) CheckLoadBalancerStatus(ctx context.Context, authToken,
 			waitIterator++
 			waitSeconds = waitSeconds + 5
 		} else {
-			return resource.ListLoadBalancerResponse{}, fmt.Errorf("failed to create load balancer, provisioning status is not ACTIVE")
+			err := fmt.Errorf("failed to create load balancer, provisioning status is not ACTIVE")
+			return resource.ListLoadBalancerResponse{}, err
 		}
 		listLBResp, err := c.ListLoadBalancer(ctx, authToken, loadBalancerID)
 		if err != nil {
@@ -1420,6 +1447,48 @@ func (c *clusterService) CreateServerGroup(ctx context.Context, authToken string
 	if err != nil {
 		c.logger.Errorf("failed to decode response, error: %v", err)
 		return resource.CreateServerGroupResponse{}, err
+	}
+	return respDecoder, nil
+}
+func (c *clusterService) CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error) {
+	data, err := json.Marshal(req)
+	if err != nil {
+		c.logger.Errorf("failed to marshal request, error: %v", err)
+		return resource.CreateFloatingIPResponse{}, err
+	}
+	fmt.Printf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath)
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath), bytes.NewBuffer(data))
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return resource.CreateFloatingIPResponse{}, err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return resource.CreateFloatingIPResponse{}, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		c.logger.Errorf("failed to create floating ip, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		b, err := httputil.DumpResponse(resp, true)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		return resource.CreateFloatingIPResponse{}, fmt.Errorf("failed to create floating ip, status code: %v, error msg: %v, full msg: %v", resp.StatusCode, resp.Status, string(b))
+	}
+
+	var respDecoder resource.CreateFloatingIPResponse
+	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	if err != nil {
+		c.logger.Errorf("failed to decode response, error: %v", err)
+		return resource.CreateFloatingIPResponse{}, err
 	}
 	return respDecoder, nil
 }
