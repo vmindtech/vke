@@ -1,1 +1,1 @@
-# VMind Kubernetes Engine
+# VMind Kubernetes Engine for OpenStack
