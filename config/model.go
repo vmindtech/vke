@@ -41,8 +41,8 @@ type ImageRef struct {
 	ImageRef string
 }
 
-type PublicSubnetID struct {
-	PublicSubnetID string
+type PublicNetworkID struct {
+	PublicNetworkID string
 }
 
 func (w WebConfig) IsProductionEnv() bool {

@@ -10,6 +10,7 @@ type ListLoadBalancer struct {
 	ProvisioningStatus string `json:"provisioning_status"`
 	OperatingStatus    string `json:"operating_status"`
 	VIPAddress         string `json:"vip_address"`
+	VipPortID          string `json:"vip_port_id"`
 }
 
 type CreateListenerResponse struct {
@@ -64,4 +65,11 @@ type ListHealthMonitorResponse struct {
 type HealthMonitor struct {
 	ID                 string `json:"id"`
 	ProvisioningStatus string `json:"provisioning_status"`
+}
+
+type GetAmphoraesVrrpIpResponse struct {
+	Amphorae []Amphorae `json:"amphorae"`
+}
+type Amphorae struct {
+	VrrpIP string `json:"vrrp_ip"`
 }

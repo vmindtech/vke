@@ -1,7 +1,8 @@
 package request
 
 type CreateComputeRequest struct {
-	Server Server `json:"server"`
+	Server         Server         `json:"server"`
+	SchedulerHints SchedulerHints `json:"os:scheduler_hints"`
 }
 
 type Server struct {
@@ -14,6 +15,10 @@ type Server struct {
 	BlockDeviceMappingV2 []BlockDeviceMappingV2 `json:"block_device_mapping_v2"`
 	Networks             []Networks             `json:"networks"`
 	UserData             string                 `json:"user_data"`
+}
+
+type SchedulerHints struct {
+	Group string `json:"group"`
 }
 
 type BlockDeviceMappingV2 struct {
@@ -31,4 +36,13 @@ type Networks struct {
 
 type SecurityGroups struct {
 	Name string `json:"name"`
+}
+
+type CreateServerGroupRequest struct {
+	ServerGroup ServerGroup `json:"server_group"`
+}
+
+type ServerGroup struct {
+	Name     string   `json:"name"`
+	Policies []string `json:"policies"`
 }

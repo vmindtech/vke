@@ -10,6 +10,7 @@ import (
 type IClusterRepository interface {
 	GetClusterByUUID(ctx context.Context, uuid string) (*model.Cluster, error)
 	CreateCluster(ctx context.Context, cluster *model.Cluster) error
+	UpdateCluster(ctx context.Context, cluster *model.Cluster) error
 }
 
 type ClusterRepository struct {
@@ -43,5 +44,14 @@ func (c *ClusterRepository) CreateCluster(ctx context.Context, cluster *model.Cl
 		Database().
 		WithContext(ctx).
 		Create(cluster).
+		Error
+}
+
+func (c *ClusterRepository) UpdateCluster(ctx context.Context, cluster *model.Cluster) error {
+	return c.mysqlInstance.
+		Database().
+		WithContext(ctx).
+		Where(&model.Cluster{ClusterUUID: cluster.ClusterUUID}).
+		Save(cluster).
 		Error
 }

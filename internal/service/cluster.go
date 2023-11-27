@@ -10,7 +10,7 @@ import (
 	"net/http/httputil"
 	"time"
 
-	"github.com/k0kubun/pp"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/config"
 	"github.com/vmindtech/vke/internal/dto/request"
@@ -40,6 +40,8 @@ type IClusterService interface {
 	CheckLoadBalancerOperationStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error)
 	CreateSecurityGroupRuleForSG(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForSgRequest) error
 	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
+	CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.CreateServerGroupResponse, error)
+	CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error)
 }
 
 type clusterService struct {
@@ -55,30 +57,22 @@ func NewClusterService(l *logrus.Logger, r repository.IRepository) IClusterServi
 }
 
 const (
-	PendingClusterStatus  = "Pending"
 	ActiveClusterStatus   = "Active"
+	CreatingClusterStatus = "Creating"
 	UpdatingClusterStatus = "Updating"
 	DeletedClusterStatus  = "Deleted"
+	ErrorClusterStatus    = "Error"
 )
 
 const (
-	LoadBalancerStatusActive        = "ACTIVE"
-	LoadBalancerStatusDeleted       = "DELETED"
-	LoadBalancerStatusError         = "ERROR"
-	LoadBalancerStatusPendingCreate = "PENDING_CREATE"
-	LoadBalancerStatusPendingUpdate = "PENDING_UPDATE"
-	LoadBalancerStatusPendingDelete = "PENDING_DELETE"
+	LoadBalancerStatusActive  = "ACTIVE"
+	LoadBalancerStatusDeleted = "DELETED"
+	LoadBalancerStatusError   = "ERROR"
 )
 
 const (
 	MasterServerType = "server"
 	WorkerServerType = "agent"
-)
-
-const (
-	clusterUUIDLength   = 32
-	clusterTokenLength  = 24
-	subdomainHashLength = 16
 )
 
 const (
@@ -93,6 +87,9 @@ const (
 	healthMonitorPath      = "v2/lbaas/healthmonitors"
 	computePath            = "v2.1/servers"
 	projectPath            = "v3/projects"
+	serverGroupPath        = "v2.1/os-server-groups"
+	amphoraePath           = "v2/octavia/amphorae"
+	floatingIPPath         = "v2.0/floatingips"
 )
 
 const (
@@ -100,32 +97,54 @@ const (
 )
 
 func (c *clusterService) CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest) (resource.CreateClusterResponse, error) {
-	clusterSubdomainHash := GenerateUUID(subdomainHashLength)
-	rke2Token := GenerateUUID(clusterTokenLength)
-	fmt.Print("req.KubernetesVersion: ")
-	fmt.Print(req.KubernetesVersion)
-	rke2InitScript, err := GenerateUserDataFromTemplate("true",
-		MasterServerType,
-		rke2Token,
-		fmt.Sprintf("%s.%s", clusterSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
-		req.KubernetesVersion)
-	if err != nil {
-		c.logger.Errorf("failed to generate user data from template, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
-	fmt.Print("rke2InitScript: ")
-	fmt.Print(rke2InitScript)
-
-	getNetworkIdResp, err := c.GetNetworkID(ctx, authToken, req.SubnetIDs[0])
-	if err != nil {
-		c.logger.Errorf("failed to get networkId, error: %v", err)
-		return resource.CreateClusterResponse{}, err
+	// Create Load Balancer for masters
+	createLBReq := &request.CreateLoadBalancerRequest{
+		LoadBalancer: request.LoadBalancer{
+			Name:         fmt.Sprintf("%v-lb", req.ClusterName),
+			Description:  fmt.Sprintf("%v-lb", req.ClusterName),
+			AdminStateUp: true,
+			VIPSubnetID:  req.SubnetIDs[0],
+		},
 	}
 
+	lbResp, err := c.CreateLoadBalancer(ctx, authToken, *createLBReq)
+	if err != nil {
+		c.logger.Errorf("failed to create load balancer, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	//get amphoras ip
+	amphoraesResp, err := GetAmphoraesVrrpIp(authToken, lbResp.LoadBalancer.ID)
+	if err != nil {
+		c.logger.Errorf("failed to get amphoraes, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+	listLBResp, err := c.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
+	if err != nil {
+		c.logger.Errorf("failed to list load balancer, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+	loadbalancerIP := listLBResp.LoadBalancer.VIPAddress
+	// Control plane access type
+	if req.ClusterAPIAccess == "public" {
+		createFloatingIPreq := &request.CreateFloatingIPRequest{
+			FloatingIP: request.FloatingIP{
+				FloatingNetworkID: config.GlobalConfig.GetPublicNetworkIDConfig().PublicNetworkID,
+				PortID:            listLBResp.LoadBalancer.VipPortID,
+			},
+		}
+		createFloatingIPResponse, err := c.CreateFloatingIP(ctx, authToken, *createFloatingIPreq)
+		if err != nil {
+			c.logger.Errorf("failed to create floating ip, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
+		loadbalancerIP = createFloatingIPResponse.FloatingIP.FloatingIP
+	}
+	// Create security group for master and worker
 	createSecurityGroupReq := &request.CreateSecurityGroupRequest{
 		SecurityGroup: request.SecurityGroup{
-			Name:        fmt.Sprintf("%v-sg", req.ClusterName),
-			Description: fmt.Sprintf("%v-sg", req.ClusterName),
+			Name:        fmt.Sprintf("%v-master-sg", req.ClusterName),
+			Description: fmt.Sprintf("%v-master-sg", req.ClusterName),
 		},
 	}
 
@@ -145,7 +164,83 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	// acces with ip
+	clusterSubdomainHash := uuid.New().String()
+	rke2Token := uuid.New().String()
+	rke2AgentToken := uuid.New().String()
+
+	createServerGroupReq := &request.CreateServerGroupRequest{
+		ServerGroup: request.ServerGroup{
+			Name:     fmt.Sprintf("%v-master-server-group", req.ClusterName),
+			Policies: []string{"anti-affinity"},
+		},
+	}
+	masterServerGroupResp, err := c.CreateServerGroup(ctx, authToken, *createServerGroupReq)
+	if err != nil {
+		c.logger.Errorf("failed to create server group, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	createServerGroupReq.ServerGroup.Name = fmt.Sprintf("%v-worker-server-group", req.ClusterName)
+	workerServerGroupResp, err := c.CreateServerGroup(ctx, authToken, *createServerGroupReq)
+	if err != nil {
+		c.logger.Errorf("failed to create server group, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	subnetIdsJSON, err := json.Marshal(req.SubnetIDs)
+	if err != nil {
+		c.logger.Errorf("failed to marshal subnet ids, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	clusterWorkerGroupsUUID, err := json.Marshal([]string{workerServerGroupResp.ServerGroup.ID})
+	if err != nil {
+		c.logger.Errorf("failed to marshal worker server group id, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	clModel := &model.Cluster{
+		ClusterUUID:                   uuid.New().String(),
+		ClusterName:                   req.ClusterName,
+		ClusterCreateDate:             time.Now(),
+		ClusterVersion:                req.KubernetesVersion,
+		ClusterStatus:                 CreatingClusterStatus,
+		ClusterProjectUUID:            req.ProjectID,
+		ClusterLoadbalancerUUID:       lbResp.LoadBalancer.ID,
+		ClusterRegisterToken:          rke2Token,
+		ClusterAgentToken:             rke2AgentToken,
+		ClusterMasterServerGroupUUID:  masterServerGroupResp.ServerGroup.ID,
+		ClusterWorkerServerGroupsUUID: clusterWorkerGroupsUUID,
+		ClusterSubnets:                subnetIdsJSON,
+		WorkerCount:                   req.WorkerCount,
+		WorkerType:                    req.WorkerInstanceFlavorID,
+		WorkerDiskSize:                req.WorkerDiskSizeGB,
+		ClusterAPIAccess:              req.ClusterAPIAccess,
+	}
+
+	err = c.repository.Cluster().CreateCluster(ctx, clModel)
+	if err != nil {
+		c.logger.Errorf("failed to create cluster, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	rke2InitScript, err := GenerateUserDataFromTemplate("true",
+		MasterServerType,
+		rke2Token,
+		fmt.Sprintf("%s.%s", clusterSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
+		req.KubernetesVersion)
+	if err != nil {
+		c.logger.Errorf("failed to generate user data from template, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	getNetworkIdResp, err := c.GetNetworkID(ctx, authToken, req.SubnetIDs[0])
+	if err != nil {
+		c.logger.Errorf("failed to get networkId, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	// access from ip
 	createSecurityGroupRuleReq := &request.CreateSecurityGroupRuleForIpRequest{
 		SecurityGroupRule: request.SecurityGroupRuleForIP{
 			Direction:       "ingress",
@@ -159,12 +254,11 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	//for any access between cluster nodes
-
+	// master to master
 	createSecurityGroupRuleReqSG := &request.CreateSecurityGroupRuleForSgRequest{
 		SecurityGroupRule: request.SecurityGroupRuleForSG{
-			Direction: "ingress",
-			Ethertype: "IPv4",
-			//Protocol:        "any",
+			Direction:       "ingress",
+			Ethertype:       "IPv4",
 			SecurityGroupID: createMasterSecurityResp.SecurityGroup.ID,
 			RemoteGroupID:   createMasterSecurityResp.SecurityGroup.ID,
 		},
@@ -174,22 +268,31 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-
-	//k8s access between master and worker
-
+	//worker to master
 	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
 	err = c.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
+	// master to worker
+	createSecurityGroupRuleReqSG.SecurityGroupRule.SecurityGroupID = createWorkerSecurityResp.SecurityGroup.ID
+	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createMasterSecurityResp.SecurityGroup.ID
+	err = c.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
+	if err != nil {
+		c.logger.Errorf("failed to create security group rule, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 
-	createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createWorkerSecurityResp.SecurityGroup.ID
+	//worker to worker
+
+	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
 	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
+
 	// temporary for ssh access
 	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "22"
 	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "22"
@@ -245,96 +348,43 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			},
 			UserData: Base64Encoder(rke2InitScript),
 		},
+		SchedulerHints: request.SchedulerHints{
+			Group: masterServerGroupResp.ServerGroup.ID,
+		},
 	}
 
 	masterRequest.Server.Name = fmt.Sprintf("%v-master-1", req.ClusterName)
 
-	firstMasterResp, err := c.CreateCompute(ctx, authToken, *masterRequest)
+	_, err = c.CreateCompute(ctx, authToken, *masterRequest)
 	if err != nil {
 		return resource.CreateClusterResponse{}, err
 	}
-	fmt.Println("firstMasterResp: ")
-	fmt.Println(firstMasterResp)
 
-	createLBReq := &request.CreateLoadBalancerRequest{
-		LoadBalancer: request.LoadBalancer{
-			Name:         fmt.Sprintf("%v-lb", req.ClusterName),
-			Description:  fmt.Sprintf("%v-lb", req.ClusterName),
-			AdminStateUp: true,
-			VIPSubnetID:  config.GlobalConfig.GetPublicSubnetIDConfig().PublicSubnetID,
-		},
-	}
-
-	if req.ClusterAPIAccess != "public" {
-		createLBReq.LoadBalancer.VIPSubnetID = req.SubnetIDs[0]
-	}
-
-	lbResp, err := c.CreateLoadBalancer(ctx, authToken, *createLBReq)
-	if err != nil {
-		c.logger.Errorf("failed to create load balancer, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
-
-	listLBResp, err := c.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
-	if err != nil {
-		c.logger.Errorf("failed to list load balancer, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
 	// create security group rule for load balancer
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "6443"
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "6443"
-	createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = fmt.Sprintf("%s/32", listLBResp.LoadBalancer.VIPAddress)
-	createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createMasterSecurityResp.SecurityGroup.ID
-	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
-	if err != nil {
-		c.logger.Errorf("failed to create security group rule, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "9345"
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "9345"
-	createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = fmt.Sprintf("%s/32", listLBResp.LoadBalancer.VIPAddress)
-	createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createMasterSecurityResp.SecurityGroup.ID
-	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
-	if err != nil {
-		c.logger.Errorf("failed to create security group rule, error: %v", err)
-		return resource.CreateClusterResponse{}, err
+	for _, ip := range amphoraesResp.Amphorae {
+		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "6443"
+		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "6443"
+		createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createMasterSecurityResp.SecurityGroup.ID
+		createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = fmt.Sprintf("%s/32", ip.VrrpIP)
+		err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		if err != nil {
+			c.logger.Errorf("failed to create security group rule, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
+		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "9345"
+		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "9345"
+		err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		if err != nil {
+			c.logger.Errorf("failed to create security group rule, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
 	}
 
 	// add DNS record to cloudflare
 
-	addDNSResp, err := c.AddDNSRecordToCloudflare(ctx, listLBResp.LoadBalancer.VIPAddress, clusterSubdomainHash, req.ClusterName)
+	addDNSResp, err := c.AddDNSRecordToCloudflare(ctx, loadbalancerIP, clusterSubdomainHash, req.ClusterName)
 	if err != nil {
 		c.logger.Errorf("failed to add dns record, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
-
-	subnetIdsJSON, err := json.Marshal(req.SubnetIDs)
-	if err != nil {
-		c.logger.Errorf("failed to marshal subnet ids, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
-	fmt.Println(GenerateUUID(clusterUUIDLength))
-	clModel := &model.Cluster{
-		ClusterUUID:             GenerateUUID(clusterUUIDLength),
-		ClusterName:             req.ClusterName,
-		ClusterCreateDate:       time.Now(),
-		ClusterVersion:          req.KubernetesVersion,
-		ClusterStatus:           PendingClusterStatus,
-		ClusterProjectUUID:      req.ProjectID,
-		ClusterLoadbalancerUUID: lbResp.LoadBalancer.ID,
-		ClusterNodeToken:        rke2Token,
-		ClusterSubnets:          subnetIdsJSON,
-		WorkerCount:             req.WorkerCount,
-		WorkerType:              req.WorkerInstanceFlavorID,
-		WorkerDiskSize:          req.WorkerDiskSizeGB,
-		ClusterEndpoint:         fmt.Sprintf("https://%s", addDNSResp.Result.Name),
-		//ToDo: set from subnetids
-		ClusterAPIAccess: "public",
-	}
-
-	err = c.repository.Cluster().CreateCluster(ctx, clModel)
-	if err != nil {
-		c.logger.Errorf("failed to create cluster, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
@@ -351,21 +401,14 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		},
 	}
 
-	pp.Print(createListenerReq)
-
 	apiListenerResp, err := c.CreateListener(ctx, authToken, *createListenerReq)
 	if err != nil {
-		c.logger.Errorf("1234failed to create listener, error: %v", err)
+		c.logger.Errorf("failed to create listener, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
-	// fmt.Println("apiListenerResp: ")
-	// fmt.Println(apiListenerResp)
-
 	createListenerReq.Listener.Name = fmt.Sprintf("%v-register-listener", req.ClusterName)
 	createListenerReq.Listener.ProtocolPort = 9345
-
-	// fmt.Println(createListenerReq)
 
 	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
@@ -423,7 +466,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			AdminStateUp:   true,
 			PoolID:         registerPoolResp.Pool.ID,
 			MaxRetries:     "10",
-			Delay:          "10",
+			Delay:          "30",
 			TimeOut:        "10",
 			Type:           "HTTPS",
 			HTTPMethod:     "GET",
@@ -438,9 +481,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to create health monitor, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-
-	fmt.Println("registerPoolResp: ")
-	fmt.Println(registerPoolResp)
 
 	createMemberReq := &request.AddMemberRequest{
 		Member: request.Member{
@@ -488,13 +528,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	masterRequest.Server.UserData = Base64Encoder(rke2InitScript)
 	c.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
-	secondMasterResp, err := c.CreateCompute(ctx, authToken, *masterRequest)
+	_, err = c.CreateCompute(ctx, authToken, *masterRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create compute, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	fmt.Println("secondMasterResp: ")
-	fmt.Println(secondMasterResp)
+
 	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 	//create member for master 02 for api and register pool
 	createMemberReq.Member.Name = fmt.Sprintf("%v-master-2", req.ClusterName)
@@ -523,14 +562,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	masterRequest.Server.Name = fmt.Sprintf("%s-master-3", req.ClusterName)
 	masterRequest.Server.Networks[0].Port = portResp.Port.ID
-	c.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
-	thirdMasterResp, err := c.CreateCompute(ctx, authToken, *masterRequest)
+	//	c.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.CreateCompute(ctx, authToken, *masterRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create compute, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	fmt.Println("thirdMasterResp: ")
-	fmt.Println(thirdMasterResp)
+
 	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 	//create member for master 03 for api and register pool
 	createMemberReq.Member.Name = fmt.Sprintf("%v-master-3", req.ClusterName)
@@ -551,9 +589,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	fmt.Println("addDNSResp: ")
-	fmt.Println(addDNSResp)
-
 	// Worker Create
 
 	rke2WorkerInitScript, err := GenerateUserDataFromTemplate("false",
@@ -565,8 +600,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	fmt.Print("rke2WorkerInitScript: ")
-	fmt.Print(rke2WorkerInitScript)
 
 	WorkerRequest := &request.CreateComputeRequest{
 		Server: request.Server{
@@ -593,6 +626,9 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			},
 			UserData: Base64Encoder(rke2WorkerInitScript),
 		},
+		SchedulerHints: request.SchedulerHints{
+			Group: workerServerGroupResp.ServerGroup.ID,
+		},
 	}
 	for i := 1; i <= req.WorkerCount; i++ {
 		portRequest.Port.Name = fmt.Sprintf("%v-worker-%v-port", req.ClusterName, i)
@@ -604,17 +640,44 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		WorkerRequest.Server.Networks[0].Port = portResp.Port.ID
 		WorkerRequest.Server.Name = fmt.Sprintf("%v-worker-%v", req.ClusterName, i)
 
-		WorkerResp, err := c.CreateCompute(ctx, authToken, *WorkerRequest)
+		_, err = c.CreateCompute(ctx, authToken, *WorkerRequest)
 		if err != nil {
 			return resource.CreateClusterResponse{}, err
 		}
-		fmt.Println(WorkerResp)
 	}
 
-	return resource.CreateClusterResponse{
-		ClusterID: "vke-test-cluster",
-		ProjectID: "vke-test-project",
-	}, nil
+	clModel.MasterSecurityGroup = createMasterSecurityResp.SecurityGroup.ID
+	clModel.WorkerSecurityGroup = createWorkerSecurityResp.SecurityGroup.ID
+	clModel.ClusterStatus = ActiveClusterStatus
+	clModel.ClusterEndpoint = addDNSResp.Result.Name
+	clModel.ClusterUpdateDate = time.Now()
+
+	err = c.repository.Cluster().UpdateCluster(ctx, clModel)
+	if err != nil {
+		c.logger.Errorf("failed to update cluster, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	createClusterResp := resource.CreateClusterResponse{
+		ClusterUUID:                   clModel.ClusterUUID,
+		ClusterName:                   clModel.ClusterName,
+		ClusterStatus:                 clModel.ClusterStatus,
+		ClusterProjectUUID:            clModel.ClusterProjectUUID,
+		ClusterLoadbalancerUUID:       clModel.ClusterLoadbalancerUUID,
+		ClusterMasterServerGroupUUID:  clModel.ClusterMasterServerGroupUUID,
+		ClusterWorkerServerGroupsUUID: []string{workerServerGroupResp.ServerGroup.ID},
+		ClusterSubnets:                req.SubnetIDs,
+		WorkerCount:                   clModel.WorkerCount,
+		WorkerType:                    clModel.WorkerType,
+		WorkerDiskSize:                clModel.WorkerDiskSize,
+		ClusterEndpoint:               clModel.ClusterEndpoint,
+		MasterSecurityGroup:           clModel.MasterSecurityGroup,
+		WorkerSecurityGroup:           clModel.WorkerSecurityGroup,
+		ClusterAPIAccess:              clModel.ClusterAPIAccess,
+	}
+
+	return createClusterResp, nil
+
 }
 func (c *clusterService) CreateCompute(ctx context.Context, authToken string, req request.CreateComputeRequest) (resource.CreateComputeResponse, error) {
 	data, err := json.Marshal(req)
@@ -635,11 +698,12 @@ func (c *clusterService) CreateCompute(ctx context.Context, authToken string, re
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
-		c.logger.Errorf("failed to create compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 		b, err := httputil.DumpResponse(resp, true)
 		if err != nil {
 			log.Fatalln(err)
 		}
+		c.logger.Errorf("failed to create compute, status code: %v, error msg: %v full: %v", resp.StatusCode, resp.Status, string(b))
+
 		return resource.CreateComputeResponse{}, fmt.Errorf("failed to create compute, status code: %v, error msg: %v", resp.StatusCode, string(b))
 	}
 
@@ -722,7 +786,7 @@ func (c *clusterService) ListLoadBalancer(ctx context.Context, authToken, loadBa
 	return respDecoder, nil
 }
 func (c *clusterService) AddDNSRecordToCloudflare(ctx context.Context, loadBalancerIP, loadBalancerSubdomainHash, clusterName string) (resource.AddDNSRecordResponse, error) {
-	data, err := json.Marshal(request.AddDNSRecordCFRequest{
+	addDNSRecordCFRequest := &request.AddDNSRecordCFRequest{
 		Content: loadBalancerIP,
 		Name:    fmt.Sprintf("%s.%s", loadBalancerSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
 		Proxied: false,
@@ -730,7 +794,8 @@ func (c *clusterService) AddDNSRecordToCloudflare(ctx context.Context, loadBalan
 		Comment: clusterName,
 		Tags:    []string{},
 		TTL:     3600,
-	})
+	}
+	data, err := json.Marshal(addDNSRecordCFRequest)
 	if err != nil {
 		c.logger.Errorf("failed to marshal request, error: %v", err)
 		return resource.AddDNSRecordResponse{}, err
@@ -1142,6 +1207,9 @@ func (c *clusterService) CheckLoadBalancerStatus(ctx context.Context, authToken,
 			fmt.Printf("Waiting for load balancer to be active, waited %v seconds\n", waitSeconds)
 			waitIterator++
 			waitSeconds = waitSeconds + 5
+		} else {
+			err := fmt.Errorf("failed to create load balancer, provisioning status is not ACTIVE")
+			return resource.ListLoadBalancerResponse{}, err
 		}
 		listLBResp, err := c.ListLoadBalancer(ctx, authToken, loadBalancerID)
 		if err != nil {
@@ -1156,13 +1224,15 @@ func (c *clusterService) CheckLoadBalancerStatus(ctx context.Context, authToken,
 }
 func (c *clusterService) CheckLoadBalancerOperationStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error) {
 	waitIterator := 0
-	waitSeconds := 20
+	waitSeconds := 35
 	for {
 		if waitIterator < 8 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
 			fmt.Printf("Waiting for load balancer operation to be ONLINE, waited %v seconds\n", waitSeconds)
 			waitIterator++
 			waitSeconds = waitSeconds + 5
+		} else {
+			return resource.ListLoadBalancerResponse{}, fmt.Errorf("failed to create load balancer, operation status is not ONLINE")
 		}
 		listLBResp, err := c.ListLoadBalancer(ctx, authToken, loadBalancerID)
 		if err != nil {
@@ -1282,12 +1352,20 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 		return resource.GetClusterResponse{}, err
 	}
 
+	var clusterWorkerServerGroupsUUIDString []string
+	err = json.Unmarshal(cluster.ClusterWorkerServerGroupsUUID, &clusterWorkerServerGroupsUUIDString)
+	if err != nil {
+		c.logger.Errorf("failed to unmarshal cluster worker server groups uuid, error: %v", err)
+		return resource.GetClusterResponse{}, err
+	}
+
 	clusterResp := resource.GetClusterResponse{
-		ClusterID:         cluster.ClusterUUID,
-		ProjectID:         cluster.ClusterProjectUUID,
-		KubernetesVersion: cluster.ClusterVersion,
-		ClusterAPIAccess:  cluster.ClusterAPIAccess,
-		ClusterStatus:     cluster.ClusterStatus,
+		ClusterID:                     cluster.ClusterUUID,
+		ProjectID:                     cluster.ClusterProjectUUID,
+		KubernetesVersion:             cluster.ClusterVersion,
+		ClusterAPIAccess:              cluster.ClusterAPIAccess,
+		ClusterWorkerServerGroupsUUID: clusterWorkerServerGroupsUUIDString,
+		ClusterStatus:                 cluster.ClusterStatus,
 	}
 
 	return clusterResp, nil
@@ -1332,4 +1410,85 @@ func (c *clusterService) CheckAuthToken(ctx context.Context, authToken, projectU
 	}
 
 	return nil
+}
+
+func (c *clusterService) CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.CreateServerGroupResponse, error) {
+	data, err := json.Marshal(req)
+	if err != nil {
+		c.logger.Errorf("failed to marshal request, error: %v", err)
+		return resource.CreateServerGroupResponse{}, err
+	}
+
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath), bytes.NewBuffer(data))
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return resource.CreateServerGroupResponse{}, err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return resource.CreateServerGroupResponse{}, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Errorf("failed to create server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.CreateServerGroupResponse{}, fmt.Errorf("failed to create server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	var respDecoder resource.CreateServerGroupResponse
+	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	if err != nil {
+		c.logger.Errorf("failed to decode response, error: %v", err)
+		return resource.CreateServerGroupResponse{}, err
+	}
+	return respDecoder, nil
+}
+func (c *clusterService) CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error) {
+	data, err := json.Marshal(req)
+	if err != nil {
+		c.logger.Errorf("failed to marshal request, error: %v", err)
+		return resource.CreateFloatingIPResponse{}, err
+	}
+	fmt.Printf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath)
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath), bytes.NewBuffer(data))
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return resource.CreateFloatingIPResponse{}, err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return resource.CreateFloatingIPResponse{}, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		c.logger.Errorf("failed to create floating ip, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		b, err := httputil.DumpResponse(resp, true)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		return resource.CreateFloatingIPResponse{}, fmt.Errorf("failed to create floating ip, status code: %v, error msg: %v, full msg: %v", resp.StatusCode, resp.Status, string(b))
+	}
+
+	var respDecoder resource.CreateFloatingIPResponse
+	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
+	if err != nil {
+		c.logger.Errorf("failed to decode response, error: %v", err)
+		return resource.CreateFloatingIPResponse{}, err
+	}
+	return respDecoder, nil
 }

@@ -51,3 +51,12 @@ type SecurityGroupRuleForSG struct {
 	SecurityGroupID string `json:"security_group_id"`
 	RemoteGroupID   string `json:"remote_group_id"`
 }
+
+type CreateFloatingIPRequest struct {
+	FloatingIP FloatingIP `json:"floatingip"`
+}
+
+type FloatingIP struct {
+	FloatingNetworkID string `json:"floating_network_id"`
+	PortID            string `json:"port_id"`
+}
