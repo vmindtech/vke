@@ -11,6 +11,7 @@ type IClusterRepository interface {
 	GetClusterByUUID(ctx context.Context, uuid string) (*model.Cluster, error)
 	CreateCluster(ctx context.Context, cluster *model.Cluster) error
 	UpdateCluster(ctx context.Context, cluster *model.Cluster) error
+	DeleteUpdateCluster(ctx context.Context, cluster *model.Cluster, clusterUUID string) error
 }
 
 type ClusterRepository struct {
@@ -53,5 +54,17 @@ func (c *ClusterRepository) UpdateCluster(ctx context.Context, cluster *model.Cl
 		WithContext(ctx).
 		Where(&model.Cluster{ClusterUUID: cluster.ClusterUUID}).
 		Save(cluster).
+		Error
+}
+
+func (c *ClusterRepository) DeleteUpdateCluster(ctx context.Context, cluster *model.Cluster, clusterUUID string) error {
+	return c.mysqlInstance.
+		Database().
+		WithContext(ctx).
+		Where(&model.Cluster{ClusterUUID: clusterUUID}).
+		Updates(&model.Cluster{
+			ClusterDeleteDate: cluster.ClusterDeleteDate,
+			ClusterStatus:     cluster.ClusterStatus,
+		}).
 		Error
 }

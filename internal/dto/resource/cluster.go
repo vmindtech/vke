@@ -1,5 +1,7 @@
 package resource
 
+import "time"
+
 type ClusterInfoResource struct {
 	ClusterName string `json:"cluster_name"`
 	ClusterID   string `json:"cluster_id"`
@@ -37,5 +39,7 @@ type GetClusterResponse struct {
 }
 
 type DestroyCluster struct {
-	ClusterID string `json:"cluster_id"`
+	ClusterID         string    `json:"cluster_id"`
+	ClusterDeleteDate time.Time `json:"cluster_delete_date"`
+	ClusterStatus     string    `json:"cluster_status"`
 }
