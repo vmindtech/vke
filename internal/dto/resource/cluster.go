@@ -43,3 +43,8 @@ type DestroyCluster struct {
 	ClusterDeleteDate time.Time `json:"cluster_delete_date"`
 	ClusterStatus     string    `json:"cluster_status"`
 }
+
+type GetKubeConfigResponse struct {
+	ClusterUUID string `json:"cluster_uuid"`
+	KubeConfig  string `json:"kubeconfig"`
+}

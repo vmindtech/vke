@@ -52,6 +52,7 @@ type IClusterService interface {
 	DeleteSecurityGroup(ctx context.Context, authToken, clusterMasterSecurityGroup, clusterWorkerSecurityGroup string) error
 	DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error
 	DeleteDNSRecordFromCloudflare(ctx context.Context, dnsRecordID string) error
+	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
 }
 
 type clusterService struct {
@@ -2272,4 +2273,41 @@ func (c *clusterService) DeleteFloatingIP(ctx context.Context, authToken, floati
 	}
 
 	return nil
+}
+
+func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error) {
+	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
+	if err != nil {
+		c.logger.Errorf("failed to get cluster, error: %v", err)
+		return resource.GetKubeConfigResponse{}, err
+	}
+
+	if cluster == nil {
+		c.logger.Errorf("failed to get cluster")
+		return resource.GetKubeConfigResponse{}, err
+	}
+
+	if cluster.ClusterProjectUUID == "" {
+		c.logger.Errorf("failed to get cluster")
+		return resource.GetKubeConfigResponse{}, err
+	}
+
+	err = c.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	if err != nil {
+		c.logger.Errorf("failed to check auth token, error: %v", err)
+		return resource.GetKubeConfigResponse{}, err
+	}
+
+	kubeConfig, err := c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, cluster.ClusterUUID)
+	if err != nil {
+		c.logger.Errorf("failed to get kube config, error: %v", err)
+		return resource.GetKubeConfigResponse{}, err
+	}
+
+	clusterResp := resource.GetKubeConfigResponse{
+		ClusterUUID: kubeConfig.ClusterUUID,
+		KubeConfig:  kubeConfig.KubeConfig,
+	}
+
+	return clusterResp, nil
 }
