@@ -30,14 +30,7 @@ type Cluster struct {
 	WorkerSecurityGroup           string         `json:"worker_security_group" gorm:"type:varchar(50)"`
 	ClusterAPIAccess              string         `json:"cluster_api_access" gorm:"type:varchar(255)"`
 	FloatingIPUUID                string         `json:"floating_ip_uuid" gorm:"type:varchar(36)"`
-}
-
-type AuditLog struct {
-	ID          int       `json:"id" gorm:"column:id;type:int(11);AUTO_INCREMENT;primary_key"`
-	ClusterUUID string    `json:"cluster_uuid" gorm:"column:cluster_uuid;type:varchar(36)"`
-	NodeUUID    string    `json:"node_uuid" gorm:"column:node_uuid;type:varchar(36)"`
-	Event       string    `json:"event" gorm:"column:event;type:text"`
-	CreateDate  time.Time `json:"create_date" gorm:"column:create_date;type:datetime"`
+	ClusterCloudflareRecordID     string         `json:"cluster_cloudflare_record_id" gorm:"type:varchar(36)"`
 }
 
 type Kubeconfigs struct {
@@ -50,10 +43,6 @@ type Kubeconfigs struct {
 
 func (m *Kubeconfigs) TableName() string {
 	return "kubeconfigs"
-}
-
-func (m *AuditLog) TableName() string {
-	return "audit_log"
 }
 
 func (Cluster) TableName() string {
