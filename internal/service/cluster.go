@@ -51,6 +51,7 @@ type IClusterService interface {
 	DeleteComputeandPort(ctx context.Context, authToken, serverID, clusterMasterServerGroupUUID string, clusterWorkerGroupsUUID []string) error
 	DeleteSecurityGroup(ctx context.Context, authToken, clusterMasterSecurityGroup, clusterWorkerSecurityGroup string) error
 	DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error
+	DeleteDNSRecordFromCloudflare(ctx context.Context, dnsRecordID string) error
 }
 
 type clusterService struct {
@@ -108,6 +109,21 @@ const (
 )
 
 func (c *clusterService) CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest) (resource.CreateClusterResponse, error) {
+	clusterUUID := uuid.New().String()
+
+	auditLog := &model.AuditLog{
+		ClusterUUID: clusterUUID,
+		ProjectUUID: req.ProjectID,
+		Event:       "Cluster Create started",
+		CreateDate:  time.Now(),
+	}
+
+	err := c.repository.AuditLog().CreateAuditLog(ctx, auditLog)
+	if err != nil {
+		c.logger.Errorf("failed to create audit log, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
 	floatingIPUUID := ""
 	// Create Load Balancer for masters
 	createLBReq := &request.CreateLoadBalancerRequest{
@@ -213,7 +229,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	clModel := &model.Cluster{
-		ClusterUUID:                   uuid.New().String(),
+		ClusterUUID:                   clusterUUID,
 		ClusterName:                   req.ClusterName,
 		ClusterCreateDate:             time.Now(),
 		ClusterVersion:                req.KubernetesVersion,
@@ -665,6 +681,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	clModel.ClusterStatus = ActiveClusterStatus
 	clModel.ClusterEndpoint = addDNSResp.Result.Name
 	clModel.ClusterUpdateDate = time.Now()
+	clModel.ClusterCloudflareRecordID = addDNSResp.Result.ID
 
 	err = c.repository.Cluster().UpdateCluster(ctx, clModel)
 	if err != nil {
@@ -688,6 +705,19 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		MasterSecurityGroup:           clModel.MasterSecurityGroup,
 		WorkerSecurityGroup:           clModel.WorkerSecurityGroup,
 		ClusterAPIAccess:              clModel.ClusterAPIAccess,
+		ClusterVersion:                clModel.ClusterVersion,
+	}
+
+	auditLog = &model.AuditLog{
+		ClusterUUID: clModel.ClusterUUID,
+		ProjectUUID: clModel.ClusterProjectUUID,
+		Event:       "Cluster Create completed",
+		CreateDate:  time.Now(),
+	}
+	err = c.repository.AuditLog().CreateAuditLog(ctx, auditLog)
+	if err != nil {
+		c.logger.Errorf("failed to create audit log, error: %v", err)
+		return resource.CreateClusterResponse{}, err
 	}
 
 	return createClusterResp, nil
@@ -847,6 +877,33 @@ func (c *clusterService) AddDNSRecordToCloudflare(ctx context.Context, loadBalan
 
 	return respDecoder, nil
 }
+
+func (c *clusterService) DeleteDNSRecordFromCloudflare(ctx context.Context, dnsRecordID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/dns_records/%s", cloudflareEndpoint, config.GlobalConfig.GetCloudflareConfig().ZoneID, dnsRecordID), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+
+	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	return nil
+}
+
 func (c *clusterService) ListSubnetByName(ctx context.Context, subnetName, authToken string) (resource.ListSubnetByNameResponse, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s?name=%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, subnetsPath, subnetName), nil)
 	if err != nil {
@@ -1531,6 +1588,21 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		c.logger.Errorf("failed to check auth token, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
+
+	// Create auditlog for cluster destroy
+	auditLog := &model.AuditLog{
+		ClusterUUID: cluster.ClusterUUID,
+		ProjectUUID: cluster.ClusterProjectUUID,
+		Event:       "Cluster destroy started",
+		CreateDate:  time.Now(),
+	}
+
+	err = c.repository.AuditLog().CreateAuditLog(ctx, auditLog)
+	if err != nil {
+		c.logger.Errorf("failed to create audit log, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+
 	//Delete LoadBalancer Pool and Listener
 
 	deleteLoadBalancerListenerResp := c.DeleteLoadbalancerListener(ctx, authToken, cluster.ClusterLoadbalancerUUID)
@@ -1546,6 +1618,13 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 	deleteLoadBalancerResp := c.DeleteLoadbalancer(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 	if deleteLoadBalancerResp != nil {
 		c.logger.Errorf("failed to delete load balancer, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+
+	//Delete DNS Record
+	err = c.DeleteDNSRecordFromCloudflare(ctx, cluster.ClusterCloudflareRecordID)
+	if err != nil {
+		c.logger.Errorf("failed to delete dns record, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
 
@@ -1595,6 +1674,18 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		ClusterID:         cluster.ClusterUUID,
 		ClusterDeleteDate: cluster.ClusterDeleteDate,
 		ClusterStatus:     DeletedClusterStatus,
+	}
+
+	auditLog = &model.AuditLog{
+		ClusterUUID: cluster.ClusterUUID,
+		ProjectUUID: cluster.ClusterProjectUUID,
+		Event:       "Cluster destroy completed",
+		CreateDate:  time.Now(),
+	}
+	err = c.repository.AuditLog().CreateAuditLog(ctx, auditLog)
+	if err != nil {
+		c.logger.Errorf("failed to create audit log, error: %v", err)
+		return resource.DestroyCluster{}, err
 	}
 
 	return clusterResp, nil

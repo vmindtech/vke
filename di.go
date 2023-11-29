@@ -16,7 +16,8 @@ func InitHealthCheckHandler() handler.IHealthCheckHandler {
 
 func InitRoute(l *logrus.Logger, mysqlInstance mysqldb.IMysqlInstance) route.IRoute {
 	iClusterRepository := repository.NewClusterRepository(mysqlInstance)
-	iRepository := repository.NewRepository(mysqlInstance, iClusterRepository)
+	iAuditRepository := repository.NewAuditLogRepository(mysqlInstance)
+	iRepository := repository.NewRepository(mysqlInstance, iClusterRepository, iAuditRepository)
 
 	iClusterService := service.NewClusterService(l, iRepository)
 	iAppService := service.NewAppService(l, iRepository, iClusterService)

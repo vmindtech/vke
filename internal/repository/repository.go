@@ -9,6 +9,7 @@ import (
 
 type IRepository interface {
 	Cluster() IClusterRepository
+	AuditLog() IAuditLogRepository
 	StartDBTransaction(ctx context.Context) (*gorm.DB, error)
 	CommitDBTransaction(tx *gorm.DB) error
 }
@@ -16,12 +17,14 @@ type IRepository interface {
 type repository struct {
 	mysqlInstance mysqldb.IMysqlInstance
 	cluster       IClusterRepository
+	audit         IAuditLogRepository
 }
 
-func NewRepository(mi mysqldb.IMysqlInstance, cr IClusterRepository) IRepository {
+func NewRepository(mi mysqldb.IMysqlInstance, cr IClusterRepository, ar IAuditLogRepository) IRepository {
 	return &repository{
 		mysqlInstance: mi,
 		cluster:       cr,
+		audit:         ar,
 	}
 }
 
@@ -49,4 +52,8 @@ func (r *repository) CommitDBTransaction(tx *gorm.DB) error {
 
 func (r *repository) Cluster() IClusterRepository {
 	return r.cluster
+}
+
+func (r *repository) AuditLog() IAuditLogRepository {
+	return r.audit
 }
