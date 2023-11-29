@@ -19,6 +19,7 @@ type IAppHandler interface {
 	ClusterInfo(c *fiber.Ctx) error
 	CreateCluster(c *fiber.Ctx) error
 	GetCluster(c *fiber.Ctx) error
+	DestroyCluster(c *fiber.Ctx) error
 }
 
 type appHandler struct {
@@ -79,6 +80,24 @@ func (a *appHandler) GetCluster(c *fiber.Ctx) error {
 	}
 
 	resp, err := a.appService.Cluster().GetCluster(ctx, authToken, clusterID)
+	if err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+	}
+
+	return c.JSON(response.NewSuccessResponse(resp))
+}
+
+func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
+	clusterID := c.Params("cluster_id")
+
+	ctx := context.Background()
+
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+	}
+
+	resp, err := a.appService.Cluster().DestroyCluster(ctx, authToken, clusterID)
 	if err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
 	}

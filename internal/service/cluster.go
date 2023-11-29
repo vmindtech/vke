@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -42,6 +43,14 @@ type IClusterService interface {
 	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
 	CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.CreateServerGroupResponse, error)
 	CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error)
+	DestroyCluster(ctx context.Context, authToken, clusterID string) (resource.DestroyCluster, error)
+	DeleteLoadbalancerPool(ctx context.Context, authToken, loadBalancerID string) error
+	DeleteLoadbalancerListener(ctx context.Context, authToken, loadBalancerID string) error
+	DeleteLoadbalancer(ctx context.Context, authToken, loadBalancerID string) error
+	DeleteServerGroup(ctx context.Context, authToken, clusterMasterServerGroupUUID string, clusterWorkerServerGroupsUUID []string) error
+	DeleteComputeandPort(ctx context.Context, authToken, serverID, clusterMasterServerGroupUUID string, clusterWorkerGroupsUUID []string) error
+	DeleteSecurityGroup(ctx context.Context, authToken, clusterMasterSecurityGroup, clusterWorkerSecurityGroup string) error
+	DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error
 }
 
 type clusterService struct {
@@ -90,6 +99,8 @@ const (
 	serverGroupPath        = "v2.1/os-server-groups"
 	amphoraePath           = "v2/octavia/amphorae"
 	floatingIPPath         = "v2.0/floatingips"
+	listernersPath         = "v2/lbaas/listeners"
+	osInterfacePath        = "os-interface"
 )
 
 const (
@@ -97,6 +108,7 @@ const (
 )
 
 func (c *clusterService) CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest) (resource.CreateClusterResponse, error) {
+	floatingIPUUID := ""
 	// Create Load Balancer for masters
 	createLBReq := &request.CreateLoadBalancerRequest{
 		LoadBalancer: request.LoadBalancer{
@@ -139,6 +151,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			return resource.CreateClusterResponse{}, err
 		}
 		loadbalancerIP = createFloatingIPResponse.FloatingIP.FloatingIP
+		floatingIPUUID = createFloatingIPResponse.FloatingIP.ID
 	}
 	// Create security group for master and worker
 	createSecurityGroupReq := &request.CreateSecurityGroupRequest{
@@ -216,8 +229,8 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		WorkerType:                    req.WorkerInstanceFlavorID,
 		WorkerDiskSize:                req.WorkerDiskSizeGB,
 		ClusterAPIAccess:              req.ClusterAPIAccess,
+		FloatingIPUUID:                floatingIPUUID,
 	}
-
 	err = c.repository.Cluster().CreateCluster(ctx, clModel)
 	if err != nil {
 		c.logger.Errorf("failed to create cluster, error: %v", err)
@@ -316,7 +329,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		},
 	}
 	portRequest.Port.Name = fmt.Sprintf("%v-master-1-port", req.ClusterName)
-
+	portRequest.Port.SecurityGroups = []string{createMasterSecurityResp.SecurityGroup.ID}
 	portResp, err := c.CreateNetworkPort(ctx, authToken, *portRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create network port, error: %v", err)
@@ -632,6 +645,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	for i := 1; i <= req.WorkerCount; i++ {
 		portRequest.Port.Name = fmt.Sprintf("%v-worker-%v-port", req.ClusterName, i)
+		portRequest.Port.SecurityGroups = []string{createWorkerSecurityResp.SecurityGroup.ID}
 		portResp, err = c.CreateNetworkPort(ctx, authToken, *portRequest)
 		if err != nil {
 			c.logger.Errorf("failed to create network port, error: %v", err)
@@ -1358,13 +1372,15 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 		c.logger.Errorf("failed to unmarshal cluster worker server groups uuid, error: %v", err)
 		return resource.GetClusterResponse{}, err
 	}
-
 	clusterResp := resource.GetClusterResponse{
 		ClusterID:                     cluster.ClusterUUID,
 		ProjectID:                     cluster.ClusterProjectUUID,
 		KubernetesVersion:             cluster.ClusterVersion,
 		ClusterAPIAccess:              cluster.ClusterAPIAccess,
 		ClusterWorkerServerGroupsUUID: clusterWorkerServerGroupsUUIDString,
+		ClusterMasterServerGroupUUID:  cluster.ClusterMasterServerGroupUUID,
+		ClusterMasterSecurityGroup:    cluster.MasterSecurityGroup,
+		ClusterWorkerSecurityGroup:    cluster.WorkerSecurityGroup,
 		ClusterStatus:                 cluster.ClusterStatus,
 	}
 
@@ -1491,4 +1507,678 @@ func (c *clusterService) CreateFloatingIP(ctx context.Context, authToken string,
 		return resource.CreateFloatingIPResponse{}, err
 	}
 	return respDecoder, nil
+}
+
+func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterID string) (resource.DestroyCluster, error) {
+	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
+	if err != nil {
+		c.logger.Errorf("failed to get cluster, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+
+	if cluster == nil {
+		c.logger.Errorf("failed to get cluster")
+		return resource.DestroyCluster{}, err
+	}
+
+	if cluster.ClusterProjectUUID == "" {
+		c.logger.Errorf("failed to get cluster")
+		return resource.DestroyCluster{}, err
+	}
+
+	err = c.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	if err != nil {
+		c.logger.Errorf("failed to check auth token, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+	//Delete LoadBalancer Pool and Listener
+
+	deleteLoadBalancerListenerResp := c.DeleteLoadbalancerListener(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	if deleteLoadBalancerListenerResp != nil {
+		c.logger.Errorf("failed to delete load balancer pool, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+	deleteLoadBalancerPoolResp := c.DeleteLoadbalancerPool(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	if deleteLoadBalancerPoolResp != nil {
+		c.logger.Errorf("failed to delete load balancer pool, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+	deleteLoadBalancerResp := c.DeleteLoadbalancer(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	if deleteLoadBalancerResp != nil {
+		c.logger.Errorf("failed to delete load balancer, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+
+	//Delete FloatingIP
+	if cluster.ClusterAPIAccess == "public" {
+		deleteFloatingIPResp := c.DeleteFloatingIP(ctx, authToken, cluster.FloatingIPUUID)
+		if deleteFloatingIPResp != nil {
+			c.logger.Errorf("failed to delete floating ip, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
+	}
+
+	var clusterWorkerServerGroupsUUIDString []string
+	err = json.Unmarshal(cluster.ClusterWorkerServerGroupsUUID, &clusterWorkerServerGroupsUUIDString)
+	if err != nil {
+		c.logger.Errorf("failed to unmarshal cluster worker server groups uuid, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+	deleteComputeResp := c.DeleteComputeandPort(ctx, authToken, cluster.ClusterMasterServerGroupUUID, cluster.ClusterMasterServerGroupUUID, clusterWorkerServerGroupsUUIDString)
+	if deleteComputeResp != nil {
+		c.logger.Errorf("failed to delete compute, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+
+	deleteServerGroupResp := c.DeleteServerGroup(ctx, authToken, cluster.ClusterMasterServerGroupUUID, clusterWorkerServerGroupsUUIDString)
+	if deleteServerGroupResp != nil {
+		c.logger.Errorf("failed to delete server group, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+	deleteSecurityGroupResp := c.DeleteSecurityGroup(ctx, authToken, cluster.MasterSecurityGroup, cluster.WorkerSecurityGroup)
+	if deleteSecurityGroupResp != nil {
+		c.logger.Errorf("failed to delete security group, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+	clModel := &model.Cluster{
+		ClusterStatus:     DeletedClusterStatus,
+		ClusterDeleteDate: time.Now(),
+	}
+
+	err = c.repository.Cluster().DeleteUpdateCluster(ctx, clModel, cluster.ClusterUUID)
+	if err != nil {
+		c.logger.Errorf("failed to update cluster, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+
+	clusterResp := resource.DestroyCluster{
+		ClusterID:         cluster.ClusterUUID,
+		ClusterDeleteDate: cluster.ClusterDeleteDate,
+		ClusterStatus:     DeletedClusterStatus,
+	}
+
+	return clusterResp, nil
+}
+
+func (c *clusterService) DeleteLoadbalancerPool(ctx context.Context, authToken, loadBalancerID string) error {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.logger.Errorf("failed to read response body, error: %v", err)
+		return err
+	}
+	var respdata map[string]map[string]interface{}
+	err = json.Unmarshal([]byte(body), &respdata)
+	if err != nil {
+		c.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		return err
+	}
+
+	poolsInterface := respdata["loadbalancer"]["pools"]
+
+	pools := poolsInterface.([]interface{})
+	waitIterator := 0
+	waitSeconds := 10
+	for _, pool := range pools {
+		poolID := pool.(map[string]interface{})["id"].(string)
+		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
+		if err != nil {
+			c.logger.Errorf("failed to create request, error: %v", err)
+			return err
+		}
+
+		r.Header.Add("X-Auth-Token", authToken)
+
+		client = &http.Client{}
+		resp, err = client.Do(r)
+		if err != nil {
+			c.logger.Errorf("failed to send request, error: %v", err)
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNoContent {
+			c.logger.Errorf("failed to delete load balancer pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			return fmt.Errorf("failed to delete load balancer pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		}
+
+		for {
+			if waitIterator < 8 {
+				time.Sleep(time.Duration(waitSeconds) * time.Second)
+				fmt.Printf("Waiting for load balancer pool to be deleted, waited %v seconds\n", waitSeconds)
+				waitIterator++
+				waitSeconds = waitSeconds + 5
+				r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
+				if err != nil {
+					c.logger.Errorf("failed to create request, error: %v", err)
+					return err
+				}
+
+				r.Header.Add("X-Auth-Token", authToken)
+
+				client = &http.Client{}
+				resp, err = client.Do(r)
+				if err != nil {
+					c.logger.Errorf("failed to send request, error: %v", err)
+					return err
+				}
+				defer resp.Body.Close()
+
+				if resp.StatusCode == http.StatusNotFound {
+					break
+				}
+			} else {
+				return fmt.Errorf("failed to delete load balancer pool, provisioning status is not DELETED")
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *clusterService) DeleteLoadbalancerListener(ctx context.Context, authToken, loadBalancerID string) error {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.logger.Errorf("failed to read response body, error: %v", err)
+		return err
+	}
+	var respdata map[string]map[string]interface{}
+	err = json.Unmarshal([]byte(body), &respdata)
+	if err != nil {
+		c.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		return err
+	}
+
+	listenersInterface := respdata["loadbalancer"]["listeners"]
+
+	listeners := listenersInterface.([]interface{})
+
+	waitIterator := 0
+	waitSeconds := 10
+
+	for _, listener := range listeners {
+		listenerID := listener.(map[string]interface{})["id"].(string)
+		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
+		if err != nil {
+			c.logger.Errorf("failed to create request, error: %v", err)
+			return err
+		}
+
+		r.Header.Add("X-Auth-Token", authToken)
+
+		client = &http.Client{}
+		resp, err = client.Do(r)
+		if err != nil {
+			c.logger.Errorf("failed to send request, error: %v", err)
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			c.logger.Errorf("failed to delete load balancer listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			return fmt.Errorf("failed to delete load balancer listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		}
+
+		for {
+			if waitIterator < 8 {
+				time.Sleep(time.Duration(waitSeconds) * time.Second)
+				fmt.Printf("Waiting for load balancer listener to be deleted, waited %v seconds\n", waitSeconds)
+				waitIterator++
+				waitSeconds = waitSeconds + 5
+				r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
+				if err != nil {
+					c.logger.Errorf("failed to create request, error: %v", err)
+					return err
+				}
+
+				r.Header.Add("X-Auth-Token", authToken)
+
+				client = &http.Client{}
+				resp, err = client.Do(r)
+				if err != nil {
+					c.logger.Errorf("failed to send request, error: %v", err)
+					return err
+				}
+				defer resp.Body.Close()
+
+				if resp.StatusCode == http.StatusNotFound {
+					break
+				}
+			} else {
+				return fmt.Errorf("failed to delete load balancer listener, provisioning status is not DELETED")
+			}
+		}
+	}
+	return nil
+}
+func (c *clusterService) DeleteLoadbalancer(ctx context.Context, authToken, loadBalancerID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		c.logger.Errorf("failed to delete load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	return nil
+}
+
+func (c *clusterService) DeleteComputeandPort(ctx context.Context, authToken, serverID, clusterMasterServerGroupUUID string, clusterWorkerGroupsUUID []string) error {
+	for _, member := range clusterWorkerGroupsUUID {
+		r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, member), nil)
+		if err != nil {
+			c.logger.Errorf("failed to create request, error: %v", err)
+			return err
+		}
+
+		r.Header.Add("X-Auth-Token", authToken)
+		r.Header.Add("Content-Type", "application/json")
+
+		client := &http.Client{}
+		resp, err := client.Do(r)
+		if err != nil {
+			c.logger.Errorf("failed to send request, error: %v", err)
+			return err
+		}
+
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			c.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			return fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.logger.Errorf("failed to read response body, error: %v", err)
+			return err
+		}
+		var respData map[string]map[string]interface{}
+		err = json.Unmarshal([]byte(body), &respData)
+
+		serverGroup := respData["server_group"]
+
+		membersInterface := serverGroup["members"]
+
+		members := membersInterface.([]interface{})
+
+		for _, instance := range members {
+			r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance, osInterfacePath), nil)
+			if err != nil {
+				c.logger.Errorf("failed to create request, error: %v", err)
+				return err
+			}
+
+			r.Header.Add("X-Auth-Token", authToken)
+
+			client = &http.Client{}
+			resp, err = client.Do(r)
+			if err != nil {
+				c.logger.Errorf("failed to send request, error: %v", err)
+				return err
+			}
+
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				c.logger.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+				return fmt.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			}
+
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				c.logger.Errorf("failed to read response body, error: %v", err)
+				return err
+			}
+			var respData map[string][]map[string]interface{}
+			err = json.Unmarshal([]byte(body), &respData)
+
+			attachments := respData["interfaceAttachments"]
+
+			portID := attachments[0]["port_id"].(string)
+
+			r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort, portID), nil)
+			if err != nil {
+				c.logger.Errorf("failed to create request, error: %v", err)
+				return err
+			}
+
+			r.Header.Add("X-Auth-Token", authToken)
+
+			client = &http.Client{}
+			resp, err = client.Do(r)
+			if err != nil {
+				c.logger.Errorf("failed to send request, error: %v", err)
+				return err
+			}
+
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusNoContent {
+				c.logger.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+				return fmt.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			}
+
+			r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance), nil)
+			if err != nil {
+				c.logger.Errorf("failed to create request, error: %v", err)
+				return err
+			}
+
+			r.Header.Add("X-Auth-Token", authToken)
+			r.Header.Add("Content-Type", "application/json")
+
+			client = &http.Client{}
+			resp, err = client.Do(r)
+			if err != nil {
+				c.logger.Errorf("failed to send request, error: %v", err)
+				return err
+			}
+
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusNoContent {
+				c.logger.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+				return fmt.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			}
+
+		}
+	}
+
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, clusterMasterServerGroupUUID), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.logger.Errorf("failed to read response body, error: %v", err)
+		return err
+	}
+	var respData map[string]map[string]interface{}
+	err = json.Unmarshal([]byte(body), &respData)
+
+	serverGroup := respData["server_group"]
+
+	membersInterface := serverGroup["members"]
+
+	members := membersInterface.([]interface{})
+
+	for _, instance := range members {
+		r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance, osInterfacePath), nil)
+		if err != nil {
+			c.logger.Errorf("failed to create request, error: %v", err)
+			return err
+		}
+
+		r.Header.Add("X-Auth-Token", authToken)
+
+		client = &http.Client{}
+		resp, err = client.Do(r)
+		if err != nil {
+			c.logger.Errorf("failed to send request, error: %v", err)
+			return err
+		}
+
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			c.logger.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			return fmt.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			c.logger.Errorf("failed to read response body, error: %v", err)
+			return err
+		}
+		var respData map[string][]map[string]interface{}
+		err = json.Unmarshal([]byte(body), &respData)
+
+		attachments := respData["interfaceAttachments"]
+
+		portID := attachments[0]["port_id"].(string)
+
+		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort, portID), nil)
+		if err != nil {
+			c.logger.Errorf("failed to create request, error: %v", err)
+			return err
+		}
+
+		r.Header.Add("X-Auth-Token", authToken)
+
+		client = &http.Client{}
+		resp, err = client.Do(r)
+		if err != nil {
+			c.logger.Errorf("failed to send request, error: %v", err)
+			return err
+		}
+
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNoContent {
+			c.logger.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			return fmt.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		}
+
+		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance), nil)
+		if err != nil {
+			c.logger.Errorf("failed to create request, error: %v", err)
+			return err
+		}
+
+		r.Header.Add("X-Auth-Token", authToken)
+		r.Header.Add("Content-Type", "application/json")
+
+		client = &http.Client{}
+		resp, err = client.Do(r)
+		if err != nil {
+			c.logger.Errorf("failed to send request, error: %v", err)
+			return err
+		}
+
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNoContent {
+			c.logger.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			return fmt.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		}
+	}
+	return nil
+}
+
+func (c *clusterService) DeleteServerGroup(ctx context.Context, authToken, clusterMasterServerGroupUUID string, clusterWorkerServerGroupsUUID []string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, clusterMasterServerGroupUUID), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		c.logger.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	for _, member := range clusterWorkerServerGroupsUUID {
+		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, member), nil)
+		if err != nil {
+			c.logger.Errorf("failed to create request, error: %v", err)
+			return err
+		}
+
+		r.Header.Add("X-Auth-Token", authToken)
+
+		client = &http.Client{}
+		resp, err = client.Do(r)
+		if err != nil {
+			c.logger.Errorf("failed to send request, error: %v", err)
+			return err
+		}
+
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNoContent {
+			c.logger.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			return fmt.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		}
+
+	}
+
+	return nil
+}
+
+func (c *clusterService) DeleteSecurityGroup(ctx context.Context, authToken, clusterMasterSecurityGroup, clusterWorkerSecurityGroup string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath, clusterMasterSecurityGroup), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		c.logger.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath, clusterWorkerSecurityGroup), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client = &http.Client{}
+	resp, err = client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		c.logger.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	return nil
+}
+
+func (c *clusterService) DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath, floatingIPID), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		c.logger.Errorf("failed to delete floating ip, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete floating ip, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	return nil
 }

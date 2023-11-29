@@ -1,5 +1,7 @@
 package resource
 
+import "time"
+
 type ClusterInfoResource struct {
 	ClusterName string `json:"cluster_name"`
 	ClusterID   string `json:"cluster_id"`
@@ -30,5 +32,14 @@ type GetClusterResponse struct {
 	KubernetesVersion             string   `json:"kubernetesVersion"`
 	ClusterAPIAccess              string   `json:"clusterApiAccess"`
 	ClusterWorkerServerGroupsUUID []string `json:"clusterWorkerServerGroupsUUID"`
+	ClusterMasterServerGroupUUID  string   `json:"clusterMasterServerGroupUUID"`
+	ClusterMasterSecurityGroup    string   `json:"clusterMasterSecurityGroup"`
+	ClusterWorkerSecurityGroup    string   `json:"clusterWorkerSecurityGroup"`
 	ClusterStatus                 string   `json:"clusterStatus"`
+}
+
+type DestroyCluster struct {
+	ClusterID         string    `json:"cluster_id"`
+	ClusterDeleteDate time.Time `json:"cluster_delete_date"`
+	ClusterStatus     string    `json:"cluster_status"`
 }
