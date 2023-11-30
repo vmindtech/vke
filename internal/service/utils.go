@@ -39,3 +39,8 @@ func GetRandomStringFromArray(a []string) string {
 	i := rand.Intn(len(a))
 	return a[i]
 }
+
+func IsValidBase64(s string) bool {
+	_, err := base64.StdEncoding.DecodeString(s)
+	return err == nil
+}

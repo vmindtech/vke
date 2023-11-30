@@ -9,6 +9,7 @@ import (
 
 type IKubeconfigRepository interface {
 	GetKubeconfigByUUID(ctx context.Context, clusterUUID string) (*model.Kubeconfigs, error)
+	CreateKubeconfig(ctx context.Context, kubeconfig *model.Kubeconfigs) error
 }
 
 type KubeconfigRepository struct {
@@ -35,4 +36,12 @@ func (k *KubeconfigRepository) GetKubeconfigByUUID(ctx context.Context, clusterU
 		return nil, err
 	}
 	return &kubeconfig, nil
+}
+
+func (k *KubeconfigRepository) CreateKubeconfig(ctx context.Context, kubeconfig *model.Kubeconfigs) error {
+	return k.mysqlInstance.
+		Database().
+		WithContext(ctx).
+		Create(kubeconfig).
+		Error
 }

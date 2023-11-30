@@ -24,6 +24,7 @@ type IAppHandler interface {
 	GetCluster(c *fiber.Ctx) error
 	DestroyCluster(c *fiber.Ctx) error
 	GetKubeConfig(c *fiber.Ctx) error
+	CreateKubeconfig(c *fiber.Ctx) error
 }
 
 type appHandler struct {
@@ -133,4 +134,25 @@ func (a *appHandler) GetKubeConfig(c *fiber.Ctx) error {
 	c.Set("Content-Type", "application/x-yaml")
 
 	return c.SendStream(strings.NewReader(string(decodedKubeConfig)), len(decodedKubeConfig))
+}
+
+func (a *appHandler) CreateKubeconfig(c *fiber.Ctx) error {
+	var req request.CreateKubeconfigRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
+	}
+
+	ctx := context.Background()
+
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+	}
+
+	resp, err := a.appService.Cluster().CreateKubeConfig(ctx, authToken, req)
+	if err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+	}
+
+	return c.JSON(response.NewSuccessResponse(resp))
 }
