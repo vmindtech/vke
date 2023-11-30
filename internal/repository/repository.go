@@ -10,6 +10,7 @@ import (
 type IRepository interface {
 	Cluster() IClusterRepository
 	AuditLog() IAuditLogRepository
+	Kubeconfig() IKubeconfigRepository
 	StartDBTransaction(ctx context.Context) (*gorm.DB, error)
 	CommitDBTransaction(tx *gorm.DB) error
 }
@@ -18,13 +19,15 @@ type repository struct {
 	mysqlInstance mysqldb.IMysqlInstance
 	cluster       IClusterRepository
 	audit         IAuditLogRepository
+	kubeconfig    IKubeconfigRepository
 }
 
-func NewRepository(mi mysqldb.IMysqlInstance, cr IClusterRepository, ar IAuditLogRepository) IRepository {
+func NewRepository(mi mysqldb.IMysqlInstance, cr IClusterRepository, ar IAuditLogRepository, kr IKubeconfigRepository) IRepository {
 	return &repository{
 		mysqlInstance: mi,
 		cluster:       cr,
 		audit:         ar,
+		kubeconfig:    kr,
 	}
 }
 
@@ -56,4 +59,8 @@ func (r *repository) Cluster() IClusterRepository {
 
 func (r *repository) AuditLog() IAuditLogRepository {
 	return r.audit
+}
+
+func (r *repository) Kubeconfig() IKubeconfigRepository {
+	return r.kubeconfig
 }
