@@ -2,6 +2,9 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -121,5 +124,13 @@ func (a *appHandler) GetKubeConfig(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
 	}
 
-	return c.JSON(response.NewSuccessResponse(resp))
+	decodedKubeConfig, err := base64.StdEncoding.DecodeString(resp.KubeConfig)
+	if err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+	}
+
+	c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", resp.ClusterUUID))
+	c.Set("Content-Type", "application/x-yaml")
+
+	return c.SendStream(strings.NewReader(string(decodedKubeConfig)), len(decodedKubeConfig))
 }
