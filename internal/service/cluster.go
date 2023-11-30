@@ -259,7 +259,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		MasterServerType,
 		rke2Token,
 		fmt.Sprintf("%s.%s", clusterSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
-		req.KubernetesVersion)
+		req.KubernetesVersion,
+		req.ClusterName,
+		clusterUUID,
+		config.GlobalConfig.GetWebConfig().Endpoint,
+		authToken,
+	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -551,7 +556,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		MasterServerType,
 		rke2Token,
 		fmt.Sprintf("%s.%s", clusterSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
-		req.KubernetesVersion)
+		req.KubernetesVersion,
+		req.ClusterName,
+		clusterUUID,
+		config.GlobalConfig.GetWebConfig().Endpoint,
+		authToken,
+	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -626,7 +636,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		WorkerServerType,
 		rke2Token,
 		fmt.Sprintf("%s.%s", clusterSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
-		req.KubernetesVersion)
+		req.KubernetesVersion,
+		req.ClusterName,
+		clusterUUID,
+		config.GlobalConfig.GetWebConfig().Endpoint,
+		authToken,
+	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
 		return resource.CreateClusterResponse{}, err
