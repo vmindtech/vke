@@ -1546,7 +1546,6 @@ func (c *clusterService) CreateFloatingIP(ctx context.Context, authToken string,
 		c.logger.Errorf("failed to marshal request, error: %v", err)
 		return resource.CreateFloatingIPResponse{}, err
 	}
-	fmt.Printf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath)
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath), bytes.NewBuffer(data))
 	if err != nil {
 		c.logger.Errorf("failed to create request, error: %v", err)
