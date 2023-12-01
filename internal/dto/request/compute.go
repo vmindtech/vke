@@ -43,6 +43,6 @@ type CreateServerGroupRequest struct {
 }
 
 type ServerGroup struct {
-	Name     string   `json:"name"`
-	Policies []string `json:"policies"`
+	Name   string `json:"name"`
+	Policy string `json:"policy"`
 }

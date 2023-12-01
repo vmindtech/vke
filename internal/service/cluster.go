@@ -200,8 +200,8 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	createServerGroupReq := &request.CreateServerGroupRequest{
 		ServerGroup: request.ServerGroup{
-			Name:     fmt.Sprintf("%v-master-server-group", req.ClusterName),
-			Policies: []string{"anti-affinity"},
+			Name:   fmt.Sprintf("%v-master-server-group", req.ClusterName),
+			Policy: "soft-anti-affinity",
 		},
 	}
 	masterServerGroupResp, err := c.CreateServerGroup(ctx, authToken, *createServerGroupReq)
@@ -1501,6 +1501,7 @@ func (c *clusterService) CreateServerGroup(ctx context.Context, authToken string
 
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
+	r.Header.Add("x-openstack-nova-api-version", config.GlobalConfig.GetOpenStackApiConfig().NovaMicroversion)
 
 	client := &http.Client{}
 	resp, err := client.Do(r)
