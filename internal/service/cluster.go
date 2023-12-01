@@ -53,6 +53,7 @@ type IClusterService interface {
 	DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error
 	DeleteDNSRecordFromCloudflare(ctx context.Context, dnsRecordID string) error
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
+	CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error)
 }
 
 type clusterService struct {
@@ -258,7 +259,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		MasterServerType,
 		rke2Token,
 		fmt.Sprintf("%s.%s", clusterSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
-		req.KubernetesVersion)
+		req.KubernetesVersion,
+		req.ClusterName,
+		clusterUUID,
+		config.GlobalConfig.GetWebConfig().Endpoint,
+		authToken,
+	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -550,7 +556,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		MasterServerType,
 		rke2Token,
 		fmt.Sprintf("%s.%s", clusterSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
-		req.KubernetesVersion)
+		req.KubernetesVersion,
+		req.ClusterName,
+		clusterUUID,
+		config.GlobalConfig.GetWebConfig().Endpoint,
+		authToken,
+	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -625,7 +636,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		WorkerServerType,
 		rke2Token,
 		fmt.Sprintf("%s.%s", clusterSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
-		req.KubernetesVersion)
+		req.KubernetesVersion,
+		req.ClusterName,
+		clusterUUID,
+		config.GlobalConfig.GetWebConfig().Endpoint,
+		authToken,
+	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -1531,7 +1547,6 @@ func (c *clusterService) CreateFloatingIP(ctx context.Context, authToken string,
 		c.logger.Errorf("failed to marshal request, error: %v", err)
 		return resource.CreateFloatingIPResponse{}, err
 	}
-	fmt.Printf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath)
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath), bytes.NewBuffer(data))
 	if err != nil {
 		c.logger.Errorf("failed to create request, error: %v", err)
@@ -2311,4 +2326,54 @@ func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID
 	}
 
 	return clusterResp, nil
+}
+
+func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error) {
+	if req.ClusterID == "" {
+		c.logger.Errorf("failed to get cluster")
+		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, req.ClusterID)
+	if err != nil {
+		c.logger.Errorf("failed to get cluster, error: %v", err)
+		return resource.CreateKubeconfigResponse{}, err
+	}
+
+	if cluster == nil {
+		c.logger.Errorf("failed to get cluster")
+		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	if cluster.ClusterProjectUUID == "" {
+		c.logger.Errorf("failed to get cluster")
+		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	err = c.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	if err != nil {
+		c.logger.Errorf("failed to check auth token, error: %v", err)
+		return resource.CreateKubeconfigResponse{}, err
+	}
+
+	kubeConfig := &model.Kubeconfigs{
+		ClusterUUID: cluster.ClusterUUID,
+		KubeConfig:  req.KubeConfig,
+		CreateDate:  time.Now(),
+	}
+
+	if !IsValidBase64(req.KubeConfig) {
+		c.logger.Errorf("failed to create kube config, invalid kube config")
+		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to create kube config, invalid kube config")
+	}
+
+	err = c.repository.Kubeconfig().CreateKubeconfig(ctx, kubeConfig)
+	if err != nil {
+		c.logger.Errorf("failed to create kube config, error: %v", err)
+		return resource.CreateKubeconfigResponse{}, err
+	}
+
+	return resource.CreateKubeconfigResponse{
+		ClusterUUID: kubeConfig.ClusterUUID,
+	}, nil
 }

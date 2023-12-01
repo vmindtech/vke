@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serverAddress, kubeVersion string) (string, error) {
+func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serverAddress, kubeVersion, clusterName, clusterUUID, vkeAPIEndpoint, authToken string) (string, error) {
 	shFile := "scripts/rke2-init-sh.tpl"
 	t, err := template.ParseFiles(shFile)
 	if err != nil {
@@ -23,6 +23,10 @@ func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serv
 		"rke2Token":      rke2Token,
 		"serverAddress":  serverAddress,
 		"kubeVersion":    kubeVersion,
+		"clusterName":    clusterName,
+		"clusterUUID":    clusterUUID,
+		"vkeAPIEndpoint": vkeAPIEndpoint,
+		"authToken":      authToken,
 	}); err != nil {
 		return "", err
 	}
@@ -38,4 +42,9 @@ func GetRandomStringFromArray(a []string) string {
 	rand.Seed(time.Now().UnixNano())
 	i := rand.Intn(len(a))
 	return a[i]
+}
+
+func IsValidBase64(s string) bool {
+	_, err := base64.StdEncoding.DecodeString(s)
+	return err == nil
 }

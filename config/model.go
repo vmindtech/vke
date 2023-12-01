@@ -9,10 +9,11 @@ const (
 )
 
 type WebConfig struct {
-	AppName string
-	Port    string
-	Env     string
-	Version string
+	AppName  string
+	Port     string
+	Env      string
+	Version  string
+	Endpoint string
 }
 
 type LanguageConfig struct {

@@ -55,10 +55,11 @@ func NewConfigureManager() IConfigureManager {
 
 func loadWebConfig() WebConfig {
 	return WebConfig{
-		AppName: viper.GetString("APP_NAME"),
-		Port:    viper.GetString("PORT"),
-		Env:     viper.GetString("ENV"),
-		Version: viper.GetString("VERSION"),
+		AppName:  viper.GetString("APP_NAME"),
+		Port:     viper.GetString("PORT"),
+		Env:      viper.GetString("ENV"),
+		Version:  viper.GetString("VERSION"),
+		Endpoint: viper.GetString("ENDPOINT"),
 	}
 }
 

@@ -13,3 +13,8 @@ type CreateClusterRequest struct {
 	WorkerDiskSizeGB       int      `json:"workerDiskSizeGB"`
 	AllowedCIDRS           []string `json:"allowedCIDRs"`
 }
+
+type CreateKubeconfigRequest struct {
+	ClusterID  string `json:"clusterId"`
+	KubeConfig string `json:"kubeconfig"`
+}
