@@ -19,16 +19,18 @@ type IConfigureManager interface {
 	GetPublicNetworkIDConfig() PublicNetworkID
 	GetLanguageConfig() LanguageConfig
 	GetEndpointsConfig() APIEndpointsConfig
+	GetOpenStackApiConfig() OpenStackApiConfig
 }
 
 type configureManager struct {
-	Web             WebConfig
-	Mysql           MysqlDBConfig
-	APIEndpoints    APIEndpointsConfig
-	ImageRef        ImageRef
-	PublicNetworkID PublicNetworkID
-	Cloudflare      CloudflareConfig
-	Language        LanguageConfig
+	Web                WebConfig
+	Mysql              MysqlDBConfig
+	APIEndpoints       APIEndpointsConfig
+	ImageRef           ImageRef
+	PublicNetworkID    PublicNetworkID
+	Cloudflare         CloudflareConfig
+	Language           LanguageConfig
+	OpenStackApiConfig OpenStackApiConfig
 }
 
 func NewConfigureManager() IConfigureManager {
@@ -104,6 +106,12 @@ func loadAPIEndpointsConfig() APIEndpointsConfig {
 	}
 }
 
+func loadOpenStackApiConfig() OpenStackApiConfig {
+	return OpenStackApiConfig{
+		NovaMicroversion: viper.GetString("NOVA_MICRO_VERSION"),
+	}
+}
+
 func (c *configureManager) GetWebConfig() WebConfig {
 	return c.Web
 }
@@ -134,5 +142,11 @@ func (c *configureManager) GetEndpointsConfig() APIEndpointsConfig {
 		NetworkEndpoint:      viper.GetString("NETWORK_ENDPOINT"),
 		LoadBalancerEndpoint: viper.GetString("LOAD_BALANCER_ENDPOINT"),
 		IdentityEndpoint:     viper.GetString("IDENTITY_ENDPOINT"),
+	}
+}
+
+func (c *configureManager) GetOpenStackApiConfig() OpenStackApiConfig {
+	return OpenStackApiConfig{
+		NovaMicroversion: viper.GetString("NOVA_MICRO_VERSION"),
 	}
 }

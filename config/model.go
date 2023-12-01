@@ -45,6 +45,10 @@ type PublicNetworkID struct {
 	PublicNetworkID string
 }
 
+type OpenStackApiConfig struct {
+	NovaMicroversion string
+}
+
 func (w WebConfig) IsProductionEnv() bool {
 	return w.Env == productionEnv
 }
