@@ -18,7 +18,8 @@ func InitRoute(l *logrus.Logger, mysqlInstance mysqldb.IMysqlInstance) route.IRo
 	iClusterRepository := repository.NewClusterRepository(mysqlInstance)
 	iAuditRepository := repository.NewAuditLogRepository(mysqlInstance)
 	iKubeConfigRepository := repository.NewKubeconfigRepository(mysqlInstance)
-	iRepository := repository.NewRepository(mysqlInstance, iClusterRepository, iAuditRepository, iKubeConfigRepository)
+	iNodeGroupsRepository := repository.NewNodeGroupsRepository(mysqlInstance)
+	iRepository := repository.NewRepository(mysqlInstance, iClusterRepository, iAuditRepository, iKubeConfigRepository, iNodeGroupsRepository)
 
 	iClusterService := service.NewClusterService(l, iRepository)
 	iAppService := service.NewAppService(l, iRepository, iClusterService)

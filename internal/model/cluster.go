@@ -22,9 +22,6 @@ type Cluster struct {
 	ClusterWorkerServerGroupsUUID datatypes.JSON `json:"cluster_worker_server_groups_uuid" gorm:"type:json"`
 	ClusterAgentToken             string         `json:"cluster_agent_token" gorm:"type:varchar(255)"`
 	ClusterSubnets                datatypes.JSON `json:"cluster_subnets" gorm:"type:json"`
-	WorkerCount                   int            `json:"worker_count" gorm:"type:int(11)"`
-	WorkerType                    string         `json:"worker_type" gorm:"type:varchar(50)"`
-	WorkerDiskSize                int            `json:"worker_disk_size" gorm:"type:int(11)"`
 	ClusterEndpoint               string         `json:"cluster_endpoint" gorm:"type:varchar(144)"`
 	MasterSecurityGroup           string         `json:"master_security_group" gorm:"type:varchar(50)"`
 	WorkerSecurityGroup           string         `json:"worker_security_group" gorm:"type:varchar(50)"`

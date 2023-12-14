@@ -83,6 +83,18 @@ const (
 )
 
 const (
+	NodeGroupCreatingStatus = "Creating"
+	NodeGroupActiveStatus   = "Active"
+	NodeGroupUpdatingStatus = "Updating"
+	NodeGroupDeletedStatus  = "Deleted"
+)
+
+const (
+	NodeGroupMasterType = "master"
+	NodeGroupWorkerType = "worker"
+)
+
+const (
 	MasterServerType = "server"
 	WorkerServerType = "agent"
 )
@@ -142,7 +154,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to create load balancer, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
 	//get amphoras ip
 	amphoraesResp, err := GetAmphoraesVrrpIp(authToken, lbResp.LoadBalancer.ID)
 	if err != nil {
@@ -211,10 +229,50 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
+	masterNodeGroupModel := &model.NodeGroups{
+		ClusterUUID:         clusterUUID,
+		NodeGroupUUID:       masterServerGroupResp.ServerGroup.ID,
+		NodeGroupName:       fmt.Sprintf("%v-master", req.ClusterName),
+		NodeGroupMinSize:    3,
+		NodeGroupMaxSize:    3,
+		NodeDiskSize:        80,
+		NodeWorkerFlavorID:  req.MasterInstanceFlavorID,
+		NodeGroupsStatus:    NodeGroupCreatingStatus,
+		NodeGroupsType:      NodeGroupMasterType,
+		IsHidden:            true,
+		NodeGroupCreateDate: time.Now(),
+	}
+
+	err = c.repository.NodeGroups().CreateNodeGroups(ctx, masterNodeGroupModel)
+	if err != nil {
+		c.logger.Errorf("failed to create node groups, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
 	createServerGroupReq.ServerGroup.Name = fmt.Sprintf("%v-worker-server-group", req.ClusterName)
 	workerServerGroupResp, err := c.CreateServerGroup(ctx, authToken, *createServerGroupReq)
 	if err != nil {
 		c.logger.Errorf("failed to create server group, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	workerNodeGroupModel := &model.NodeGroups{
+		ClusterUUID:         clusterUUID,
+		NodeGroupUUID:       workerServerGroupResp.ServerGroup.ID,
+		NodeGroupName:       fmt.Sprintf("%v-worker", req.ClusterName),
+		NodeGroupMinSize:    req.WorkerNodeGroupMinSize,
+		NodeGroupMaxSize:    req.WorkerNodeGroupMaxSize,
+		NodeDiskSize:        req.WorkerDiskSizeGB,
+		NodeWorkerFlavorID:  req.WorkerInstanceFlavorID,
+		NodeGroupsStatus:    NodeGroupCreatingStatus,
+		NodeGroupsType:      NodeGroupWorkerType,
+		IsHidden:            false,
+		NodeGroupCreateDate: time.Now(),
+	}
+
+	err = c.repository.NodeGroups().CreateNodeGroups(ctx, workerNodeGroupModel)
+	if err != nil {
+		c.logger.Errorf("failed to create node groups, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
@@ -243,9 +301,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterMasterServerGroupUUID:  masterServerGroupResp.ServerGroup.ID,
 		ClusterWorkerServerGroupsUUID: clusterWorkerGroupsUUID,
 		ClusterSubnets:                subnetIdsJSON,
-		WorkerCount:                   req.WorkerCount,
-		WorkerType:                    req.WorkerInstanceFlavorID,
-		WorkerDiskSize:                req.WorkerDiskSizeGB,
 		ClusterAPIAccess:              req.ClusterAPIAccess,
 		FloatingIPUUID:                floatingIPUUID,
 	}
@@ -424,7 +479,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 
 	createListenerReq := &request.CreateListenerRequest{
 		Listener: request.Listener{
@@ -446,7 +506,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createListenerReq.Listener.Name = fmt.Sprintf("%v-register-listener", req.ClusterName)
 	createListenerReq.Listener.ProtocolPort = 9345
 
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 
 	registerListenerResp, err := c.CreateListener(ctx, authToken, *createListenerReq)
 	if err != nil {
@@ -454,8 +519,18 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 	createPoolReq := &request.CreatePoolRequest{
 		Pool: request.Pool{
 			LBAlgorithm:  "ROUND_ROBIN",
@@ -470,7 +545,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to create pool, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 	err = c.CreateHealthTCPMonitor(ctx, authToken, request.CreateHealthMonitorTCPRequest{
 		HealthMonitor: request.HealthMonitorTCP{
 			Name:           fmt.Sprintf("%v-api-healthmonitor", req.ClusterName),
@@ -489,13 +569,23 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	createPoolReq.Pool.ListenerID = registerListenerResp.Listener.ID
 	createPoolReq.Pool.Name = fmt.Sprintf("%v-register-pool", req.ClusterName)
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 	registerPoolResp, err := c.CreatePool(ctx, authToken, *createPoolReq)
 	if err != nil {
 		c.logger.Errorf("failed to create pool, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 	err = c.CreateHealthHTTPMonitor(ctx, authToken, request.CreateHealthMonitorHTTPRequest{
 		HealthMonitor: request.HealthMonitorHTTP{
 			Name:           fmt.Sprintf("%v-register-healthmonitor", req.ClusterName),
@@ -529,7 +619,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Backup:       false,
 		},
 	}
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
 	err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.Errorf("failed to create member, error: %v", err)
@@ -537,7 +633,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	createMemberReq.Member.ProtocolPort = 9345
 	createMemberReq.Member.MonitorPort = 9345
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
 	err = c.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.Errorf("failed to create member, error: %v", err)
@@ -568,60 +664,74 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	masterRequest.Server.UserData = Base64Encoder(rke2InitScript)
-	c.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
 	_, err = c.CreateCompute(ctx, authToken, *masterRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create compute, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
-	//create member for master 02 for api and register pool
-	createMemberReq.Member.Name = fmt.Sprintf("%v-master-2", req.ClusterName)
-	createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
-	createMemberReq.Member.ProtocolPort = 6443
-	createMemberReq.Member.MonitorPort = 6443
-	err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
-		c.logger.Errorf("failed to create member, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
-	createMemberReq.Member.ProtocolPort = 9345
-	createMemberReq.Member.MonitorPort = 9345
-	err = c.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
-	if err != nil {
-		c.logger.Errorf("failed to create member, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
+		//create member for master 02 for api and register pool
+		createMemberReq.Member.Name = fmt.Sprintf("%v-master-2", req.ClusterName)
+		createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
+		createMemberReq.Member.ProtocolPort = 6443
+		createMemberReq.Member.MonitorPort = 6443
+		err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
+		if err != nil {
+			c.logger.Errorf("failed to create member, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		createMemberReq.Member.ProtocolPort = 9345
+		createMemberReq.Member.MonitorPort = 9345
+		err = c.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
+		if err != nil {
+			c.logger.Errorf("failed to create member, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
 
-	portRequest.Port.Name = fmt.Sprintf("%v-master-3-port", req.ClusterName)
-	portResp, err = c.CreateNetworkPort(ctx, authToken, *portRequest)
-	if err != nil {
-		c.logger.Errorf("failed to create network port, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
-	masterRequest.Server.Name = fmt.Sprintf("%s-master-3", req.ClusterName)
-	masterRequest.Server.Networks[0].Port = portResp.Port.ID
-	//	c.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
-	_, err = c.CreateCompute(ctx, authToken, *masterRequest)
-	if err != nil {
-		c.logger.Errorf("failed to create compute, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
+		portRequest.Port.Name = fmt.Sprintf("%v-master-3-port", req.ClusterName)
+		portResp, err = c.CreateNetworkPort(ctx, authToken, *portRequest)
+		if err != nil {
+			c.logger.Errorf("failed to create network port, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
+		masterRequest.Server.Name = fmt.Sprintf("%s-master-3", req.ClusterName)
+		masterRequest.Server.Networks[0].Port = portResp.Port.ID
+		//	c.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+		_, err = c.CreateCompute(ctx, authToken, *masterRequest)
+		if err != nil {
+			c.logger.Errorf("failed to create compute, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
 
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
-	//create member for master 03 for api and register pool
-	createMemberReq.Member.Name = fmt.Sprintf("%v-master-3", req.ClusterName)
-	createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
-	createMemberReq.Member.ProtocolPort = 6443
-	createMemberReq.Member.MonitorPort = 6443
-	err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
-	if err != nil {
-		c.logger.Errorf("failed to create member, error: %v", err)
+		masterNodeGroupModel.NodeGroupsStatus = NodeGroupActiveStatus
+		masterNodeGroupModel.NodeGroupUpdateDate = time.Now()
+
+		err = c.repository.NodeGroups().UpdateNodeGroups(ctx, masterNodeGroupModel)
+		if err != nil {
+			c.logger.Errorf("failed to update node groups, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
+
 		return resource.CreateClusterResponse{}, err
+		//create member for master 03 for api and register pool
+		createMemberReq.Member.Name = fmt.Sprintf("%v-master-3", req.ClusterName)
+		createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
+		createMemberReq.Member.ProtocolPort = 6443
+		createMemberReq.Member.MonitorPort = 6443
+		err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
+		if err != nil {
+			c.logger.Errorf("failed to create member, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
 	}
-	c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 	createMemberReq.Member.ProtocolPort = 9345
 	createMemberReq.Member.MonitorPort = 9345
 	err = c.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
@@ -676,8 +786,8 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Group: workerServerGroupResp.ServerGroup.ID,
 		},
 	}
-	for i := 1; i <= req.WorkerCount; i++ {
-		portRequest.Port.Name = fmt.Sprintf("%v-worker-%v-port", req.ClusterName, i)
+	for i := 1; i <= req.WorkerNodeGroupMinSize; i++ {
+		portRequest.Port.Name = fmt.Sprintf("%v-%s-port", req.ClusterName, workerNodeGroupModel.NodeGroupName)
 		portRequest.Port.SecurityGroups = []string{createWorkerSecurityResp.SecurityGroup.ID}
 		portResp, err = c.CreateNetworkPort(ctx, authToken, *portRequest)
 		if err != nil {
@@ -685,12 +795,21 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			return resource.CreateClusterResponse{}, err
 		}
 		WorkerRequest.Server.Networks[0].Port = portResp.Port.ID
-		WorkerRequest.Server.Name = fmt.Sprintf("%v-worker-%v", req.ClusterName, i)
+		WorkerRequest.Server.Name = fmt.Sprintf("%v-%s", req.ClusterName, workerNodeGroupModel.NodeGroupName)
 
 		_, err = c.CreateCompute(ctx, authToken, *WorkerRequest)
 		if err != nil {
 			return resource.CreateClusterResponse{}, err
 		}
+	}
+
+	workerNodeGroupModel.NodeGroupsStatus = NodeGroupActiveStatus
+	workerNodeGroupModel.NodeGroupUpdateDate = time.Now()
+
+	err = c.repository.NodeGroups().UpdateNodeGroups(ctx, workerNodeGroupModel)
+	if err != nil {
+		c.logger.Errorf("failed to update node groups, error: %v", err)
+		return resource.CreateClusterResponse{}, err
 	}
 
 	clModel.MasterSecurityGroup = createMasterSecurityResp.SecurityGroup.ID
@@ -715,9 +834,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterMasterServerGroupUUID:  clModel.ClusterMasterServerGroupUUID,
 		ClusterWorkerServerGroupsUUID: []string{workerServerGroupResp.ServerGroup.ID},
 		ClusterSubnets:                req.SubnetIDs,
-		WorkerCount:                   clModel.WorkerCount,
-		WorkerType:                    clModel.WorkerType,
-		WorkerDiskSize:                clModel.WorkerDiskSize,
 		ClusterEndpoint:               clModel.ClusterEndpoint,
 		MasterSecurityGroup:           clModel.MasterSecurityGroup,
 		WorkerSecurityGroup:           clModel.WorkerSecurityGroup,
