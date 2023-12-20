@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/k0kubun/pp"
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/config"
 	"github.com/vmindtech/vke/internal/dto/request"
@@ -41,7 +42,7 @@ type IClusterService interface {
 	CheckLoadBalancerOperationStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error)
 	CreateSecurityGroupRuleForSG(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForSgRequest) error
 	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
-	CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.CreateServerGroupResponse, error)
+	CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.ServerGroupResponse, error)
 	CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error)
 	DestroyCluster(ctx context.Context, authToken, clusterID string) (resource.DestroyCluster, error)
 	DeleteLoadbalancerPool(ctx context.Context, authToken, loadBalancerID string) error
@@ -54,6 +55,9 @@ type IClusterService interface {
 	DeleteDNSRecordFromCloudflare(ctx context.Context, dnsRecordID string) error
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
 	CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error)
+	AddNode(ctx context.Context, authToken string, req request.AddNodeRequest) (resource.AddNodeResponse, error)
+	GetSecurityGroupByID(ctx context.Context, authToken, securityGroupID string) (resource.GetSecurityGroupResponse, error)
+	GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID string) (int, error)
 }
 
 type clusterService struct {
@@ -236,7 +240,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		NodeGroupMinSize:    3,
 		NodeGroupMaxSize:    3,
 		NodeDiskSize:        80,
-		NodeWorkerFlavorID:  req.MasterInstanceFlavorID,
+		NodeFlavorID:        req.MasterInstanceFlavorID,
 		NodeGroupsStatus:    NodeGroupCreatingStatus,
 		NodeGroupsType:      NodeGroupMasterType,
 		IsHidden:            true,
@@ -263,7 +267,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		NodeGroupMinSize:    req.WorkerNodeGroupMinSize,
 		NodeGroupMaxSize:    req.WorkerNodeGroupMaxSize,
 		NodeDiskSize:        req.WorkerDiskSizeGB,
-		NodeWorkerFlavorID:  req.WorkerInstanceFlavorID,
+		NodeFlavorID:        req.WorkerInstanceFlavorID,
 		NodeGroupsStatus:    NodeGroupCreatingStatus,
 		NodeGroupsType:      NodeGroupWorkerType,
 		IsHidden:            false,
@@ -301,6 +305,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterMasterServerGroupUUID:  masterServerGroupResp.ServerGroup.ID,
 		ClusterWorkerServerGroupsUUID: clusterWorkerGroupsUUID,
 		ClusterSubnets:                subnetIdsJSON,
+		ClusterNodeKeyPairName:        req.NodeKeyPairName,
 		ClusterAPIAccess:              req.ClusterAPIAccess,
 		FloatingIPUUID:                floatingIPUUID,
 	}
@@ -634,6 +639,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.ProtocolPort = 9345
 	createMemberReq.Member.MonitorPort = 9345
 
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
 	err = c.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.Errorf("failed to create member, error: %v", err)
@@ -676,62 +688,82 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
+	//create member for master 02 for api and register pool
+	createMemberReq.Member.Name = fmt.Sprintf("%v-master-2", req.ClusterName)
+	createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
+	createMemberReq.Member.ProtocolPort = 6443
+	createMemberReq.Member.MonitorPort = 6443
+	err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
-		//create member for master 02 for api and register pool
-		createMemberReq.Member.Name = fmt.Sprintf("%v-master-2", req.ClusterName)
-		createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
-		createMemberReq.Member.ProtocolPort = 6443
-		createMemberReq.Member.MonitorPort = 6443
-		err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
-		if err != nil {
-			c.logger.Errorf("failed to create member, error: %v", err)
-			return resource.CreateClusterResponse{}, err
-		}
-		c.logger.Errorf("failed to check load balancer status, error: %v", err)
-		createMemberReq.Member.ProtocolPort = 9345
-		createMemberReq.Member.MonitorPort = 9345
-		err = c.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
-		if err != nil {
-			c.logger.Errorf("failed to create member, error: %v", err)
-			return resource.CreateClusterResponse{}, err
-		}
-
-		portRequest.Port.Name = fmt.Sprintf("%v-master-3-port", req.ClusterName)
-		portResp, err = c.CreateNetworkPort(ctx, authToken, *portRequest)
-		if err != nil {
-			c.logger.Errorf("failed to create network port, error: %v", err)
-			return resource.CreateClusterResponse{}, err
-		}
-		masterRequest.Server.Name = fmt.Sprintf("%s-master-3", req.ClusterName)
-		masterRequest.Server.Networks[0].Port = portResp.Port.ID
-		//	c.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
-		_, err = c.CreateCompute(ctx, authToken, *masterRequest)
-		if err != nil {
-			c.logger.Errorf("failed to create compute, error: %v", err)
-			return resource.CreateClusterResponse{}, err
-		}
-
-		masterNodeGroupModel.NodeGroupsStatus = NodeGroupActiveStatus
-		masterNodeGroupModel.NodeGroupUpdateDate = time.Now()
-
-		err = c.repository.NodeGroups().UpdateNodeGroups(ctx, masterNodeGroupModel)
-		if err != nil {
-			c.logger.Errorf("failed to update node groups, error: %v", err)
-			return resource.CreateClusterResponse{}, err
-		}
-
+		c.logger.Errorf("failed to create member, error: %v", err)
 		return resource.CreateClusterResponse{}, err
-		//create member for master 03 for api and register pool
-		createMemberReq.Member.Name = fmt.Sprintf("%v-master-3", req.ClusterName)
-		createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
-		createMemberReq.Member.ProtocolPort = 6443
-		createMemberReq.Member.MonitorPort = 6443
-		err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
-		if err != nil {
-			c.logger.Errorf("failed to create member, error: %v", err)
-			return resource.CreateClusterResponse{}, err
-		}
 	}
+
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	c.logger.Errorf("failed to check load balancer status, error: %v", err)
+	createMemberReq.Member.ProtocolPort = 9345
+	createMemberReq.Member.MonitorPort = 9345
+	err = c.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
+	if err != nil {
+		c.logger.Errorf("failed to create member, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	portRequest.Port.Name = fmt.Sprintf("%v-master-3-port", req.ClusterName)
+	portResp, err = c.CreateNetworkPort(ctx, authToken, *portRequest)
+	if err != nil {
+		c.logger.Errorf("failed to create network port, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+	masterRequest.Server.Name = fmt.Sprintf("%s-master-3", req.ClusterName)
+	masterRequest.Server.Networks[0].Port = portResp.Port.ID
+
+	_, err = c.CreateCompute(ctx, authToken, *masterRequest)
+	if err != nil {
+		c.logger.Errorf("failed to create compute, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	masterNodeGroupModel.NodeGroupsStatus = NodeGroupActiveStatus
+	masterNodeGroupModel.NodeGroupUpdateDate = time.Now()
+
+	err = c.repository.NodeGroups().UpdateNodeGroups(ctx, masterNodeGroupModel)
+	if err != nil {
+		c.logger.Errorf("failed to update node groups, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	//create member for master 03 for api and register pool
+	createMemberReq.Member.Name = fmt.Sprintf("%v-master-3", req.ClusterName)
+	createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
+	createMemberReq.Member.ProtocolPort = 6443
+	createMemberReq.Member.MonitorPort = 6443
+	err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
+	if err != nil {
+		c.logger.Errorf("failed to create member, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
+	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	if err != nil {
+		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+
 	createMemberReq.Member.ProtocolPort = 9345
 	createMemberReq.Member.MonitorPort = 9345
 	err = c.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
@@ -1622,17 +1654,17 @@ func (c *clusterService) CheckAuthToken(ctx context.Context, authToken, projectU
 	return nil
 }
 
-func (c *clusterService) CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.CreateServerGroupResponse, error) {
+func (c *clusterService) CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.ServerGroupResponse, error) {
 	data, err := json.Marshal(req)
 	if err != nil {
 		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return resource.CreateServerGroupResponse{}, err
+		return resource.ServerGroupResponse{}, err
 	}
 
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath), bytes.NewBuffer(data))
 	if err != nil {
 		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.CreateServerGroupResponse{}, err
+		return resource.ServerGroupResponse{}, err
 	}
 
 	r.Header.Add("X-Auth-Token", authToken)
@@ -1643,21 +1675,21 @@ func (c *clusterService) CreateServerGroup(ctx context.Context, authToken string
 	resp, err := client.Do(r)
 	if err != nil {
 		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.CreateServerGroupResponse{}, err
+		return resource.ServerGroupResponse{}, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		c.logger.Errorf("failed to create server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.CreateServerGroupResponse{}, fmt.Errorf("failed to create server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.ServerGroupResponse{}, fmt.Errorf("failed to create server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
-	var respDecoder resource.CreateServerGroupResponse
+	var respDecoder resource.ServerGroupResponse
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
 		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.CreateServerGroupResponse{}, err
+		return resource.ServerGroupResponse{}, err
 	}
 	return respDecoder, nil
 }
@@ -2496,4 +2528,245 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 	return resource.CreateKubeconfigResponse{
 		ClusterUUID: kubeConfig.ClusterUUID,
 	}, nil
+}
+
+func (c *clusterService) AddNode(ctx context.Context, authToken string, req request.AddNodeRequest) (resource.AddNodeResponse, error) {
+	if authToken == "" {
+		c.logger.Errorf("failed to get cluster")
+		return resource.AddNodeResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, req.ClusterID)
+	if err != nil {
+		c.logger.Errorf("failed to get cluster, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
+	if cluster == nil {
+		c.logger.Errorf("failed to get cluster")
+		return resource.AddNodeResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	if cluster.ClusterProjectUUID == "" {
+		c.logger.Errorf("failed to get cluster")
+		return resource.AddNodeResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	err = c.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	if err != nil {
+		c.logger.Errorf("failed to check auth token, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
+	nodeGroup, err := c.repository.NodeGroups().GetNodeGroupByUUID(ctx, req.NodeGroupID)
+	if err != nil {
+		c.logger.Errorf("failed to get node group, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
+	if nodeGroup.NodeGroupsStatus != NodeGroupActiveStatus {
+		c.logger.Errorf("failed to get node groups")
+		return resource.AddNodeResponse{}, fmt.Errorf("failed to get node groups")
+	}
+
+	desiredCount, err := c.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID)
+	if err != nil {
+		c.logger.Errorf("failed to get count of server from server group, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
+	if desiredCount >= nodeGroup.NodeGroupMaxSize {
+		c.logger.Errorf("failed to add node, node group max size reached")
+		return resource.AddNodeResponse{}, fmt.Errorf("failed to add node, node group max size reached")
+	}
+
+	subnetIDs := []string{}
+	err = json.Unmarshal(cluster.ClusterSubnets, &subnetIDs)
+	if err != nil {
+		c.logger.Errorf("failed to unmarshal cluster subnets, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
+	networkIDResp, err := c.GetNetworkID(ctx, authToken, subnetIDs[0])
+	if err != nil {
+		c.logger.Errorf("failed to get network id, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
+	randSubnetId := GetRandomStringFromArray(subnetIDs)
+
+	createPortRequest := request.CreateNetworkPortRequest{
+		Port: request.Port{
+			Name:         nodeGroup.NodeGroupName,
+			NetworkID:    networkIDResp.Subnet.NetworkID,
+			AdminStateUp: true,
+			FixedIps: []request.FixedIp{
+				{
+					SubnetID: randSubnetId,
+				},
+			},
+			SecurityGroups: []string{cluster.WorkerSecurityGroup},
+		},
+	}
+
+	portResp, err := c.CreateNetworkPort(ctx, authToken, createPortRequest)
+	if err != nil {
+		c.logger.Errorf("failed to create port, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
+	rke2InitScript, err := GenerateUserDataFromTemplate("false",
+		WorkerServerType,
+		cluster.ClusterAgentToken,
+		cluster.ClusterEndpoint,
+		cluster.ClusterVersion,
+		cluster.ClusterName,
+		cluster.ClusterUUID,
+		config.GlobalConfig.GetWebConfig().Endpoint,
+		authToken,
+	)
+	if err != nil {
+		c.logger.Errorf("failed to generate user data from template, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
+	securityGroup, err := c.GetSecurityGroupByID(ctx, authToken, cluster.WorkerSecurityGroup)
+	if err != nil {
+		c.logger.Errorf("failed to get security group, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
+	pp.Println(cluster)
+
+	createServerRequest := request.CreateComputeRequest{
+		Server: request.Server{
+			Name:             nodeGroup.NodeGroupName,
+			ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
+			FlavorRef:        nodeGroup.NodeFlavorID,
+			KeyName:          cluster.ClusterNodeKeyPairName,
+			AvailabilityZone: "nova",
+			BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
+				{
+					BootIndex:           0,
+					DestinationType:     "volume",
+					DeleteOnTermination: true,
+					SourceType:          "image",
+					UUID:                config.GlobalConfig.GetImageRefConfig().ImageRef,
+					VolumeSize:          nodeGroup.NodeDiskSize,
+				},
+			},
+			Networks: []request.Networks{
+				{Port: portResp.Port.ID},
+			},
+			SecurityGroups: []request.SecurityGroups{
+				{Name: securityGroup.SecurityGroup.Name},
+			},
+			UserData: Base64Encoder(rke2InitScript),
+		},
+		SchedulerHints: request.SchedulerHints{
+			Group: nodeGroup.NodeGroupName,
+		},
+	}
+
+	serverResp, err := c.CreateCompute(ctx, authToken, createServerRequest)
+	if err != nil {
+		c.logger.Errorf("failed to create compute, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
+	err = c.repository.AuditLog().CreateAuditLog(ctx, &model.AuditLog{
+		ClusterUUID: cluster.ClusterUUID,
+		ProjectUUID: cluster.ClusterProjectUUID,
+		Event:       fmt.Sprintf("Node %s added to cluster", nodeGroup.NodeGroupName),
+		CreateDate:  time.Now(),
+	})
+	if err != nil {
+		c.logger.Errorf("failed to create audit log, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
+	return resource.AddNodeResponse{
+		NodeGroupID: nodeGroup.NodeGroupUUID,
+		ComputeID:   serverResp.Server.ID,
+		ClusterID:   cluster.ClusterUUID,
+		MinSize:     nodeGroup.NodeGroupMinSize,
+		MaxSize:     nodeGroup.NodeGroupMaxSize,
+	}, nil
+}
+
+func (c *clusterService) GetSecurityGroupByID(ctx context.Context, authToken, securityGroupID string) (resource.GetSecurityGroupResponse, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath, securityGroupID), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return resource.GetSecurityGroupResponse{}, err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return resource.GetSecurityGroupResponse{}, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Errorf("failed to list security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.GetSecurityGroupResponse{}, fmt.Errorf("failed to list security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.logger.Errorf("failed to read response body, error: %v", err)
+		return resource.GetSecurityGroupResponse{}, err
+	}
+	var respData resource.GetSecurityGroupResponse
+	err = json.Unmarshal([]byte(body), &respData)
+	if err != nil {
+		c.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		return resource.GetSecurityGroupResponse{}, err
+	}
+
+	return respData, nil
+}
+
+func (c *clusterService) GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID string) (int, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, serverGroupID), nil)
+	if err != nil {
+		c.logger.Errorf("failed to create request, error: %v", err)
+		return 0, err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		c.logger.Errorf("failed to send request, error: %v", err)
+		return 0, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return 0, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.logger.Errorf("failed to read response body, error: %v", err)
+		return 0, err
+	}
+	var respData resource.ServerGroupResponse
+	err = json.Unmarshal([]byte(body), &respData)
+	if err != nil {
+		c.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		return 0, err
+	}
+
+	return len(respData.ServerGroup.Members), nil
 }

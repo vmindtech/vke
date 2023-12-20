@@ -8,9 +8,10 @@ import (
 )
 
 type INodeGroupsRepository interface {
-	GetNodeGroupsByClusterUUID(ctx context.Context, uuid, nodeType string) (*model.NodeGroups, error)
+	GetNodeGroupsByClusterUUID(ctx context.Context, uuid, nodeType string) ([]model.NodeGroups, error)
 	CreateNodeGroups(ctx context.Context, nodeGroups *model.NodeGroups) error
 	UpdateNodeGroups(ctx context.Context, nodeGroups *model.NodeGroups) error
+	GetNodeGroupByUUID(ctx context.Context, uuid string) (*model.NodeGroups, error)
 }
 
 type NodeGroupsRepository struct {
@@ -23,21 +24,21 @@ func NewNodeGroupsRepository(mysqlInstance mysqldb.IMysqlInstance) *NodeGroupsRe
 	}
 }
 
-func (n *NodeGroupsRepository) GetNodeGroupsByClusterUUID(ctx context.Context, uuid, nodeType string) (*model.NodeGroups, error) {
-	var nodeGroups model.NodeGroups
+func (n *NodeGroupsRepository) GetNodeGroupsByClusterUUID(ctx context.Context, uuid, nodeType string) ([]model.NodeGroups, error) {
+	var nodeGroups []model.NodeGroups
 
 	err := n.mysqlInstance.
 		Database().
 		WithContext(ctx).
 		Where(&model.NodeGroups{ClusterUUID: uuid}).
 		Where(&model.NodeGroups{NodeGroupsType: nodeType}).
-		First(&nodeGroups).
+		Find(&nodeGroups).
 		Error
 
 	if err != nil {
 		return nil, err
 	}
-	return &nodeGroups, nil
+	return nodeGroups, nil
 }
 
 func (n *NodeGroupsRepository) CreateNodeGroups(ctx context.Context, nodeGroups *model.NodeGroups) error {
@@ -55,4 +56,20 @@ func (n *NodeGroupsRepository) UpdateNodeGroups(ctx context.Context, nodeGroups 
 		Where(&model.NodeGroups{NodeGroupUUID: nodeGroups.NodeGroupUUID}).
 		Updates(nodeGroups).
 		Error
+}
+
+func (n *NodeGroupsRepository) GetNodeGroupByUUID(ctx context.Context, uuid string) (*model.NodeGroups, error) {
+	var nodeGroup model.NodeGroups
+
+	err := n.mysqlInstance.
+		Database().
+		WithContext(ctx).
+		Where(&model.NodeGroups{NodeGroupUUID: uuid}).
+		First(&nodeGroup).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+	return &nodeGroup, nil
 }

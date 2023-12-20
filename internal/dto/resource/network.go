@@ -42,3 +42,7 @@ type FloatingIP struct {
 	ID         string `json:"id"`
 	FloatingIP string `json:"floating_ip_address"`
 }
+
+type GetSecurityGroupResponse struct {
+	SecurityGroup SecurityGroup `json:"security_group"`
+}

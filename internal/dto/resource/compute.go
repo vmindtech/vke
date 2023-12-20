@@ -8,7 +8,7 @@ type Server struct {
 	ID string `json:"id"`
 }
 
-type CreateServerGroupResponse struct {
+type ServerGroupResponse struct {
 	ServerGroup ServerGroup `json:"server_group"`
 }
 

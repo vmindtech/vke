@@ -10,7 +10,7 @@ type NodeGroups struct {
 	NodeGroupMinSize    int       `json:"node_group_min_size" gorm:"type:int(11)"`
 	NodeGroupMaxSize    int       `json:"node_group_max_size" gorm:"type:int(11)"`
 	NodeDiskSize        int       `json:"node_disk_size" gorm:"type:int(11)"`
-	NodeWorkerFlavorID  string    `json:"node_worker_flavor_id" gorm:"type:varchar(255)"`
+	NodeFlavorID        string    `json:"node_flavor_id" gorm:"type:varchar(255)"`
 	NodeGroupsStatus    string    `json:"node_groups_status" gorm:"type:varchar(10)"` // Active, Updating, Deleted
 	NodeGroupsType      string    `json:"node_groups_type" gorm:"type:varchar(10)"`   // master, worker
 	IsHidden            bool      `json:"is_hidden" gorm:"type:tinyint(1)"`
