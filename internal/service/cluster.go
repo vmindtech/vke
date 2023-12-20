@@ -1420,6 +1420,10 @@ func (c *clusterService) CheckLoadBalancerStatus(ctx context.Context, authToken,
 			c.logger.Errorf("failed to list load balancer, error: %v", err)
 			return resource.ListLoadBalancerResponse{}, err
 		}
+		if listLBResp.LoadBalancer.ProvisioningStatus == LoadBalancerStatusError {
+			err := fmt.Errorf("failed to create load balancer, provisioning status is ERROR")
+			return resource.ListLoadBalancerResponse{}, err
+		}
 		if listLBResp.LoadBalancer.ProvisioningStatus == LoadBalancerStatusActive {
 			break
 		}
