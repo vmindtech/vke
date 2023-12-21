@@ -2664,7 +2664,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 			UserData: Base64Encoder(rke2InitScript),
 		},
 		SchedulerHints: request.SchedulerHints{
-			Group: nodeGroup.NodeGroupName,
+			Group: nodeGroup.NodeGroupUUID,
 		},
 	}
 
