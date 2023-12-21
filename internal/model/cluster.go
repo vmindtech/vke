@@ -22,7 +22,7 @@ type Cluster struct {
 	ClusterWorkerServerGroupsUUID datatypes.JSON `json:"cluster_worker_server_groups_uuid" gorm:"type:json"`
 	ClusterAgentToken             string         `json:"cluster_agent_token" gorm:"type:varchar(255)"`
 	ClusterSubnets                datatypes.JSON `json:"cluster_subnets" gorm:"type:json"`
-	ClusterNodeKeyPairName        string         `json:"cluster_node_keypair_name" gorm:"type:varchar(140)"`
+	ClusterNodeKeypairName        string         `json:"cluster_node_keypair_name" gorm:"type:varchar(140)"`
 	ClusterEndpoint               string         `json:"cluster_endpoint" gorm:"type:varchar(144)"`
 	MasterSecurityGroup           string         `json:"master_security_group" gorm:"type:varchar(50)"`
 	WorkerSecurityGroup           string         `json:"worker_security_group" gorm:"type:varchar(50)"`

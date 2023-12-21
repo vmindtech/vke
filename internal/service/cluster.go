@@ -305,7 +305,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterMasterServerGroupUUID:  masterServerGroupResp.ServerGroup.ID,
 		ClusterWorkerServerGroupsUUID: clusterWorkerGroupsUUID,
 		ClusterSubnets:                subnetIdsJSON,
-		ClusterNodeKeyPairName:        req.NodeKeyPairName,
+		ClusterNodeKeypairName:        req.NodeKeyPairName,
 		ClusterAPIAccess:              req.ClusterAPIAccess,
 		FloatingIPUUID:                floatingIPUUID,
 	}
@@ -2643,7 +2643,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 			Name:             nodeGroup.NodeGroupName,
 			ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
 			FlavorRef:        nodeGroup.NodeFlavorID,
-			KeyName:          cluster.ClusterNodeKeyPairName,
+			KeyName:          cluster.ClusterNodeKeypairName,
 			AvailabilityZone: "nova",
 			BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
 				{
