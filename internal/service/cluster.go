@@ -1438,7 +1438,7 @@ func (c *clusterService) CheckLoadBalancerStatus(ctx context.Context, authToken,
 	waitIterator := 0
 	waitSeconds := 10
 	for {
-		if waitIterator < 8 {
+		if waitIterator < 16 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
 			fmt.Printf("Waiting for load balancer to be active, waited %v seconds\n", waitSeconds)
 			waitIterator++
@@ -1466,7 +1466,7 @@ func (c *clusterService) CheckLoadBalancerOperationStatus(ctx context.Context, a
 	waitIterator := 0
 	waitSeconds := 35
 	for {
-		if waitIterator < 8 {
+		if waitIterator < 16 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
 			fmt.Printf("Waiting for load balancer operation to be ONLINE, waited %v seconds\n", waitSeconds)
 			waitIterator++

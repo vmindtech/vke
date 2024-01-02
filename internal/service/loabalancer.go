@@ -28,6 +28,9 @@ func GetAmphoraesVrrpIp(authToken, loadBalancerID string) (resource.GetAmphoraes
 	if err != nil {
 		return resource.GetAmphoraesVrrpIpResponse{}, err
 	}
+	if respDecoder.Amphorae == nil {
+		return resource.GetAmphoraesVrrpIpResponse{}, fmt.Errorf("Amphorae is nil")
+	}
 	return respDecoder, nil
 
 }
