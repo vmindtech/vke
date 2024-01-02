@@ -1,11 +1,9 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -23,52 +21,30 @@ import (
 
 type IClusterService interface {
 	CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest) (resource.CreateClusterResponse, error)
-	CreateCompute(ctx context.Context, authToken string, req request.CreateComputeRequest) (resource.CreateComputeResponse, error)
-	CreateLoadBalancer(ctx context.Context, authToken string, req request.CreateLoadBalancerRequest) (resource.CreateLoadBalancerResponse, error)
-	ListLoadBalancer(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error)
-	AddDNSRecordToCloudflare(ctx context.Context, loadBalancerIP, loadBalancerSubdomainHash, clusterName string) (resource.AddDNSRecordResponse, error)
-	ListSubnetByName(ctx context.Context, subnetName, authToken string) (resource.ListSubnetByNameResponse, error)
-	CreateListener(ctx context.Context, authToken string, req request.CreateListenerRequest) (resource.CreateListenerResponse, error)
-	CreatePool(ctx context.Context, authToken string, req request.CreatePoolRequest) (resource.CreatePoolResponse, error)
-	CreateMember(ctx context.Context, authToken, poolID string, req request.AddMemberRequest) error
-	GetNetworkID(ctx context.Context, authToken, subnetID string) (resource.GetNetworkIdResponse, error)
-	CreateSecurityGroup(ctx context.Context, authToken string, req request.CreateSecurityGroupRequest) (resource.CreateSecurityGroupResponse, error)
-	CreateNetworkPort(ctx context.Context, authToken string, req request.CreateNetworkPortRequest) (resource.CreateNetworkPortResponse, error)
-	CreateSecurityGroupRuleForIP(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForIpRequest) error
-	ListListener(ctx context.Context, authToken, listenerID string) (resource.ListListenerResponse, error)
-	CheckLoadBalancerStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error)
-	CreateHealthHTTPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorHTTPRequest) error
-	CreateHealthTCPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorTCPRequest) error
-	CheckLoadBalancerOperationStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error)
-	CreateSecurityGroupRuleForSG(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForSgRequest) error
 	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
-	CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.ServerGroupResponse, error)
-	CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error)
 	DestroyCluster(ctx context.Context, authToken, clusterID string) (resource.DestroyCluster, error)
-	DeleteLoadbalancerPool(ctx context.Context, authToken, loadBalancerID string) error
-	DeleteLoadbalancerListener(ctx context.Context, authToken, loadBalancerID string) error
-	DeleteLoadbalancer(ctx context.Context, authToken, loadBalancerID string) error
-	DeleteServerGroup(ctx context.Context, authToken, clusterMasterServerGroupUUID string, clusterWorkerServerGroupsUUID []string) error
-	DeleteComputeandPort(ctx context.Context, authToken, serverID, clusterMasterServerGroupUUID string, clusterWorkerGroupsUUID []string) error
-	DeleteSecurityGroup(ctx context.Context, authToken, clusterMasterSecurityGroup, clusterWorkerSecurityGroup string) error
-	DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error
-	DeleteDNSRecordFromCloudflare(ctx context.Context, dnsRecordID string) error
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
 	CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error)
 	AddNode(ctx context.Context, authToken string, req request.AddNodeRequest) (resource.AddNodeResponse, error)
-	GetSecurityGroupByID(ctx context.Context, authToken, securityGroupID string) (resource.GetSecurityGroupResponse, error)
-	GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID string) (int, error)
 }
 
 type clusterService struct {
-	repository repository.IRepository
-	logger     *logrus.Logger
+	repository          repository.IRepository
+	cloudflareService   ICloudflareService
+	loadbalancerService ILoadbalancerService
+	networkService      INetworkService
+	computeService      IComputeService
+	logger              *logrus.Logger
 }
 
-func NewClusterService(l *logrus.Logger, r repository.IRepository) IClusterService {
+func NewClusterService(l *logrus.Logger, cf ICloudflareService, lbc ILoadbalancerService, ns INetworkService, cs IComputeService, r repository.IRepository) IClusterService {
 	return &clusterService{
-		repository: r,
-		logger:     l,
+		repository:          r,
+		cloudflareService:   cf,
+		loadbalancerService: lbc,
+		networkService:      ns,
+		computeService:      cs,
+		logger:              l,
 	}
 }
 
@@ -153,12 +129,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		},
 	}
 
-	lbResp, err := c.CreateLoadBalancer(ctx, authToken, *createLBReq)
+	lbResp, err := c.loadbalancerService.CreateLoadBalancer(ctx, authToken, *createLBReq)
 	if err != nil {
 		c.logger.Errorf("failed to create load balancer, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
@@ -166,12 +142,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	//get amphoras ip
-	amphoraesResp, err := GetAmphoraesVrrpIp(authToken, lbResp.LoadBalancer.ID)
+	amphoraesResp, err := c.loadbalancerService.GetAmphoraesVrrpIp(authToken, lbResp.LoadBalancer.ID)
 	if err != nil {
 		c.logger.Errorf("failed to get amphoraes, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	listLBResp, err := c.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
+	listLBResp, err := c.loadbalancerService.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
 	if err != nil {
 		c.logger.Errorf("failed to list load balancer, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -185,7 +161,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 				PortID:            listLBResp.LoadBalancer.VipPortID,
 			},
 		}
-		createFloatingIPResponse, err := c.CreateFloatingIP(ctx, authToken, *createFloatingIPreq)
+		createFloatingIPResponse, err := c.networkService.CreateFloatingIP(ctx, authToken, *createFloatingIPreq)
 		if err != nil {
 			c.logger.Errorf("failed to create floating ip, error: %v", err)
 			return resource.CreateClusterResponse{}, err
@@ -202,7 +178,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	// create security group for master
-	createMasterSecurityResp, err := c.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+	createMasterSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
 	if err != nil {
 		c.logger.Errorf("failed to create security group, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -211,7 +187,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createSecurityGroupReq.SecurityGroup.Name = fmt.Sprintf("%v-worker-sg", req.ClusterName)
 	createSecurityGroupReq.SecurityGroup.Description = fmt.Sprintf("%v-worker-sg", req.ClusterName)
 
-	createWorkerSecurityResp, err := c.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+	createWorkerSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
 	if err != nil {
 		c.logger.Errorf("failed to create security group, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -227,7 +203,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Policy: "soft-anti-affinity",
 		},
 	}
-	masterServerGroupResp, err := c.CreateServerGroup(ctx, authToken, *createServerGroupReq)
+	masterServerGroupResp, err := c.computeService.CreateServerGroup(ctx, authToken, *createServerGroupReq)
 	if err != nil {
 		c.logger.Errorf("failed to create server group, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -254,7 +230,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	createServerGroupReq.ServerGroup.Name = fmt.Sprintf("%v-worker-server-group", req.ClusterName)
-	workerServerGroupResp, err := c.CreateServerGroup(ctx, authToken, *createServerGroupReq)
+	workerServerGroupResp, err := c.computeService.CreateServerGroup(ctx, authToken, *createServerGroupReq)
 	if err != nil {
 		c.logger.Errorf("failed to create server group, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -330,7 +306,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	getNetworkIdResp, err := c.GetNetworkID(ctx, authToken, req.SubnetIDs[0])
+	getNetworkIdResp, err := c.networkService.GetNetworkID(ctx, authToken, req.SubnetIDs[0])
 	if err != nil {
 		c.logger.Errorf("failed to get networkId, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -359,14 +335,14 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			RemoteGroupID:   createMasterSecurityResp.SecurityGroup.ID,
 		},
 	}
-	err = c.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
+	err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 	//worker to master
 	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
-	err = c.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
+	err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -374,7 +350,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	// master to worker
 	createSecurityGroupRuleReqSG.SecurityGroupRule.SecurityGroupID = createWorkerSecurityResp.SecurityGroup.ID
 	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createMasterSecurityResp.SecurityGroup.ID
-	err = c.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
+	err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -383,7 +359,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	//worker to worker
 
 	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
-	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+	err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -392,7 +368,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	// temporary for ssh access
 	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "22"
 	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "22"
-	err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+	err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -413,7 +389,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	portRequest.Port.Name = fmt.Sprintf("%v-master-1-port", req.ClusterName)
 	portRequest.Port.SecurityGroups = []string{createMasterSecurityResp.SecurityGroup.ID}
-	portResp, err := c.CreateNetworkPort(ctx, authToken, *portRequest)
+	portResp, err := c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create network port, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -451,7 +427,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	masterRequest.Server.Name = fmt.Sprintf("%v-master-1", req.ClusterName)
 
-	_, err = c.CreateCompute(ctx, authToken, *masterRequest)
+	_, err = c.computeService.CreateCompute(ctx, authToken, *masterRequest)
 	if err != nil {
 		return resource.CreateClusterResponse{}, err
 	}
@@ -462,14 +438,14 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "6443"
 		createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createMasterSecurityResp.SecurityGroup.ID
 		createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = fmt.Sprintf("%s/32", ip.VrrpIP)
-		err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 		if err != nil {
 			c.logger.Errorf("failed to create security group rule, error: %v", err)
 			return resource.CreateClusterResponse{}, err
 		}
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "9345"
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "9345"
-		err = c.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 		if err != nil {
 			c.logger.Errorf("failed to create security group rule, error: %v", err)
 			return resource.CreateClusterResponse{}, err
@@ -478,13 +454,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	// add DNS record to cloudflare
 
-	addDNSResp, err := c.AddDNSRecordToCloudflare(ctx, loadbalancerIP, clusterSubdomainHash, req.ClusterName)
+	addDNSResp, err := c.cloudflareService.AddDNSRecordToCloudflare(ctx, loadbalancerIP, clusterSubdomainHash, req.ClusterName)
 	if err != nil {
 		c.logger.Errorf("failed to add dns record, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
@@ -502,7 +478,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		},
 	}
 
-	apiListenerResp, err := c.CreateListener(ctx, authToken, *createListenerReq)
+	apiListenerResp, err := c.loadbalancerService.CreateListener(ctx, authToken, *createListenerReq)
 	if err != nil {
 		c.logger.Errorf("failed to create listener, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -511,26 +487,26 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createListenerReq.Listener.Name = fmt.Sprintf("%v-register-listener", req.ClusterName)
 	createListenerReq.Listener.ProtocolPort = 9345
 
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
-	registerListenerResp, err := c.CreateListener(ctx, authToken, *createListenerReq)
+	registerListenerResp, err := c.loadbalancerService.CreateListener(ctx, authToken, *createListenerReq)
 	if err != nil {
 		c.logger.Errorf("failed to create listener, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
@@ -545,18 +521,18 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Name:         fmt.Sprintf("%v-api-pool", req.ClusterName),
 		},
 	}
-	apiPoolResp, err := c.CreatePool(ctx, authToken, *createPoolReq)
+	apiPoolResp, err := c.loadbalancerService.CreatePool(ctx, authToken, *createPoolReq)
 	if err != nil {
 		c.logger.Errorf("failed to create pool, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	err = c.CreateHealthTCPMonitor(ctx, authToken, request.CreateHealthMonitorTCPRequest{
+	err = c.loadbalancerService.CreateHealthTCPMonitor(ctx, authToken, request.CreateHealthMonitorTCPRequest{
 		HealthMonitor: request.HealthMonitorTCP{
 			Name:           fmt.Sprintf("%v-api-healthmonitor", req.ClusterName),
 			AdminStateUp:   true,
@@ -574,24 +550,24 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	createPoolReq.Pool.ListenerID = registerListenerResp.Listener.ID
 	createPoolReq.Pool.Name = fmt.Sprintf("%v-register-pool", req.ClusterName)
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	registerPoolResp, err := c.CreatePool(ctx, authToken, *createPoolReq)
+	registerPoolResp, err := c.loadbalancerService.CreatePool(ctx, authToken, *createPoolReq)
 	if err != nil {
 		c.logger.Errorf("failed to create pool, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	err = c.CreateHealthHTTPMonitor(ctx, authToken, request.CreateHealthMonitorHTTPRequest{
+	err = c.loadbalancerService.CreateHealthHTTPMonitor(ctx, authToken, request.CreateHealthMonitorHTTPRequest{
 		HealthMonitor: request.HealthMonitorHTTP{
 			Name:           fmt.Sprintf("%v-register-healthmonitor", req.ClusterName),
 			AdminStateUp:   true,
@@ -624,14 +600,14 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Backup:       false,
 		},
 	}
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
-	err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.Errorf("failed to create member, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -639,21 +615,21 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.ProtocolPort = 9345
 	createMemberReq.Member.MonitorPort = 9345
 
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
-	err = c.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.Errorf("failed to create member, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
 	portRequest.Port.Name = fmt.Sprintf("%v-master-2-port", req.ClusterName)
-	portResp, err = c.CreateNetworkPort(ctx, authToken, *portRequest)
+	portResp, err = c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create network port, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -676,13 +652,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	masterRequest.Server.UserData = Base64Encoder(rke2InitScript)
-	_, err = c.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
-	_, err = c.CreateCompute(ctx, authToken, *masterRequest)
+	_, err = c.computeService.CreateCompute(ctx, authToken, *masterRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create compute, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -693,13 +669,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
 	createMemberReq.Member.ProtocolPort = 6443
 	createMemberReq.Member.MonitorPort = 6443
-	err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.Errorf("failed to create member, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
@@ -709,14 +685,14 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	c.logger.Errorf("failed to check load balancer status, error: %v", err)
 	createMemberReq.Member.ProtocolPort = 9345
 	createMemberReq.Member.MonitorPort = 9345
-	err = c.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.Errorf("failed to create member, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
 	portRequest.Port.Name = fmt.Sprintf("%v-master-3-port", req.ClusterName)
-	portResp, err = c.CreateNetworkPort(ctx, authToken, *portRequest)
+	portResp, err = c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create network port, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -724,7 +700,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	masterRequest.Server.Name = fmt.Sprintf("%s-master-3", req.ClusterName)
 	masterRequest.Server.Networks[0].Port = portResp.Port.ID
 
-	_, err = c.CreateCompute(ctx, authToken, *masterRequest)
+	_, err = c.computeService.CreateCompute(ctx, authToken, *masterRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create compute, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -739,7 +715,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
@@ -751,13 +727,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
 	createMemberReq.Member.ProtocolPort = 6443
 	createMemberReq.Member.MonitorPort = 6443
-	err = c.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.Errorf("failed to create member, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
 
-	_, err = c.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
@@ -766,7 +742,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	createMemberReq.Member.ProtocolPort = 9345
 	createMemberReq.Member.MonitorPort = 9345
-	err = c.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.Errorf("failed to create member, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -821,7 +797,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	for i := 1; i <= req.WorkerNodeGroupMinSize; i++ {
 		portRequest.Port.Name = fmt.Sprintf("%v-%s-port", req.ClusterName, workerNodeGroupModel.NodeGroupName)
 		portRequest.Port.SecurityGroups = []string{createWorkerSecurityResp.SecurityGroup.ID}
-		portResp, err = c.CreateNetworkPort(ctx, authToken, *portRequest)
+		portResp, err = c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
 		if err != nil {
 			c.logger.Errorf("failed to create network port, error: %v", err)
 			return resource.CreateClusterResponse{}, err
@@ -829,7 +805,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		WorkerRequest.Server.Networks[0].Port = portResp.Port.ID
 		WorkerRequest.Server.Name = fmt.Sprintf("%v-%s", req.ClusterName, workerNodeGroupModel.NodeGroupName)
 
-		_, err = c.CreateCompute(ctx, authToken, *WorkerRequest)
+		_, err = c.computeService.CreateCompute(ctx, authToken, *WorkerRequest)
 		if err != nil {
 			return resource.CreateClusterResponse{}, err
 		}
@@ -888,687 +864,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	return createClusterResp, nil
 
 }
-func (c *clusterService) CreateCompute(ctx context.Context, authToken string, req request.CreateComputeRequest) (resource.CreateComputeResponse, error) {
-	data, err := json.Marshal(req)
-	if err != nil {
-		return resource.CreateComputeResponse{}, err
-	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath), bytes.NewBuffer(data))
-	if err != nil {
-		return resource.CreateComputeResponse{}, err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		return resource.CreateComputeResponse{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusAccepted {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		c.logger.Errorf("failed to create compute, status code: %v, error msg: %v full: %v", resp.StatusCode, resp.Status, string(b))
-
-		return resource.CreateComputeResponse{}, fmt.Errorf("failed to create compute, status code: %v, error msg: %v", resp.StatusCode, string(b))
-	}
-
-	var respDecoder resource.CreateComputeResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		return resource.CreateComputeResponse{}, err
-	}
-
-	return respDecoder, nil
-}
-func (c *clusterService) CreateLoadBalancer(ctx context.Context, authToken string, req request.CreateLoadBalancerRequest) (resource.CreateLoadBalancerResponse, error) {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return resource.CreateLoadBalancerResponse{}, err
-	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.CreateLoadBalancerResponse{}, err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.CreateLoadBalancerResponse{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		c.logger.Errorf("failed to create load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.CreateLoadBalancerResponse{}, fmt.Errorf("failed to create load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	var respDecoder resource.CreateLoadBalancerResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.CreateLoadBalancerResponse{}, err
-	}
-
-	return respDecoder, nil
-}
-func (c *clusterService) ListLoadBalancer(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.ListLoadBalancerResponse{}, err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.ListLoadBalancerResponse{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.ListLoadBalancerResponse{}, fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	var respDecoder resource.ListLoadBalancerResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.ListLoadBalancerResponse{}, err
-	}
-
-	return respDecoder, nil
-}
-func (c *clusterService) AddDNSRecordToCloudflare(ctx context.Context, loadBalancerIP, loadBalancerSubdomainHash, clusterName string) (resource.AddDNSRecordResponse, error) {
-	addDNSRecordCFRequest := &request.AddDNSRecordCFRequest{
-		Content: loadBalancerIP,
-		Name:    fmt.Sprintf("%s.%s", loadBalancerSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
-		Proxied: false,
-		Type:    "A",
-		Comment: clusterName,
-		Tags:    []string{},
-		TTL:     3600,
-	}
-	data, err := json.Marshal(addDNSRecordCFRequest)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return resource.AddDNSRecordResponse{}, err
-	}
-
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/dns_records", cloudflareEndpoint, config.GlobalConfig.GetCloudflareConfig().ZoneID), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.AddDNSRecordResponse{}, err
-	}
-
-	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.AddDNSRecordResponse{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to add dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.AddDNSRecordResponse{}, fmt.Errorf("failed to add dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	var respDecoder resource.AddDNSRecordResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.AddDNSRecordResponse{}, err
-	}
-
-	return respDecoder, nil
-}
-
-func (c *clusterService) DeleteDNSRecordFromCloudflare(ctx context.Context, dnsRecordID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/dns_records/%s", cloudflareEndpoint, config.GlobalConfig.GetCloudflareConfig().ZoneID, dnsRecordID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	return nil
-}
-
-func (c *clusterService) ListSubnetByName(ctx context.Context, subnetName, authToken string) (resource.ListSubnetByNameResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s?name=%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, subnetsPath, subnetName), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.ListSubnetByNameResponse{}, err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.ListSubnetByNameResponse{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to list subnet, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.ListSubnetByNameResponse{}, fmt.Errorf("failed to list subnet, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	var respDecoder resource.ListSubnetByNameResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.ListSubnetByNameResponse{}, err
-	}
-
-	return respDecoder, nil
-}
-func (c *clusterService) CreateListener(ctx context.Context, authToken string, req request.CreateListenerRequest) (resource.CreateListenerResponse, error) {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return resource.CreateListenerResponse{}, err
-	}
-
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.CreateListenerResponse{}, err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.CreateListenerResponse{}, err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		c.logger.Errorf("failed to create listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.CreateListenerResponse{}, fmt.Errorf("failed to create listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	var respDecoder resource.CreateListenerResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.CreateListenerResponse{}, err
-	}
-
-	return respDecoder, nil
-}
-func (c *clusterService) CreatePool(ctx context.Context, authToken string, req request.CreatePoolRequest) (resource.CreatePoolResponse, error) {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return resource.CreatePoolResponse{}, err
-	}
-
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.CreatePoolResponse{}, err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.CreatePoolResponse{}, err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		c.logger.Errorf("failed to create pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		return resource.CreatePoolResponse{}, fmt.Errorf("failed to create pool, status code: %v, error msg: %v", resp.StatusCode, string(b))
-	}
-
-	var respDecoder resource.CreatePoolResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.CreatePoolResponse{}, err
-	}
-
-	return respDecoder, nil
-}
-func (c *clusterService) CreateMember(ctx context.Context, authToken, poolID string, req request.AddMemberRequest) error {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return err
-	}
-
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/%s/members", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, createMemberPath, poolID), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		c.logger.Errorf("failed to create member, status code: %v, error msg: %v", resp.StatusCode, string(b))
-		return fmt.Errorf("failed to create member, status code: %v, error msg: %v", resp.StatusCode, string(b))
-	}
-
-	var respDecoder resource.AddMemberResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return err
-	}
-
-	return nil
-}
-func (c *clusterService) GetNetworkID(ctx context.Context, authToken, subnetID string) (resource.GetNetworkIdResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, subnetsPath, subnetID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.GetNetworkIdResponse{}, err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.GetNetworkIdResponse{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to list subnet, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.GetNetworkIdResponse{}, fmt.Errorf("failed to list subnet, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	var respDecoder resource.GetNetworkIdResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.GetNetworkIdResponse{}, err
-	}
-
-	return respDecoder, nil
-}
-func (c *clusterService) CreateNetworkPort(ctx context.Context, authToken string, req request.CreateNetworkPortRequest) (resource.CreateNetworkPortResponse, error) {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return resource.CreateNetworkPortResponse{}, err
-	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.CreateNetworkPortResponse{}, err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.CreateNetworkPortResponse{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		c.logger.Errorf("failed to create network port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.CreateNetworkPortResponse{}, fmt.Errorf("failed to create network port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	var respDecoder resource.CreateNetworkPortResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.CreateNetworkPortResponse{}, err
-	}
-
-	return respDecoder, nil
-}
-func (c *clusterService) CreateSecurityGroup(ctx context.Context, authToken string, req request.CreateSecurityGroupRequest) (resource.CreateSecurityGroupResponse, error) {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return resource.CreateSecurityGroupResponse{}, err
-	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.CreateSecurityGroupResponse{}, err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.CreateSecurityGroupResponse{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		c.logger.Errorf("failed to create security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.CreateSecurityGroupResponse{}, fmt.Errorf("failed to create security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	var respDecoder resource.CreateSecurityGroupResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.CreateSecurityGroupResponse{}, err
-	}
-
-	return respDecoder, nil
-}
-func (c *clusterService) CreateSecurityGroupRuleForIP(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForIpRequest) error {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return err
-	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, SecurityGroupRulesPath), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		c.logger.Errorf("failed to create security group rule, status code: %v, error msg: %v", resp.StatusCode, string(b))
-		return fmt.Errorf("failed to create security group rule, status code: %v, error msg: %v", resp.StatusCode, string(b))
-	}
-	return nil
-}
-func (c *clusterService) CreateSecurityGroupRuleForSG(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForSgRequest) error {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return err
-	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, SecurityGroupRulesPath), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		c.logger.Errorf("failed to create security group rule, status code: %v, error msg: %v", resp.StatusCode, string(b))
-		return fmt.Errorf("failed to create security group rule, status code: %v, error msg: %v", resp.StatusCode, string(b))
-	}
-	return nil
-}
-func (c *clusterService) ListListener(ctx context.Context, authToken, listenerID string) (resource.ListListenerResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.ListListenerResponse{}, err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.ListListenerResponse{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to list listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.ListListenerResponse{}, fmt.Errorf("failed to list listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	var respDecoder resource.ListListenerResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.ListListenerResponse{}, err
-	}
-
-	return respDecoder, nil
-}
-func (c *clusterService) CheckLoadBalancerStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error) {
-	waitIterator := 0
-	waitSeconds := 10
-	for {
-		if waitIterator < 16 {
-			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			fmt.Printf("Waiting for load balancer to be active, waited %v seconds\n", waitSeconds)
-			waitIterator++
-			waitSeconds = waitSeconds + 5
-		} else {
-			err := fmt.Errorf("failed to create load balancer, provisioning status is not ACTIVE")
-			return resource.ListLoadBalancerResponse{}, err
-		}
-		listLBResp, err := c.ListLoadBalancer(ctx, authToken, loadBalancerID)
-		if err != nil {
-			c.logger.Errorf("failed to list load balancer, error: %v", err)
-			return resource.ListLoadBalancerResponse{}, err
-		}
-		if listLBResp.LoadBalancer.ProvisioningStatus == LoadBalancerStatusError {
-			err := fmt.Errorf("failed to create load balancer, provisioning status is ERROR")
-			return resource.ListLoadBalancerResponse{}, err
-		}
-		if listLBResp.LoadBalancer.ProvisioningStatus == LoadBalancerStatusActive {
-			break
-		}
-	}
-	return resource.ListLoadBalancerResponse{}, nil
-}
-func (c *clusterService) CheckLoadBalancerOperationStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error) {
-	waitIterator := 0
-	waitSeconds := 35
-	for {
-		if waitIterator < 16 {
-			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			fmt.Printf("Waiting for load balancer operation to be ONLINE, waited %v seconds\n", waitSeconds)
-			waitIterator++
-			waitSeconds = waitSeconds + 5
-		} else {
-			return resource.ListLoadBalancerResponse{}, fmt.Errorf("failed to create load balancer, operation status is not ONLINE")
-		}
-		listLBResp, err := c.ListLoadBalancer(ctx, authToken, loadBalancerID)
-		if err != nil {
-			c.logger.Errorf("failed to list load balancer, error: %v", err)
-			return resource.ListLoadBalancerResponse{}, err
-		}
-		if listLBResp.LoadBalancer.OperatingStatus == "ONLINE" {
-			break
-		}
-	}
-	return resource.ListLoadBalancerResponse{}, nil
-}
-func (c *clusterService) CreateHealthHTTPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorHTTPRequest) error {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return err
-	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, healthMonitorPath), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		c.logger.Errorf("failed to create health monitor, status code: %v, error msg: %v", resp.StatusCode, string(b))
-		return fmt.Errorf("failed to create health monitor, status code: %v, error msg: %v", resp.StatusCode, string(b))
-	}
-
-	var respDecoder resource.CreateHealthMonitorResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return err
-	}
-
-	return nil
-}
-func (c *clusterService) CreateHealthTCPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorTCPRequest) error {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return err
-	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, healthMonitorPath), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		c.logger.Errorf("failed to create health monitor, status code: %v, error msg: %v", resp.StatusCode, string(b))
-		return fmt.Errorf("failed to create health monitor, status code: %v, error msg: %v", resp.StatusCode, string(b))
-	}
-
-	var respDecoder resource.CreateHealthMonitorResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return err
-	}
-
-	return nil
-}
 func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error) {
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
@@ -1654,87 +950,6 @@ func (c *clusterService) CheckAuthToken(ctx context.Context, authToken, projectU
 	return nil
 }
 
-func (c *clusterService) CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.ServerGroupResponse, error) {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return resource.ServerGroupResponse{}, err
-	}
-
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.ServerGroupResponse{}, err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-	r.Header.Add("x-openstack-nova-api-version", config.GlobalConfig.GetOpenStackApiConfig().NovaMicroversion)
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.ServerGroupResponse{}, err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to create server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.ServerGroupResponse{}, fmt.Errorf("failed to create server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	var respDecoder resource.ServerGroupResponse
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.ServerGroupResponse{}, err
-	}
-	return respDecoder, nil
-}
-func (c *clusterService) CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error) {
-	data, err := json.Marshal(req)
-	if err != nil {
-		c.logger.Errorf("failed to marshal request, error: %v", err)
-		return resource.CreateFloatingIPResponse{}, err
-	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath), bytes.NewBuffer(data))
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.CreateFloatingIPResponse{}, err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.CreateFloatingIPResponse{}, err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		c.logger.Errorf("failed to create floating ip, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		return resource.CreateFloatingIPResponse{}, fmt.Errorf("failed to create floating ip, status code: %v, error msg: %v, full msg: %v", resp.StatusCode, resp.Status, string(b))
-	}
-
-	var respDecoder resource.CreateFloatingIPResponse
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return resource.CreateFloatingIPResponse{}, err
-	}
-	return respDecoder, nil
-}
-
 func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterID string) (resource.DestroyCluster, error) {
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
@@ -1774,24 +989,24 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 
 	//Delete LoadBalancer Pool and Listener
 
-	deleteLoadBalancerListenerResp := c.DeleteLoadbalancerListener(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	deleteLoadBalancerListenerResp := c.loadbalancerService.DeleteLoadbalancerListener(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 	if deleteLoadBalancerListenerResp != nil {
 		c.logger.Errorf("failed to delete load balancer pool, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
-	deleteLoadBalancerPoolResp := c.DeleteLoadbalancerPool(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	deleteLoadBalancerPoolResp := c.loadbalancerService.DeleteLoadbalancerPool(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 	if deleteLoadBalancerPoolResp != nil {
 		c.logger.Errorf("failed to delete load balancer pool, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
-	deleteLoadBalancerResp := c.DeleteLoadbalancer(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	deleteLoadBalancerResp := c.loadbalancerService.DeleteLoadbalancer(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 	if deleteLoadBalancerResp != nil {
 		c.logger.Errorf("failed to delete load balancer, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
 
 	//Delete DNS Record
-	err = c.DeleteDNSRecordFromCloudflare(ctx, cluster.ClusterCloudflareRecordID)
+	err = c.cloudflareService.DeleteDNSRecordFromCloudflare(ctx, cluster.ClusterCloudflareRecordID)
 	if err != nil {
 		c.logger.Errorf("failed to delete dns record, error: %v", err)
 		return resource.DestroyCluster{}, err
@@ -1799,7 +1014,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 
 	//Delete FloatingIP
 	if cluster.ClusterAPIAccess == "public" {
-		deleteFloatingIPResp := c.DeleteFloatingIP(ctx, authToken, cluster.FloatingIPUUID)
+		deleteFloatingIPResp := c.networkService.DeleteFloatingIP(ctx, authToken, cluster.FloatingIPUUID)
 		if deleteFloatingIPResp != nil {
 			c.logger.Errorf("failed to delete floating ip, error: %v", err)
 			return resource.DestroyCluster{}, err
@@ -1812,18 +1027,18 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		c.logger.Errorf("failed to unmarshal cluster worker server groups uuid, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
-	deleteComputeResp := c.DeleteComputeandPort(ctx, authToken, cluster.ClusterMasterServerGroupUUID, cluster.ClusterMasterServerGroupUUID, clusterWorkerServerGroupsUUIDString)
+	deleteComputeResp := c.computeService.DeleteComputeandPort(ctx, authToken, cluster.ClusterMasterServerGroupUUID, cluster.ClusterMasterServerGroupUUID, clusterWorkerServerGroupsUUIDString)
 	if deleteComputeResp != nil {
 		c.logger.Errorf("failed to delete compute, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
 
-	deleteServerGroupResp := c.DeleteServerGroup(ctx, authToken, cluster.ClusterMasterServerGroupUUID, clusterWorkerServerGroupsUUIDString)
+	deleteServerGroupResp := c.computeService.DeleteServerGroup(ctx, authToken, cluster.ClusterMasterServerGroupUUID, clusterWorkerServerGroupsUUIDString)
 	if deleteServerGroupResp != nil {
 		c.logger.Errorf("failed to delete server group, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
-	deleteSecurityGroupResp := c.DeleteSecurityGroup(ctx, authToken, cluster.MasterSecurityGroup, cluster.WorkerSecurityGroup)
+	deleteSecurityGroupResp := c.networkService.DeleteSecurityGroup(ctx, authToken, cluster.MasterSecurityGroup, cluster.WorkerSecurityGroup)
 	if deleteSecurityGroupResp != nil {
 		c.logger.Errorf("failed to delete security group, error: %v", err)
 		return resource.DestroyCluster{}, err
@@ -1858,589 +1073,6 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 	}
 
 	return clusterResp, nil
-}
-
-func (c *clusterService) DeleteLoadbalancerPool(ctx context.Context, authToken, loadBalancerID string) error {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.logger.Errorf("failed to read response body, error: %v", err)
-		return err
-	}
-	var respdata map[string]map[string]interface{}
-	err = json.Unmarshal([]byte(body), &respdata)
-	if err != nil {
-		c.logger.Errorf("failed to unmarshal response body, error: %v", err)
-		return err
-	}
-
-	poolsInterface := respdata["loadbalancer"]["pools"]
-
-	pools := poolsInterface.([]interface{})
-	waitIterator := 0
-	waitSeconds := 10
-	for _, pool := range pools {
-		poolID := pool.(map[string]interface{})["id"].(string)
-		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
-		if err != nil {
-			c.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			c.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusNoContent {
-			c.logger.Errorf("failed to delete load balancer pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to delete load balancer pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-		for {
-			if waitIterator < 8 {
-				time.Sleep(time.Duration(waitSeconds) * time.Second)
-				fmt.Printf("Waiting for load balancer pool to be deleted, waited %v seconds\n", waitSeconds)
-				waitIterator++
-				waitSeconds = waitSeconds + 5
-				r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
-				if err != nil {
-					c.logger.Errorf("failed to create request, error: %v", err)
-					return err
-				}
-
-				r.Header.Add("X-Auth-Token", authToken)
-
-				client = &http.Client{}
-				resp, err = client.Do(r)
-				if err != nil {
-					c.logger.Errorf("failed to send request, error: %v", err)
-					return err
-				}
-				defer resp.Body.Close()
-
-				if resp.StatusCode == http.StatusNotFound {
-					break
-				}
-			} else {
-				return fmt.Errorf("failed to delete load balancer pool, provisioning status is not DELETED")
-			}
-		}
-	}
-
-	return nil
-}
-
-func (c *clusterService) DeleteLoadbalancerListener(ctx context.Context, authToken, loadBalancerID string) error {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.logger.Errorf("failed to read response body, error: %v", err)
-		return err
-	}
-	var respdata map[string]map[string]interface{}
-	err = json.Unmarshal([]byte(body), &respdata)
-	if err != nil {
-		c.logger.Errorf("failed to unmarshal response body, error: %v", err)
-		return err
-	}
-
-	listenersInterface := respdata["loadbalancer"]["listeners"]
-
-	listeners := listenersInterface.([]interface{})
-
-	waitIterator := 0
-	waitSeconds := 10
-
-	for _, listener := range listeners {
-		listenerID := listener.(map[string]interface{})["id"].(string)
-		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
-		if err != nil {
-			c.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			c.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusNoContent {
-			c.logger.Errorf("failed to delete load balancer listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to delete load balancer listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-		for {
-			if waitIterator < 8 {
-				time.Sleep(time.Duration(waitSeconds) * time.Second)
-				fmt.Printf("Waiting for load balancer listener to be deleted, waited %v seconds\n", waitSeconds)
-				waitIterator++
-				waitSeconds = waitSeconds + 5
-				r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
-				if err != nil {
-					c.logger.Errorf("failed to create request, error: %v", err)
-					return err
-				}
-
-				r.Header.Add("X-Auth-Token", authToken)
-
-				client = &http.Client{}
-				resp, err = client.Do(r)
-				if err != nil {
-					c.logger.Errorf("failed to send request, error: %v", err)
-					return err
-				}
-				defer resp.Body.Close()
-
-				if resp.StatusCode == http.StatusNotFound {
-					break
-				}
-			} else {
-				return fmt.Errorf("failed to delete load balancer listener, provisioning status is not DELETED")
-			}
-		}
-	}
-	return nil
-}
-func (c *clusterService) DeleteLoadbalancer(ctx context.Context, authToken, loadBalancerID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		c.logger.Errorf("failed to delete load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to delete load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	return nil
-}
-
-func (c *clusterService) DeleteComputeandPort(ctx context.Context, authToken, serverID, clusterMasterServerGroupUUID string, clusterWorkerGroupsUUID []string) error {
-	for _, member := range clusterWorkerGroupsUUID {
-		r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, member), nil)
-		if err != nil {
-			c.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-		r.Header.Add("Content-Type", "application/json")
-
-		client := &http.Client{}
-		resp, err := client.Do(r)
-		if err != nil {
-			c.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			c.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			c.logger.Errorf("failed to read response body, error: %v", err)
-			return err
-		}
-		var respData map[string]map[string]interface{}
-		err = json.Unmarshal([]byte(body), &respData)
-
-		serverGroup := respData["server_group"]
-
-		membersInterface := serverGroup["members"]
-
-		members := membersInterface.([]interface{})
-
-		for _, instance := range members {
-			r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance, osInterfacePath), nil)
-			if err != nil {
-				c.logger.Errorf("failed to create request, error: %v", err)
-				return err
-			}
-
-			r.Header.Add("X-Auth-Token", authToken)
-
-			client = &http.Client{}
-			resp, err = client.Do(r)
-			if err != nil {
-				c.logger.Errorf("failed to send request, error: %v", err)
-				return err
-			}
-
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				c.logger.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-				return fmt.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			}
-
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				c.logger.Errorf("failed to read response body, error: %v", err)
-				return err
-			}
-			var respData map[string][]map[string]interface{}
-			err = json.Unmarshal([]byte(body), &respData)
-
-			attachments := respData["interfaceAttachments"]
-
-			portID := attachments[0]["port_id"].(string)
-
-			r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort, portID), nil)
-			if err != nil {
-				c.logger.Errorf("failed to create request, error: %v", err)
-				return err
-			}
-
-			r.Header.Add("X-Auth-Token", authToken)
-
-			client = &http.Client{}
-			resp, err = client.Do(r)
-			if err != nil {
-				c.logger.Errorf("failed to send request, error: %v", err)
-				return err
-			}
-
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusNoContent {
-				c.logger.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-				return fmt.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			}
-
-			r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance), nil)
-			if err != nil {
-				c.logger.Errorf("failed to create request, error: %v", err)
-				return err
-			}
-
-			r.Header.Add("X-Auth-Token", authToken)
-			r.Header.Add("Content-Type", "application/json")
-
-			client = &http.Client{}
-			resp, err = client.Do(r)
-			if err != nil {
-				c.logger.Errorf("failed to send request, error: %v", err)
-				return err
-			}
-
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusNoContent {
-				c.logger.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-				return fmt.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			}
-
-		}
-	}
-
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, clusterMasterServerGroupUUID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.logger.Errorf("failed to read response body, error: %v", err)
-		return err
-	}
-	var respData map[string]map[string]interface{}
-	err = json.Unmarshal([]byte(body), &respData)
-
-	serverGroup := respData["server_group"]
-
-	membersInterface := serverGroup["members"]
-
-	members := membersInterface.([]interface{})
-
-	for _, instance := range members {
-		r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance, osInterfacePath), nil)
-		if err != nil {
-			c.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			c.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			c.logger.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			c.logger.Errorf("failed to read response body, error: %v", err)
-			return err
-		}
-		var respData map[string][]map[string]interface{}
-		err = json.Unmarshal([]byte(body), &respData)
-
-		attachments := respData["interfaceAttachments"]
-
-		portID := attachments[0]["port_id"].(string)
-
-		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort, portID), nil)
-		if err != nil {
-			c.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			c.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusNoContent {
-			c.logger.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance), nil)
-		if err != nil {
-			c.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-		r.Header.Add("Content-Type", "application/json")
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			c.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusNoContent {
-			c.logger.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-	}
-	return nil
-}
-
-func (c *clusterService) DeleteServerGroup(ctx context.Context, authToken, clusterMasterServerGroupUUID string, clusterWorkerServerGroupsUUID []string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, clusterMasterServerGroupUUID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		c.logger.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	for _, member := range clusterWorkerServerGroupsUUID {
-		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, member), nil)
-		if err != nil {
-			c.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			c.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusNoContent {
-			c.logger.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-	}
-
-	return nil
-}
-
-func (c *clusterService) DeleteSecurityGroup(ctx context.Context, authToken, clusterMasterSecurityGroup, clusterWorkerSecurityGroup string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath, clusterMasterSecurityGroup), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		c.logger.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath, clusterWorkerSecurityGroup), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-
-	client = &http.Client{}
-	resp, err = client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		c.logger.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	return nil
-}
-
-func (c *clusterService) DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath, floatingIPID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		c.logger.Errorf("failed to delete floating ip, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to delete floating ip, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	return nil
 }
 
 func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error) {
@@ -2569,7 +1201,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 		return resource.AddNodeResponse{}, fmt.Errorf("failed to get node groups")
 	}
 
-	desiredCount, err := c.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID)
+	desiredCount, err := c.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID)
 	if err != nil {
 		c.logger.Errorf("failed to get count of server from server group, error: %v", err)
 		return resource.AddNodeResponse{}, err
@@ -2587,7 +1219,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 		return resource.AddNodeResponse{}, err
 	}
 
-	networkIDResp, err := c.GetNetworkID(ctx, authToken, subnetIDs[0])
+	networkIDResp, err := c.networkService.GetNetworkID(ctx, authToken, subnetIDs[0])
 	if err != nil {
 		c.logger.Errorf("failed to get network id, error: %v", err)
 		return resource.AddNodeResponse{}, err
@@ -2609,7 +1241,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 		},
 	}
 
-	portResp, err := c.CreateNetworkPort(ctx, authToken, createPortRequest)
+	portResp, err := c.networkService.CreateNetworkPort(ctx, authToken, createPortRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create port, error: %v", err)
 		return resource.AddNodeResponse{}, err
@@ -2630,7 +1262,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 		return resource.AddNodeResponse{}, err
 	}
 
-	securityGroup, err := c.GetSecurityGroupByID(ctx, authToken, cluster.WorkerSecurityGroup)
+	securityGroup, err := c.networkService.GetSecurityGroupByID(ctx, authToken, cluster.WorkerSecurityGroup)
 	if err != nil {
 		c.logger.Errorf("failed to get security group, error: %v", err)
 		return resource.AddNodeResponse{}, err
@@ -2668,7 +1300,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 		},
 	}
 
-	serverResp, err := c.CreateCompute(ctx, authToken, createServerRequest)
+	serverResp, err := c.computeService.CreateCompute(ctx, authToken, createServerRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create compute, error: %v", err)
 		return resource.AddNodeResponse{}, err
@@ -2692,81 +1324,4 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 		MinSize:     nodeGroup.NodeGroupMinSize,
 		MaxSize:     nodeGroup.NodeGroupMaxSize,
 	}, nil
-}
-
-func (c *clusterService) GetSecurityGroupByID(ctx context.Context, authToken, securityGroupID string) (resource.GetSecurityGroupResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath, securityGroupID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return resource.GetSecurityGroupResponse{}, err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return resource.GetSecurityGroupResponse{}, err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to list security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.GetSecurityGroupResponse{}, fmt.Errorf("failed to list security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.logger.Errorf("failed to read response body, error: %v", err)
-		return resource.GetSecurityGroupResponse{}, err
-	}
-	var respData resource.GetSecurityGroupResponse
-	err = json.Unmarshal([]byte(body), &respData)
-	if err != nil {
-		c.logger.Errorf("failed to unmarshal response body, error: %v", err)
-		return resource.GetSecurityGroupResponse{}, err
-	}
-
-	return respData, nil
-}
-
-func (c *clusterService) GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID string) (int, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, serverGroupID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return 0, err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return 0, err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return 0, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.logger.Errorf("failed to read response body, error: %v", err)
-		return 0, err
-	}
-	var respData resource.ServerGroupResponse
-	err = json.Unmarshal([]byte(body), &respData)
-	if err != nil {
-		c.logger.Errorf("failed to unmarshal response body, error: %v", err)
-		return 0, err
-	}
-
-	return len(respData.ServerGroup.Members), nil
 }
