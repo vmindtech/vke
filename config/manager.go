@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+
 	"github.com/spf13/viper"
 	"golang.org/x/text/language"
 )
@@ -34,9 +36,9 @@ type configureManager struct {
 }
 
 func NewConfigureManager() IConfigureManager {
-	viper.SetConfigFile("config.json")
+	viper.SetConfigFile("config-" + os.Getenv("golang_env") + ".json")
 	viper.SetConfigType("json")
-	viper.AddConfigPath("./config.json")
+	viper.AddConfigPath("./config-" + os.Getenv("golang_env") + ".json")
 
 	_ = viper.ReadInConfig()
 

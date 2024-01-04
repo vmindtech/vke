@@ -7,7 +7,8 @@ type CreateClusterRequest struct {
 	NodeKeyPairName        string   `json:"nodeKeyPairName"`
 	ClusterAPIAccess       string   `json:"clusterApiAccess"`
 	SubnetIDs              []string `json:"subnetIds"`
-	WorkerCount            int      `json:"workerCount"`
+	WorkerNodeGroupMinSize int      `json:"workerNodeGroupMinSize"`
+	WorkerNodeGroupMaxSize int      `json:"workerNodeGroupMaxSize"`
 	WorkerInstanceFlavorID string   `json:"workerInstanceFlavorID"`
 	MasterInstanceFlavorID string   `json:"masterInstanceFlavorID"`
 	WorkerDiskSizeGB       int      `json:"workerDiskSizeGB"`

@@ -29,6 +29,7 @@ func (c *ClusterRepository) GetClusterByUUID(ctx context.Context, uuid string) (
 
 	err := c.mysqlInstance.
 		Database().
+		Debug().
 		WithContext(ctx).
 		Where(&model.Cluster{ClusterUUID: uuid}).
 		First(&cluster).
