@@ -54,7 +54,7 @@ func (c *ClusterRepository) UpdateCluster(ctx context.Context, cluster *model.Cl
 		Database().
 		WithContext(ctx).
 		Where(&model.Cluster{ClusterUUID: cluster.ClusterUUID}).
-		Save(cluster).
+		Updates(cluster).
 		Error
 }
 

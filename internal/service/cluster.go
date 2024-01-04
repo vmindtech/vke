@@ -141,12 +141,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	//get amphoras ip
-	amphoraesResp, err := c.loadbalancerService.GetAmphoraesVrrpIp(authToken, lbResp.LoadBalancer.ID)
-	if err != nil {
-		c.logger.Errorf("failed to get amphoraes, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
 	listLBResp, err := c.loadbalancerService.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
 	if err != nil {
 		c.logger.Errorf("failed to list load balancer, error: %v", err)
@@ -432,17 +426,24 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	// create security group rule for load balancer
-	for _, ip := range amphoraesResp.Amphorae {
+	for _, subnetID := range req.SubnetIDs {
+		subnetDetails, err := c.networkService.GetSubnetByID(ctx, authToken, subnetID)
+		if err != nil {
+			c.logger.Errorf("failed to get subnet details, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
+
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "6443"
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "6443"
 		createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createMasterSecurityResp.SecurityGroup.ID
-		createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = fmt.Sprintf("%s/32", ip.VrrpIP)
+		createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = subnetDetails.Subnet.CIDR
+
 		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 		if err != nil {
 			c.logger.Errorf("failed to create security group rule, error: %v", err)
 			return resource.CreateClusterResponse{}, err
 		}
+
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "9345"
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "9345"
 		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
@@ -652,7 +653,9 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	masterRequest.Server.UserData = Base64Encoder(rke2InitScript)
-	_, err = c.loadbalancerService.CheckLoadBalancerOperationStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v", err)
 		return resource.CreateClusterResponse{}, err
