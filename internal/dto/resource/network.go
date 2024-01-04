@@ -46,3 +46,15 @@ type FloatingIP struct {
 type GetSecurityGroupResponse struct {
 	SecurityGroup SecurityGroup `json:"security_group"`
 }
+
+type SubnetResponse struct {
+	Subnet SubnetWithDetails `json:"subnet"`
+}
+
+type SubnetWithDetails struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	IPVersion int    `json:"ip_version"`
+	GatewayIP string `json:"gateway_ip"`
+	CIDR      string `json:"cidr"`
+}

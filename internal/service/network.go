@@ -27,6 +27,7 @@ type INetworkService interface {
 	DeleteSecurityGroup(ctx context.Context, authToken, clusterMasterSecurityGroup, clusterWorkerSecurityGroup string) error
 	DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error
 	GetSecurityGroupByID(ctx context.Context, authToken, securityGroupID string) (resource.GetSecurityGroupResponse, error)
+	GetSubnetByID(ctx context.Context, authToken, subnetID string) (resource.SubnetResponse, error)
 }
 
 type networkService struct {
@@ -398,6 +399,44 @@ func (ns *networkService) GetSecurityGroupByID(ctx context.Context, authToken, s
 	if err != nil {
 		ns.logger.Errorf("failed to unmarshal response body, error: %v", err)
 		return resource.GetSecurityGroupResponse{}, err
+	}
+
+	return respData, nil
+}
+
+func (ns *networkService) GetSubnetByID(ctx context.Context, authToken, subnetID string) (resource.SubnetResponse, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, subnetsPath, subnetID), nil)
+	if err != nil {
+		ns.logger.Errorf("failed to create request, error: %v", err)
+		return resource.SubnetResponse{}, err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		ns.logger.Errorf("failed to send request, error: %v", err)
+		return resource.SubnetResponse{}, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		ns.logger.Errorf("failed to list subnet, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.SubnetResponse{}, fmt.Errorf("failed to list subnet, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		ns.logger.Errorf("failed to read response body, error: %v", err)
+		return resource.SubnetResponse{}, err
+	}
+	var respData resource.SubnetResponse
+	err = json.Unmarshal([]byte(body), &respData)
+	if err != nil {
+		ns.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		return resource.SubnetResponse{}, err
 	}
 
 	return respData, nil
