@@ -196,6 +196,11 @@ func (cs *computeService) DeleteComputeandPort(ctx context.Context, authToken, s
 		var respData map[string]map[string]interface{}
 		err = json.Unmarshal([]byte(body), &respData)
 
+		if err != nil {
+			cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+			return err
+		}
+
 		serverGroup := respData["server_group"]
 
 		membersInterface := serverGroup["members"]
@@ -232,6 +237,10 @@ func (cs *computeService) DeleteComputeandPort(ctx context.Context, authToken, s
 			}
 			var respData map[string][]map[string]interface{}
 			err = json.Unmarshal([]byte(body), &respData)
+			if err != nil {
+				cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+				return err
+			}
 
 			attachments := respData["interfaceAttachments"]
 
@@ -313,6 +322,10 @@ func (cs *computeService) DeleteComputeandPort(ctx context.Context, authToken, s
 	}
 	var respData map[string]map[string]interface{}
 	err = json.Unmarshal([]byte(body), &respData)
+	if err != nil {
+		cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		return err
+	}
 
 	serverGroup := respData["server_group"]
 
@@ -350,6 +363,10 @@ func (cs *computeService) DeleteComputeandPort(ctx context.Context, authToken, s
 		}
 		var respData map[string][]map[string]interface{}
 		err = json.Unmarshal([]byte(body), &respData)
+		if err != nil {
+			cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+			return err
+		}
 
 		attachments := respData["interfaceAttachments"]
 
