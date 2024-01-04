@@ -43,13 +43,14 @@ func NewConfigureManager() IConfigureManager {
 	_ = viper.ReadInConfig()
 
 	GlobalConfig = &configureManager{
-		Web:             loadWebConfig(),
-		Language:        loadLanguageConfig(),
-		Mysql:           loadMysqlDBConfig(),
-		Cloudflare:      loadCloudflareConfig(),
-		ImageRef:        loadImageRefConfig(),
-		PublicNetworkID: loadPublicNetworkIDConfig(),
-		APIEndpoints:    loadAPIEndpointsConfig(),
+		Web:                loadWebConfig(),
+		Language:           loadLanguageConfig(),
+		Mysql:              loadMysqlDBConfig(),
+		Cloudflare:         loadCloudflareConfig(),
+		ImageRef:           loadImageRefConfig(),
+		PublicNetworkID:    loadPublicNetworkIDConfig(),
+		APIEndpoints:       loadAPIEndpointsConfig(),
+		OpenStackApiConfig: loadOpenStackApiConfig(),
 	}
 
 	return GlobalConfig
