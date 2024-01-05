@@ -14,6 +14,7 @@ import (
 	"github.com/vmindtech/vke/config"
 	"github.com/vmindtech/vke/internal/dto/request"
 	"github.com/vmindtech/vke/internal/dto/resource"
+	"github.com/vmindtech/vke/internal/repository"
 )
 
 type IComputeService interface {
@@ -22,15 +23,20 @@ type IComputeService interface {
 	DeleteServerGroup(ctx context.Context, authToken, clusterMasterServerGroupUUID string, clusterWorkerServerGroupsUUID []string) error
 	DeleteComputeandPort(ctx context.Context, authToken, serverID, clusterMasterServerGroupUUID string, clusterWorkerGroupsUUID []string) error
 	GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID string) (int, error)
+	GetInstances(ctx context.Context, authToken, nodeGroupUUID string) (resource.Servers, error)
 }
 
 type computeService struct {
-	logger *logrus.Logger
+	logger          *logrus.Logger
+	identityService IIdentityService
+	repository      repository.IRepository
 }
 
-func NewComputeService(l *logrus.Logger) IComputeService {
+func NewComputeService(l *logrus.Logger, i IIdentityService, repository repository.IRepository) IComputeService {
 	return &computeService{
-		logger: l,
+		logger:          l,
+		identityService: i,
+		repository:      repository,
 	}
 }
 
@@ -421,6 +427,11 @@ func (cs *computeService) DeleteComputeandPort(ctx context.Context, authToken, s
 }
 
 func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID string) (int, error) {
+	err := cs.identityService.CheckAuthToken(ctx, authToken, "")
+	if err != nil {
+		cs.logger.Errorf("failed to check auth token, error: %v", err)
+		return 0, err
+	}
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, serverGroupID), nil)
 	if err != nil {
 		cs.logger.Errorf("failed to create request, error: %v", err)
@@ -457,4 +468,59 @@ func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, a
 	}
 
 	return len(respData.ServerGroup.Members), nil
+}
+func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroupUUID string) (resource.Servers, error) {
+	ClusterUUID, err := cs.repository.NodeGroups().GetClusterProjectUUIDByNodeGroupUUID(ctx, nodeGroupUUID)
+	if err != nil {
+		return resource.Servers{}, err
+	}
+	clusterProjectUUID, err := cs.repository.Cluster().GetClusterByUUID(ctx, ClusterUUID)
+	if err != nil {
+		return resource.Servers{}, err
+	}
+
+	err = cs.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
+	if err != nil {
+		cs.logger.Errorf("failed to check auth token, error: %v", err)
+		return resource.Servers{}, err
+	}
+
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, nodeGroupUUID), nil)
+	if err != nil {
+		cs.logger.Errorf("failed to create request, error: %v", err)
+		return resource.Servers{}, err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		cs.logger.Errorf("failed to send request, error: %v", err)
+		return resource.Servers{}, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.Servers{}, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		cs.logger.Errorf("failed to read response body, error: %v", err)
+		return resource.Servers{}, err
+	}
+	var data resource.ServerGroupResponse
+	err = json.Unmarshal([]byte(body), &data)
+	if err != nil {
+		cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		return resource.Servers{}, err
+	}
+	var respData resource.Servers
+	respData.Servers = data.ServerGroup.Members
+	fmt.Println(respData)
+	return respData, nil
 }
