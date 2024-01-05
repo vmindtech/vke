@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
-	"net/http"
-	"net/http/httputil"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,9 +32,10 @@ type clusterService struct {
 	networkService      INetworkService
 	computeService      IComputeService
 	logger              *logrus.Logger
+	identityService     IIdentityService
 }
 
-func NewClusterService(l *logrus.Logger, cf ICloudflareService, lbc ILoadbalancerService, ns INetworkService, cs IComputeService, r repository.IRepository) IClusterService {
+func NewClusterService(l *logrus.Logger, cf ICloudflareService, lbc ILoadbalancerService, ns INetworkService, cs IComputeService, r repository.IRepository, i IIdentityService) IClusterService {
 	return &clusterService{
 		repository:          r,
 		cloudflareService:   cf,
@@ -45,6 +43,7 @@ func NewClusterService(l *logrus.Logger, cf ICloudflareService, lbc ILoadbalance
 		networkService:      ns,
 		computeService:      cs,
 		logger:              l,
+		identityService:     i,
 	}
 }
 
@@ -210,7 +209,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		NodeGroupMinSize:    3,
 		NodeGroupMaxSize:    3,
 		NodeDiskSize:        80,
-		NodeFlavorID:        req.MasterInstanceFlavorID,
+		NodeFlavorUUID:      req.MasterInstanceFlavorUUID,
 		NodeGroupsStatus:    NodeGroupCreatingStatus,
 		NodeGroupsType:      NodeGroupMasterType,
 		IsHidden:            true,
@@ -237,7 +236,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		NodeGroupMinSize:    req.WorkerNodeGroupMinSize,
 		NodeGroupMaxSize:    req.WorkerNodeGroupMaxSize,
 		NodeDiskSize:        req.WorkerDiskSizeGB,
-		NodeFlavorID:        req.WorkerInstanceFlavorID,
+		NodeFlavorUUID:      req.WorkerInstanceFlavorUUID,
 		NodeGroupsStatus:    NodeGroupCreatingStatus,
 		NodeGroupsType:      NodeGroupWorkerType,
 		IsHidden:            false,
@@ -393,7 +392,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		Server: request.Server{
 			Name:             "ServerName",
 			ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
-			FlavorRef:        req.MasterInstanceFlavorID,
+			FlavorRef:        req.MasterInstanceFlavorUUID,
 			KeyName:          req.NodeKeyPairName,
 			AvailabilityZone: "nova",
 			SecurityGroups: []request.SecurityGroups{
@@ -772,7 +771,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		Server: request.Server{
 			Name:             "ServerName",
 			ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
-			FlavorRef:        req.WorkerInstanceFlavorID,
+			FlavorRef:        req.WorkerInstanceFlavorUUID,
 			KeyName:          req.NodeKeyPairName,
 			AvailabilityZone: "nova",
 			SecurityGroups: []request.SecurityGroups{
@@ -885,7 +884,7 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 		return resource.GetClusterResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
-	err = c.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.Errorf("failed to check auth token, error: %v", err)
 		return resource.GetClusterResponse{}, err
@@ -912,47 +911,6 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 	return clusterResp, nil
 }
 
-func (c *clusterService) CheckAuthToken(ctx context.Context, authToken, projectUUID string) error {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint, projectPath, projectUUID), nil)
-	if err != nil {
-		c.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-	r.Header.Add("X-Auth-Token", authToken)
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		c.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logger.Errorf("failed to check auth token, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		return fmt.Errorf("failed to check auth token, status code: %v, error msg: %v, %s", resp.StatusCode, resp.Status, string(b))
-	}
-
-	var respDecoder resource.GetProjectDetailsResponse
-
-	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
-	if err != nil {
-		c.logger.Errorf("failed to decode response, error: %v", err)
-		return err
-	}
-
-	if respDecoder.Project.ID != projectUUID {
-		c.logger.Errorf("failed to check auth token, project id mismatch")
-		return fmt.Errorf("failed to check auth token, project id mismatch")
-	}
-
-	return nil
-}
-
 func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterID string) (resource.DestroyCluster, error) {
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
@@ -970,7 +928,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		return resource.DestroyCluster{}, err
 	}
 
-	err = c.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.Errorf("failed to check auth token, error: %v", err)
 		return resource.DestroyCluster{}, err
@@ -1095,7 +1053,7 @@ func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID
 		return resource.GetKubeConfigResponse{}, err
 	}
 
-	err = c.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.Errorf("failed to check auth token, error: %v", err)
 		return resource.GetKubeConfigResponse{}, err
@@ -1137,7 +1095,7 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
-	err = c.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.Errorf("failed to check auth token, error: %v", err)
 		return resource.CreateKubeconfigResponse{}, err
@@ -1187,7 +1145,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 		return resource.AddNodeResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
-	err = c.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.Errorf("failed to check auth token, error: %v", err)
 		return resource.AddNodeResponse{}, err
@@ -1277,7 +1235,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 		Server: request.Server{
 			Name:             nodeGroup.NodeGroupName,
 			ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
-			FlavorRef:        nodeGroup.NodeFlavorID,
+			FlavorRef:        nodeGroup.NodeFlavorUUID,
 			KeyName:          cluster.ClusterNodeKeypairName,
 			AvailabilityZone: "nova",
 			BlockDeviceMappingV2: []request.BlockDeviceMappingV2{

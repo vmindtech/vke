@@ -7,3 +7,18 @@ type AddNodeResponse struct {
 	MaxSize     int    `json:"maxSize"`
 	ComputeID   string `json:"computeId"`
 }
+
+type GetNodeGroupsResponse struct {
+	NodeGroups []NodeGroups `json:"node_groups"`
+}
+
+type NodeGroups struct {
+	ClusterUUID      string `json:"cluster_uuid"`
+	NodeGroupUUID    string `json:"node_group_uuid"`
+	NodeGroupName    string `json:"node_group_name"`
+	NodeGroupMinSize int    `json:"node_group_min_size"`
+	NodeGroupMaxSize int    `json:"node_group_max_size"`
+	NodeDiskSize     int    `json:"node_disk_size"`
+	NodeFlavorUUID   string `json:"node_flavor_uuid"`
+	NodeGroupsType   string `json:"node_groups_type"`
+}

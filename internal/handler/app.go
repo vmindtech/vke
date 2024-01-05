@@ -26,6 +26,8 @@ type IAppHandler interface {
 	GetKubeConfig(c *fiber.Ctx) error
 	CreateKubeconfig(c *fiber.Ctx) error
 	AddNode(c *fiber.Ctx) error
+	GetNodes(c *fiber.Ctx) error
+	GetNodeGroups(c *fiber.Ctx) error
 }
 
 type appHandler struct {
@@ -172,6 +174,42 @@ func (a *appHandler) AddNode(c *fiber.Ctx) error {
 	}
 
 	resp, err := a.appService.Cluster().AddNode(ctx, authToken, req)
+	if err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+	}
+
+	return c.JSON(response.NewSuccessResponse(resp))
+}
+
+func (a *appHandler) GetNodes(c *fiber.Ctx) error {
+	nodeGroupUUID := c.Params("nodegroup_uuid")
+
+	ctx := context.Background()
+
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+	}
+
+	resp, err := a.appService.Compute().GetInstances(ctx, authToken, nodeGroupUUID)
+	if err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+	}
+
+	return c.JSON(response.NewSuccessResponse(resp))
+}
+
+func (a *appHandler) GetNodeGroups(c *fiber.Ctx) error {
+	clusterID := c.Params("cluster_id")
+
+	ctx := context.Background()
+
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+	}
+
+	resp, err := a.appService.NodeGroups().GetNodeGroups(ctx, authToken, clusterID)
 	if err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
 	}
