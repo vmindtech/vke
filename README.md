@@ -15,7 +15,7 @@
   <h3 align="center">VMind Kubernetes Engine for OpenStack</h3>
 
   <p align="center">
-     A middleware service that automates the deployment of Kubernetes clusters on OpenStack infrastructure using RKE2.
+     A middleware service that orchestrates the end-to-end deployment of Kubernetes clusters on OpenStack infrastructure, leveraging RKE2 to provide a fully managed and ready-to-use Kubernetes cluster solution.
     <br />
   </p>
 </div>
