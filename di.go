@@ -27,7 +27,7 @@ func InitRoute(l *logrus.Logger, mysqlInstance mysqldb.IMysqlInstance) route.IRo
 	iCloudflareService := service.NewCloudflareService(l)
 	iLoadbalancerService := service.NewLoadbalancerService(l)
 	iNodeGroupsService := service.NewNodeGroupsService(l, iRepository, iIdentityService)
-	iClusterService := service.NewClusterService(l, iCloudflareService, iLoadbalancerService, iNetworkService, iComputeService, iRepository, iIdentityService)
+	iClusterService := service.NewClusterService(l, iCloudflareService, iLoadbalancerService, iNetworkService, iComputeService, iIdentityService, iRepository)
 	iAppService := service.NewAppService(l, iRepository, iClusterService, iComputeService, iNodeGroupsService)
 
 	iAppHandler := handler.NewAppHandler(iAppService)

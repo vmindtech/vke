@@ -35,7 +35,7 @@ type clusterService struct {
 	repository          repository.IRepository
 }
 
-func NewClusterService(l *logrus.Logger, cf ICloudflareService, lbc ILoadbalancerService, ns INetworkService, cs IComputeService, r repository.IRepository, i IIdentityService) IClusterService {
+func NewClusterService(l *logrus.Logger, cf ICloudflareService, lbc ILoadbalancerService, ns INetworkService, cs IComputeService, i IIdentityService, r repository.IRepository) IClusterService {
 	return &clusterService{
 		cloudflareService:   cf,
 		loadbalancerService: lbc,

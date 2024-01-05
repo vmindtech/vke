@@ -9,10 +9,10 @@ type AddNodeResponse struct {
 }
 
 type GetNodeGroupsResponse struct {
-	NodeGroups []NodeGroups `json:"node_groups"`
+	NodeGroups []NodeGroup `json:"node_groups"`
 }
 
-type NodeGroups struct {
+type NodeGroup struct {
 	ClusterUUID      string `json:"cluster_uuid"`
 	NodeGroupUUID    string `json:"node_group_uuid"`
 	NodeGroupName    string `json:"node_group_name"`

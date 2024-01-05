@@ -27,29 +27,23 @@ func NewNodeGroupsRepository(mysqlInstance mysqldb.IMysqlInstance) *NodeGroupsRe
 
 func (n *NodeGroupsRepository) GetNodeGroupsByClusterUUID(ctx context.Context, uuid, nodeType string) ([]model.NodeGroups, error) {
 	var nodeGroups []model.NodeGroups
-	if nodeType == "" {
-		err := n.mysqlInstance.
-			Database().
-			WithContext(ctx).
-			Where(&model.NodeGroups{ClusterUUID: uuid}).
-			Find(&nodeGroups).
-			Error
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		err := n.mysqlInstance.
-			Database().
-			WithContext(ctx).
-			Where(&model.NodeGroups{ClusterUUID: uuid}).
-			Where(&model.NodeGroups{NodeGroupsType: nodeType}).
-			Find(&nodeGroups).
-			Error
+	queryModel := &model.NodeGroups{ClusterUUID: uuid}
 
-		if err != nil {
-			return nil, err
-		}
+	if nodeType != "" {
+		queryModel.NodeGroupsType = nodeType
 	}
+
+	err := n.mysqlInstance.
+		Database().
+		WithContext(ctx).
+		Where(queryModel).
+		Find(&nodeGroups).
+		Error
+
+	if err != nil {
+		return nil, err
+	}
+
 	return nodeGroups, nil
 }
 
