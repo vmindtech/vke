@@ -27,11 +27,11 @@ func NewNodeGroupsService(logger *logrus.Logger, repository repository.IReposito
 }
 
 func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clusterID string) (resource.GetNodeGroupsResponse, error) {
-	clusterProjectUUID, err := nodg.repository.Cluster().GetClusterProjectUUIDByClusterUUID(ctx, clusterID)
+	clusterProjectUUID, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		return resource.GetNodeGroupsResponse{}, err
 	}
-	err = nodg.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID)
+	err = nodg.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
 		return resource.GetNodeGroupsResponse{}, err
 	}

@@ -26,24 +26,24 @@ type IClusterService interface {
 }
 
 type clusterService struct {
-	repository          repository.IRepository
 	cloudflareService   ICloudflareService
 	loadbalancerService ILoadbalancerService
 	networkService      INetworkService
 	computeService      IComputeService
 	logger              *logrus.Logger
 	identityService     IIdentityService
+	repository          repository.IRepository
 }
 
 func NewClusterService(l *logrus.Logger, cf ICloudflareService, lbc ILoadbalancerService, ns INetworkService, cs IComputeService, r repository.IRepository, i IIdentityService) IClusterService {
 	return &clusterService{
-		repository:          r,
 		cloudflareService:   cf,
 		loadbalancerService: lbc,
 		networkService:      ns,
 		computeService:      cs,
 		logger:              l,
 		identityService:     i,
+		repository:          r,
 	}
 }
 

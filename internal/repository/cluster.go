@@ -12,7 +12,6 @@ type IClusterRepository interface {
 	CreateCluster(ctx context.Context, cluster *model.Cluster) error
 	UpdateCluster(ctx context.Context, cluster *model.Cluster) error
 	DeleteUpdateCluster(ctx context.Context, cluster *model.Cluster, clusterUUID string) error
-	GetClusterProjectUUIDByClusterUUID(ctx context.Context, clusterUUID string) (string, error)
 }
 
 type ClusterRepository struct {
@@ -69,20 +68,4 @@ func (c *ClusterRepository) DeleteUpdateCluster(ctx context.Context, cluster *mo
 			ClusterStatus:     cluster.ClusterStatus,
 		}).
 		Error
-}
-
-func (c *ClusterRepository) GetClusterProjectUUIDByClusterUUID(ctx context.Context, clusterUUID string) (string, error) {
-	var cluster model.Cluster
-
-	err := c.mysqlInstance.
-		Database().
-		WithContext(ctx).
-		Where(&model.Cluster{ClusterUUID: clusterUUID}).
-		First(&cluster).
-		Error
-
-	if err != nil {
-		return "", err
-	}
-	return cluster.ClusterProjectUUID, nil
 }

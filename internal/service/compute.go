@@ -474,12 +474,12 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 	if err != nil {
 		return resource.Servers{}, err
 	}
-	clusterProjectUUID, err := cs.repository.Cluster().GetClusterProjectUUIDByClusterUUID(ctx, ClusterUUID)
+	clusterProjectUUID, err := cs.repository.Cluster().GetClusterByUUID(ctx, ClusterUUID)
 	if err != nil {
 		return resource.Servers{}, err
 	}
 
-	err = cs.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID)
+	err = cs.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
 		cs.logger.Errorf("failed to check auth token, error: %v", err)
 		return resource.Servers{}, err

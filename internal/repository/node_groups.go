@@ -34,7 +34,6 @@ func (n *NodeGroupsRepository) GetNodeGroupsByClusterUUID(ctx context.Context, u
 			Where(&model.NodeGroups{ClusterUUID: uuid}).
 			Find(&nodeGroups).
 			Error
-
 		if err != nil {
 			return nil, err
 		}
