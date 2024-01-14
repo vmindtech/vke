@@ -26,3 +26,4 @@ type Servers struct {
 type GetServerGroupMemberListResponse struct {
 	Members []string `json:"members"`
 }
+
