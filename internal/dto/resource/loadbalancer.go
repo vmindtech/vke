@@ -73,3 +73,11 @@ type GetAmphoraesVrrpIpResponse struct {
 type Amphorae struct {
 	VrrpIP string `json:"vrrp_ip"`
 }
+
+type GetLoadBalancerPoolsResponse struct {
+	Pools []string `json:"pools"`
+}
+
+type GetLoadBalancerListenersResponse struct {
+	Listeners []string `json:"listeners"`
+}
