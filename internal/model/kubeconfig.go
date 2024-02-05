@@ -7,7 +7,7 @@ type Kubeconfigs struct {
 	ClusterUUID string    `json:"cluster_uuid" gorm:"column:cluster_uuid;type:varchar(36)"`
 	KubeConfig  string    `json:"kubeconfig" gorm:"column:kubeconfig;type:text"`
 	CreateDate  time.Time `json:"create_date" gorm:"column:create_date;type:datetime"`
-	UpdateDate  time.Time `json:"update_date" gorm:"column:update_date;type:datetime";default:null`
+	UpdateDate  time.Time `json:"update_date" gorm:"column:update_date;type:datetime;default:null"`
 }
 
 func (m *Kubeconfigs) TableName() string {
