@@ -201,6 +201,7 @@ func (a *appHandler) GetNodes(c *fiber.Ctx) error {
 
 func (a *appHandler) GetNodeGroups(c *fiber.Ctx) error {
 	clusterID := c.Params("cluster_id")
+	nodeGroupID := c.Params("nodegroup_id")
 
 	ctx := context.Background()
 
@@ -209,7 +210,7 @@ func (a *appHandler) GetNodeGroups(c *fiber.Ctx) error {
 		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
-	resp, err := a.appService.NodeGroups().GetNodeGroups(ctx, authToken, clusterID)
+	resp, err := a.appService.NodeGroups().GetNodeGroups(ctx, authToken, clusterID, nodeGroupID)
 	if err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
 	}

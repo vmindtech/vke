@@ -9,7 +9,7 @@ import (
 )
 
 type INodeGroupsService interface {
-	GetNodeGroups(ctx context.Context, authToken, clusterID string) (resource.GetNodeGroupsResponse, error)
+	GetNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string) (resource.GetNodeGroupsResponse, error)
 }
 
 type nodeGroupsService struct {
@@ -26,7 +26,7 @@ func NewNodeGroupsService(logger *logrus.Logger, repository repository.IReposito
 	}
 }
 
-func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clusterID string) (resource.GetNodeGroupsResponse, error) {
+func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string) (resource.GetNodeGroupsResponse, error) {
 	clusterProjectUUID, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		nodg.logger.Errorf("failed to get cluster project uuid by cluster uuid %s, err: %v", clusterID, err)
@@ -37,13 +37,13 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 		nodg.logger.Errorf("failed to check auth token, err: %v", err)
 		return resource.GetNodeGroupsResponse{}, err
 	}
-	nodeGroups, err := nodg.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterID, "")
-	if err != nil {
-		nodg.logger.Errorf("failed to get node groups by cluster uuid %s, err: %v", clusterID, err)
-		return resource.GetNodeGroupsResponse{}, err
-	}
-	var resp resource.GetNodeGroupsResponse
-	for _, nodeGroup := range nodeGroups {
+	if nodeGroupID != "" {
+		nodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupID)
+		if err != nil {
+			nodg.logger.Errorf("failed to get node group by uuid %s, err: %v", nodeGroupID, err)
+			return resource.GetNodeGroupsResponse{}, err
+		}
+		var resp resource.GetNodeGroupsResponse
 		resp.NodeGroups = append(resp.NodeGroups, resource.NodeGroup{
 			ClusterUUID:      nodeGroup.ClusterUUID,
 			NodeGroupUUID:    nodeGroup.NodeGroupUUID,
@@ -54,7 +54,26 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			NodeFlavorUUID:   nodeGroup.NodeFlavorUUID,
 			NodeGroupsType:   nodeGroup.NodeGroupsType,
 		})
+		return resp, nil
+	} else {
+		nodeGroups, err := nodg.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterID, "")
+		if err != nil {
+			nodg.logger.Errorf("failed to get node groups by cluster uuid %s, err: %v", clusterID, err)
+			return resource.GetNodeGroupsResponse{}, err
+		}
+		var resp resource.GetNodeGroupsResponse
+		for _, nodeGroup := range nodeGroups {
+			resp.NodeGroups = append(resp.NodeGroups, resource.NodeGroup{
+				ClusterUUID:      nodeGroup.ClusterUUID,
+				NodeGroupUUID:    nodeGroup.NodeGroupUUID,
+				NodeGroupName:    nodeGroup.NodeGroupName,
+				NodeGroupMinSize: nodeGroup.NodeGroupMinSize,
+				NodeGroupMaxSize: nodeGroup.NodeGroupMaxSize,
+				NodeDiskSize:     nodeGroup.NodeDiskSize,
+				NodeFlavorUUID:   nodeGroup.NodeFlavorUUID,
+				NodeGroupsType:   nodeGroup.NodeGroupsType,
+			})
+		}
+		return resp, nil
 	}
-	return resp, nil
-
 }
