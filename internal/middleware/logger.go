@@ -36,8 +36,6 @@ func getResponseLogFields(status int, t time.Time) logrus.Fields {
 	return logrus.Fields{
 		"status":   status,
 		"duration": fmt.Sprint(time.Since(t).Round(time.Millisecond)),
-		"body": map[string]interface{}{
-			"data": fiber.Map{},
-		},
+		"body":     fiber.Map{},
 	}
 }
