@@ -182,7 +182,7 @@ func (a *appHandler) AddNode(c *fiber.Ctx) error {
 }
 
 func (a *appHandler) GetNodes(c *fiber.Ctx) error {
-	nodeGroupUUID := c.Params("nodegroup_uuid")
+	nodeGroupUUID := c.Params("nodegroup_id")
 
 	ctx := context.Background()
 
