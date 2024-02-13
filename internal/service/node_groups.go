@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/internal/dto/resource"
@@ -16,13 +17,15 @@ type nodeGroupsService struct {
 	repository      repository.IRepository
 	logger          *logrus.Logger
 	identityService IIdentityService
+	computeService  IComputeService
 }
 
-func NewNodeGroupsService(logger *logrus.Logger, repository repository.IRepository, i IIdentityService) INodeGroupsService {
+func NewNodeGroupsService(logger *logrus.Logger, repository repository.IRepository, i IIdentityService, c IComputeService) INodeGroupsService {
 	return &nodeGroupsService{
 		repository:      repository,
 		logger:          logger,
 		identityService: i,
+		computeService:  c,
 	}
 }
 
@@ -37,12 +40,20 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 		nodg.logger.Errorf("failed to check auth token, err: %v", err)
 		return nil, err
 	}
+
 	if nodeGroupID != "" {
 		nodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupID)
 		if err != nil {
 			nodg.logger.Errorf("failed to get node group by uuid %s, err: %v", nodeGroupID, err)
 			return nil, err
 		}
+		CurrentInstanceCountresp, err := nodg.computeService.GetInstances(ctx, authToken, nodeGroupID)
+		if err != nil {
+			nodg.logger.Errorf("failed to check current node size, err: %v", err)
+			return nil, err
+		}
+		fmt.Println(CurrentInstanceCountresp)
+
 		var resp []resource.NodeGroup
 		resp = append(resp, resource.NodeGroup{
 			ClusterUUID:      nodeGroup.ClusterUUID,
@@ -53,6 +64,8 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			NodeDiskSize:     nodeGroup.NodeDiskSize,
 			NodeFlavorUUID:   nodeGroup.NodeFlavorUUID,
 			NodeGroupsType:   nodeGroup.NodeGroupsType,
+			DesiredNodes:     nodeGroup.DesiredNodes,
+			CurrentNodes:     len(CurrentInstanceCountresp.Servers),
 		})
 		return resp, nil
 	} else {
@@ -63,6 +76,13 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 		}
 		var resp []resource.NodeGroup
 		for _, nodeGroup := range nodeGroups {
+			CurrentInstanceCountresp, err := nodg.computeService.GetInstances(ctx, authToken, nodeGroup.NodeGroupUUID)
+			if err != nil {
+				nodg.logger.Errorf("failed to check current node size, err: %v", err)
+				return nil, err
+			}
+			fmt.Println(CurrentInstanceCountresp)
+
 			resp = append(resp, resource.NodeGroup{
 				ClusterUUID:      nodeGroup.ClusterUUID,
 				NodeGroupUUID:    nodeGroup.NodeGroupUUID,
@@ -72,6 +92,8 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 				NodeDiskSize:     nodeGroup.NodeDiskSize,
 				NodeFlavorUUID:   nodeGroup.NodeFlavorUUID,
 				NodeGroupsType:   nodeGroup.NodeGroupsType,
+				DesiredNodes:     nodeGroup.DesiredNodes,
+				CurrentNodes:     len(CurrentInstanceCountresp.Servers),
 			})
 		}
 		return resp, nil

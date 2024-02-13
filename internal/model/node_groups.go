@@ -17,6 +17,7 @@ type NodeGroups struct {
 	NodeGroupCreateDate time.Time `json:"node_group_create_date" gorm:"type:datetime"`
 	NodeGroupUpdateDate time.Time `json:"node_group_update_date" gorm:"type:datetime;default:null"`
 	NodeGroupDeleteDate time.Time `json:"node_group_delete_date" gorm:"type:datetime;default:null"`
+	DesiredNodes        int       `json:"desired_nodes" gorm:"type:int(11)"`
 }
 
 func (NodeGroups) TableName() string {

@@ -21,4 +21,6 @@ type NodeGroup struct {
 	NodeDiskSize     int    `json:"node_disk_size"`
 	NodeFlavorUUID   string `json:"node_flavor_uuid"`
 	NodeGroupsType   string `json:"node_groups_type"`
+	DesiredNodes     int    `json:"desired_nodes"`
+	CurrentNodes     int    `json:"current_nodes"`
 }
