@@ -521,6 +521,5 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 	}
 	var respData resource.Servers
 	respData.Servers = data.ServerGroup.Members
-	fmt.Println(respData)
 	return respData, nil
 }

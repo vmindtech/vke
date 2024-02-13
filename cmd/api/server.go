@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strconv"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
@@ -27,13 +29,8 @@ func initApplication(a *application) *fiber.App {
 	app := fiber.New(fiber.Config{
 		// Override default error handler - Internal server err
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			code := fiber.StatusInternalServerError
-			if e, ok := err.(*fiber.Error); ok {
-				code = e.Code
-			}
-
 			errBag := utils.ErrorBag{Code: utils.UnexpectedErrCode, Message: utils.UnexpectedMsg}
-
+			code, _ := strconv.Atoi(utils.UnexpectedErrCode)
 			return c.Status(code).JSON(response.NewErrorResponse(c.Context(), errBag))
 		},
 	})

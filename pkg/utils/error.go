@@ -1,11 +1,11 @@
 package utils
 
 const (
-	NotFoundErrCode     = "not_found"
-	ValidationErrCode   = "validation_failed"
-	UnexpectedErrCode   = "unexpected_error"
-	UnauthorizedErrCode = "unauthorized"
-	BodyParserErrCode   = "body_parser_failed"
+	NotFoundErrCode     = "404"
+	ValidationErrCode   = "509"
+	UnexpectedErrCode   = "500"
+	UnauthorizedErrCode = "401"
+	BodyParserErrCode   = "400"
 
 	NotFoundMsg     = "Not found!"
 	UnexpectedMsg   = "An unexpected error has occurred."

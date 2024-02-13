@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/internal/dto/resource"
@@ -52,7 +51,6 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			nodg.logger.Errorf("failed to check current node size, err: %v", err)
 			return nil, err
 		}
-		fmt.Println(CurrentInstanceCountresp)
 
 		var resp []resource.NodeGroup
 		resp = append(resp, resource.NodeGroup{
@@ -82,7 +80,6 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 				nodg.logger.Errorf("failed to check current node size, err: %v", err)
 				return nil, err
 			}
-			fmt.Println(CurrentInstanceCountresp)
 
 			resp = append(resp, resource.NodeGroup{
 				ClusterUUID:      nodeGroup.ClusterUUID,

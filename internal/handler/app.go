@@ -66,7 +66,7 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
 	resp, err := a.appService.Cluster().CreateCluster(ctx, authToken, req)
@@ -84,7 +84,7 @@ func (a *appHandler) GetCluster(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
 	resp, err := a.appService.Cluster().GetCluster(ctx, authToken, clusterID)
@@ -102,7 +102,7 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
 	resp, err := a.appService.Cluster().DestroyCluster(ctx, authToken, clusterID)
@@ -120,7 +120,7 @@ func (a *appHandler) GetKubeConfig(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
 	resp, err := a.appService.Cluster().GetKubeConfig(ctx, authToken, clusterID)
@@ -149,7 +149,7 @@ func (a *appHandler) CreateKubeconfig(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
 	resp, err := a.appService.Cluster().CreateKubeConfig(ctx, authToken, req)
@@ -170,7 +170,7 @@ func (a *appHandler) AddNode(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
 	resp, err := a.appService.Cluster().AddNode(ctx, authToken, req)
@@ -188,7 +188,7 @@ func (a *appHandler) GetNodes(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
 	resp, err := a.appService.Compute().GetInstances(ctx, authToken, nodeGroupUUID)
@@ -206,8 +206,9 @@ func (a *appHandler) GetNodeGroups(c *fiber.Ctx) error {
 	ctx := context.Background()
 
 	authToken := c.Get("X-Auth-Token")
+	fmt.Printf("authToken: %s", authToken)
 	if authToken == "" {
-		return c.JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
 	resp, err := a.appService.NodeGroups().GetNodeGroups(ctx, authToken, clusterID, nodeGroupID)
