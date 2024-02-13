@@ -66,6 +66,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			NodeGroupsType:   nodeGroup.NodeGroupsType,
 			DesiredNodes:     nodeGroup.DesiredNodes,
 			CurrentNodes:     len(CurrentInstanceCountresp.Servers),
+			NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
 		})
 		return resp, nil
 	} else {
@@ -94,6 +95,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 				NodeGroupsType:   nodeGroup.NodeGroupsType,
 				DesiredNodes:     nodeGroup.DesiredNodes,
 				CurrentNodes:     len(CurrentInstanceCountresp.Servers),
+				NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
 			})
 		}
 		return resp, nil

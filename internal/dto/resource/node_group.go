@@ -23,4 +23,5 @@ type NodeGroup struct {
 	NodeGroupsType   string `json:"node_groups_type"`
 	DesiredNodes     int    `json:"desired_nodes"`
 	CurrentNodes     int    `json:"current_nodes"`
+	NodeGroupsStatus string `json:"node_groups_status"`
 }
