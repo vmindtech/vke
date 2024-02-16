@@ -41,7 +41,6 @@ func (i *identityService) CheckAuthToken(ctx context.Context, authToken, project
 		return err
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		i.logger.Errorf("failed to check auth token, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 		if err != nil {

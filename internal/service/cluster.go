@@ -232,7 +232,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	workerNodeGroupModel := &model.NodeGroups{
 		ClusterUUID:         clusterUUID,
 		NodeGroupUUID:       workerServerGroupResp.ServerGroup.ID,
-		NodeGroupName:       fmt.Sprintf("%v-worker", req.ClusterName),
+		NodeGroupName:       fmt.Sprintf("%v-worker-%v", req.ClusterName, uuid.New().String()),
 		NodeGroupMinSize:    req.WorkerNodeGroupMinSize,
 		NodeGroupMaxSize:    req.WorkerNodeGroupMaxSize,
 		NodeDiskSize:        req.WorkerDiskSizeGB,
@@ -1162,7 +1162,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 		return resource.AddNodeResponse{}, fmt.Errorf("failed to get node groups")
 	}
 
-	desiredCount, err := c.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID)
+	desiredCount, err := c.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.Errorf("failed to get count of server from server group, error: %v", err)
 		return resource.AddNodeResponse{}, err
@@ -1233,7 +1233,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 
 	createServerRequest := request.CreateComputeRequest{
 		Server: request.Server{
-			Name:             nodeGroup.NodeGroupName,
+			Name:             nodeGroup.NodeGroupName + "-" + uuid.New().String(),
 			ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
 			FlavorRef:        nodeGroup.NodeFlavorUUID,
 			KeyName:          cluster.ClusterNodeKeypairName,

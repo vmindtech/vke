@@ -206,7 +206,6 @@ func (a *appHandler) GetNodeGroups(c *fiber.Ctx) error {
 	ctx := context.Background()
 
 	authToken := c.Get("X-Auth-Token")
-	fmt.Printf("authToken: %s", authToken)
 	if authToken == "" {
 		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}

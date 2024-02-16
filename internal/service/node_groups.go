@@ -46,7 +46,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			nodg.logger.Errorf("failed to get node group by uuid %s, err: %v", nodeGroupID, err)
 			return nil, err
 		}
-		CurrentInstanceCountresp, err := nodg.computeService.GetInstances(ctx, authToken, nodeGroupID)
+		count, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID, clusterProjectUUID.ClusterProjectUUID)
 		if err != nil {
 			nodg.logger.Errorf("failed to check current node size, err: %v", err)
 			return nil, err
@@ -63,7 +63,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			NodeFlavorUUID:   nodeGroup.NodeFlavorUUID,
 			NodeGroupsType:   nodeGroup.NodeGroupsType,
 			DesiredNodes:     nodeGroup.DesiredNodes,
-			CurrentNodes:     len(CurrentInstanceCountresp.Servers),
+			CurrentNodes:     count,
 			NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
 		})
 		return resp, nil
@@ -75,7 +75,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 		}
 		var resp []resource.NodeGroup
 		for _, nodeGroup := range nodeGroups {
-			CurrentInstanceCountresp, err := nodg.computeService.GetInstances(ctx, authToken, nodeGroup.NodeGroupUUID)
+			count, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID, clusterProjectUUID.ClusterProjectUUID)
 			if err != nil {
 				nodg.logger.Errorf("failed to check current node size, err: %v", err)
 				return nil, err
@@ -91,7 +91,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 				NodeFlavorUUID:   nodeGroup.NodeFlavorUUID,
 				NodeGroupsType:   nodeGroup.NodeGroupsType,
 				DesiredNodes:     nodeGroup.DesiredNodes,
-				CurrentNodes:     len(CurrentInstanceCountresp.Servers),
+				CurrentNodes:     count,
 				NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
 			})
 		}
