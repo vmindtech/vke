@@ -89,6 +89,7 @@ const (
 	ListenerPoolPath       = "v2/lbaas/pools"
 	healthMonitorPath      = "v2/lbaas/healthmonitors"
 	computePath            = "v2.1/servers"
+	flavorPath             = "v2.1/flavors"
 	projectPath            = "v3/projects"
 	serverGroupPath        = "v2.1/os-server-groups"
 	amphoraePath           = "v2/octavia/amphorae"

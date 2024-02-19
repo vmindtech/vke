@@ -37,7 +37,6 @@ func (n *NodeGroupsRepository) GetNodeGroupsByClusterUUID(ctx context.Context, u
 		Database().
 		WithContext(ctx).
 		Where(queryModel).
-		Where(model.NodeGroups{NodeGroupsType: "worker"}).
 		Find(&nodeGroups).
 		Error
 

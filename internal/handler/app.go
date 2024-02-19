@@ -28,6 +28,7 @@ type IAppHandler interface {
 	AddNode(c *fiber.Ctx) error
 	GetNodes(c *fiber.Ctx) error
 	GetNodeGroups(c *fiber.Ctx) error
+	GetClusterFlavor(c *fiber.Ctx) error
 }
 
 type appHandler struct {
@@ -215,5 +216,18 @@ func (a *appHandler) GetNodeGroups(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
 	}
 
+	return c.JSON(resp)
+}
+func (a *appHandler) GetClusterFlavor(c *fiber.Ctx) error {
+	clusterID := c.Params("cluster_id")
+	ctx := context.Background()
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+	}
+	resp, err := a.appService.Compute().GetClusterFlavor(ctx, authToken, clusterID)
+	if err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+	}
 	return c.JSON(resp)
 }

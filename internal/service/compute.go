@@ -24,6 +24,7 @@ type IComputeService interface {
 	DeleteComputeandPort(ctx context.Context, authToken, serverID, clusterMasterServerGroupUUID string, clusterWorkerGroupsUUID []string) error
 	GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID, projectUUID string) (int, error)
 	GetInstances(ctx context.Context, authToken, nodeGroupUUID string) ([]resource.Servers, error)
+	GetClusterFlavor(ctx context.Context, authToken string, clusterUUID string) ([]resource.Flavor, error)
 }
 
 type computeService struct {
@@ -605,4 +606,64 @@ func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, ins
 		return resource.OpenstacServersResponse{}, err
 	}
 	return respData, nil
+}
+
+func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string, clusterUUID string) ([]resource.Flavor, error) {
+	clusterProjectUUID, err := cs.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
+	if err != nil {
+		cs.logger.Errorf("failed to get cluster project uuid by cluster uuid %s, err: %v", clusterUUID, err)
+		return nil, err
+	}
+	err = cs.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
+	if err != nil {
+		cs.logger.Errorf("failed to check auth token, err: %v", err)
+		return nil, err
+	}
+	getNodeGroups, err := cs.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterUUID, "")
+	if err != nil {
+		cs.logger.Errorf("failed to get node groups by cluster uuid %s, err: %v", clusterUUID, err)
+		return nil, err
+	}
+	var getFlavorsCluster []resource.Flavor
+	for _, nodeGroup := range getNodeGroups {
+
+		r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, flavorPath, nodeGroup.NodeFlavorUUID), nil)
+		if err != nil {
+			cs.logger.Errorf("failed to create request, error: %v", err)
+			return nil, err
+		}
+		r.Header.Add("X-Auth-Token", authToken)
+		r.Header.Add("Content-Type", "application/json")
+		client := &http.Client{}
+		resp, err := client.Do(r)
+		if err != nil {
+			cs.logger.Errorf("failed to send request, error: %v", err)
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			return nil, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			cs.logger.Errorf("failed to read response body, error: %v", err)
+			return nil, err
+		}
+		var respData resource.OpenstackFlavorResponse
+		err = json.Unmarshal([]byte(body), &respData)
+		if err != nil {
+			cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+			return nil, err
+		}
+		getFlavorsCluster = append(getFlavorsCluster, resource.Flavor{
+			Id:       respData.Flavor.ID,
+			Category: "compute",
+			State:    "active",
+			VCPUs:    respData.Flavor.VCPUs,
+			RAM:      respData.Flavor.RAM,
+			GPUs:     0,
+		})
+	}
+	return getFlavorsCluster, nil
 }

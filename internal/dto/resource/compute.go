@@ -38,3 +38,22 @@ type Servers struct {
 	Flavor        string `json:"node_flavor_uuid"`
 	Status        string `json:"node_groups_status"`
 }
+
+type Flavor struct {
+	Id       string `json:"id"`
+	Category string `json:"category"`
+	State    string `json:"state"`
+	VCPUs    int    `json:"vCPUs"`
+	GPUs     int    `json:"gpus"`
+	RAM      int    `json:"ram"`
+}
+
+type OpenstackFlavorResponse struct {
+	Flavor OpenstackFlavors `json:"flavor"`
+}
+type OpenstackFlavors struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	RAM   int    `json:"ram"`
+	VCPUs int    `json:"vcpus"`
+}
