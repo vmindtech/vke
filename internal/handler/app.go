@@ -196,7 +196,7 @@ func (a *appHandler) GetNodes(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
 	}
 
-	return c.JSON(response.NewSuccessResponse(resp))
+	return c.JSON(resp)
 }
 
 func (a *appHandler) GetNodeGroups(c *fiber.Ctx) error {
