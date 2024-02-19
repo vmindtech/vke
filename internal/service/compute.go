@@ -659,7 +659,7 @@ func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string
 		getFlavorsCluster = append(getFlavorsCluster, resource.Flavor{
 			Id:       respData.Flavor.ID,
 			Category: "compute",
-			State:    "active",
+			State:    "available",
 			VCPUs:    respData.Flavor.VCPUs,
 			RAM:      respData.Flavor.RAM,
 			GPUs:     0,
