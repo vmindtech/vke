@@ -26,6 +26,7 @@ func RecoverMiddleware(l *logrus.Logger) func(c *fiber.Ctx) (err error) {
 				}
 
 				l.WithFields(logrus.Fields{
+					"ip":       c.IP(),
 					"request":  getRequestLogFields(c),
 					"response": getResponseLogFields(fiber.StatusInternalServerError, t),
 					"error": fiber.Map{

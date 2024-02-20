@@ -16,6 +16,7 @@ func LoggerMiddleware(l *logrus.Logger) func(c *fiber.Ctx) error {
 		err = c.Next()
 
 		l.WithFields(logrus.Fields{
+			"ip":       c.IP(),
 			"request":  getRequestLogFields(c),
 			"response": getResponseLogFields(c.Response().StatusCode(), t),
 		}).Info("weblogger")
