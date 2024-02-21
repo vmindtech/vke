@@ -29,6 +29,7 @@ type IAppHandler interface {
 	GetNodes(c *fiber.Ctx) error
 	GetNodeGroups(c *fiber.Ctx) error
 	GetClusterFlavor(c *fiber.Ctx) error
+	UpdateNodeGroups(c *fiber.Ctx) error
 }
 
 type appHandler struct {
@@ -229,5 +230,20 @@ func (a *appHandler) GetClusterFlavor(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
 	}
+	return c.JSON(resp)
+}
+func (a *appHandler) UpdateNodeGroups(c *fiber.Ctx) error {
+	nodeGroupID := c.Params("nodegroup_id")
+	clusterID := c.Params("cluster_id")
+	var req resource.UpdateNodeGroupRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
+	}
+	ctx := context.Background()
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+	}
+	resp := a.appService.NodeGroups().UpdateNodeGroups(ctx, authToken, clusterID, nodeGroupID, req)
 	return c.JSON(resp)
 }

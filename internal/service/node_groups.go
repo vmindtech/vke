@@ -5,11 +5,13 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/internal/dto/resource"
+	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/internal/repository"
 )
 
 type INodeGroupsService interface {
 	GetNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string) ([]resource.NodeGroup, error)
+	UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req resource.UpdateNodeGroupRequest) error
 }
 
 type nodeGroupsService struct {
@@ -97,4 +99,28 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 		}
 		return resp, nil
 	}
+}
+
+func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req resource.UpdateNodeGroupRequest) error {
+	clusterProjectUUID, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
+	if err != nil {
+		nodg.logger.Errorf("failed to get cluster project uuid by cluster uuid %s, err: %v", clusterID, err)
+		return err
+	}
+	err = nodg.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
+	if err != nil {
+		nodg.logger.Errorf("failed to check auth token, err: %v", err)
+		return err
+	}
+
+	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
+		NodeGroupUUID:    nodeGroupID,
+		DesiredNodes:     int(*req.DesiredNodes),
+		NodeGroupMinSize: int(*req.MinNodes),
+		NodeGroupMaxSize: int(*req.MaxNodes)})
+	if err != nil {
+		nodg.logger.Errorf("failed to update node group by uuid %s, err: %v", nodeGroupID, err)
+		return err
+	}
+	return nil
 }

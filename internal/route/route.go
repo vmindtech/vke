@@ -51,6 +51,7 @@ func (r *route) appRoutes(fr fiber.Router) {
 	appGroup.Post("/cluster/add-node", r.appHandler.AddNode)
 	appGroup.Get("/cluster/:cluster_id/nodegroups", r.appHandler.GetNodeGroups)
 	appGroup.Get("/cluster/:cluster_id/nodegroups/:nodegroup_id", r.appHandler.GetNodeGroups)
+	appGroup.Put("/cluster/:cluster_id/nodegroups/:nodegroup_id", r.appHandler.UpdateNodeGroups)
 	appGroup.Get("/cluster/:cluster_id/nodegroups/:nodegroup_id/nodes", r.appHandler.GetNodes)
 	appGroup.Get("/cluster/:cluster_id/flavors", r.appHandler.GetClusterFlavor)
 }
