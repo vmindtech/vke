@@ -1211,7 +1211,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 
 	rke2InitScript, err := GenerateUserDataFromTemplate("false",
 		WorkerServerType,
-		cluster.ClusterAgentToken,
+		cluster.ClusterRegisterToken,
 		cluster.ClusterEndpoint,
 		cluster.ClusterVersion,
 		cluster.ClusterName,
