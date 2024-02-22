@@ -233,7 +233,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	workerNodeGroupModel := &model.NodeGroups{
 		ClusterUUID:         clusterUUID,
 		NodeGroupUUID:       workerServerGroupResp.ServerGroup.ID,
-		NodeGroupName:       fmt.Sprintf("vke-worker-group"),
+		NodeGroupName:       "vke-worker-group",
 		NodeGroupMinSize:    req.WorkerNodeGroupMinSize,
 		NodeGroupMaxSize:    req.WorkerNodeGroupMaxSize,
 		NodeDiskSize:        req.WorkerDiskSizeGB,
