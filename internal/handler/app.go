@@ -244,6 +244,6 @@ func (a *appHandler) UpdateNodeGroups(c *fiber.Ctx) error {
 	if authToken == "" {
 		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
-	resp := a.appService.NodeGroups().UpdateNodeGroups(ctx, authToken, clusterID, nodeGroupID, req)
+	resp, _ := a.appService.NodeGroups().UpdateNodeGroups(ctx, authToken, clusterID, nodeGroupID, req)
 	return c.JSON(resp)
 }

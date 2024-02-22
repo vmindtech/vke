@@ -40,3 +40,11 @@ type DeleteNodeResponse struct {
 	ClusterID   string `json:"cluster_id"`
 	NodeGroupID string `json:"node_group_id"`
 }
+type UpdateNodeGroupResponse struct {
+	ClusterID    string `json:"cluster_id"`
+	NodeGroupID  string `json:"node_group_id"`
+	MinSize      int    `json:"min_size"`
+	MaxSize      int    `json:"max_size"`
+	Status       string `json:"status"`
+	DesiredNodes int    `json:"desired_nodes"`
+}

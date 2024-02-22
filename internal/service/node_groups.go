@@ -13,7 +13,7 @@ import (
 
 type INodeGroupsService interface {
 	GetNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string) ([]resource.NodeGroup, error)
-	UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req resource.UpdateNodeGroupRequest) error
+	UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req resource.UpdateNodeGroupRequest) (resource.UpdateNodeGroupResponse, error)
 }
 
 type nodeGroupsService struct {
@@ -105,27 +105,27 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 	}
 }
 
-func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req resource.UpdateNodeGroupRequest) error {
+func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req resource.UpdateNodeGroupRequest) (resource.UpdateNodeGroupResponse, error) {
 	clusterProjectUUID, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		nodg.logger.Errorf("failed to get cluster project uuid by cluster uuid %s, err: %v", clusterID, err)
-		return err
+		return resource.UpdateNodeGroupResponse{}, err
 	}
 	getCurrentStateOfNodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupID)
 	if err != nil {
 		nodg.logger.Errorf("failed to get node group by uuid %s, err: %v", nodeGroupID, err)
-		return err
+		return resource.UpdateNodeGroupResponse{}, err
 	}
 	err = nodg.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
 		nodg.logger.Errorf("failed to check auth token, err: %v", err)
-		return err
+		return resource.UpdateNodeGroupResponse{}, err
 	}
 	fmt.Println("req", req)
 
 	nodesToRemove, err := json.Marshal(req.NodesToRemove)
 	if err != nil {
-		return fmt.Errorf("failed to marshal nodes to remove, err: %v", err)
+		return resource.UpdateNodeGroupResponse{}, err
 	}
 
 	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
@@ -137,7 +137,15 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 	})
 	if err != nil {
 		nodg.logger.Errorf("failed to update node group by uuid %s, err: %v", nodeGroupID, err)
-		return err
+		return resource.UpdateNodeGroupResponse{}, err
 	}
-	return nil
+	response := resource.UpdateNodeGroupResponse{
+		ClusterID:    clusterID,
+		NodeGroupID:  nodeGroupID,
+		MinSize:      getCurrentStateOfNodeGroup.NodeGroupMinSize,
+		MaxSize:      getCurrentStateOfNodeGroup.NodeGroupMaxSize,
+		Status:       getCurrentStateOfNodeGroup.NodeGroupsStatus,
+		DesiredNodes: getCurrentStateOfNodeGroup.DesiredNodes,
+	}
+	return response, nil
 }
