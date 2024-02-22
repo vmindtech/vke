@@ -214,6 +214,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		NodeGroupsType:      NodeGroupMasterType,
 		IsHidden:            true,
 		NodeGroupCreateDate: time.Now(),
+		DesiredNodes:        3,
 	}
 
 	err = c.repository.NodeGroups().CreateNodeGroups(ctx, masterNodeGroupModel)
