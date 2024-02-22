@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/internal/dto/resource"
@@ -69,7 +69,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			DesiredNodes:     nodeGroup.DesiredNodes,
 			CurrentNodes:     count,
 			NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
-			NodesToRemove:    nodeGroup.NodesToRemove,
+			NodesToRemove:    ConvertDataJSONtoStringArray(nodeGroup.NodesToRemove),
 		})
 		return resp, nil
 	} else {
@@ -98,7 +98,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 				DesiredNodes:     nodeGroup.DesiredNodes,
 				CurrentNodes:     count,
 				NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
-				NodesToRemove:    nodeGroup.NodesToRemove,
+				NodesToRemove:    ConvertDataJSONtoStringArray(nodeGroup.NodesToRemove),
 			})
 		}
 		return resp, nil
@@ -122,12 +122,18 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 		return err
 	}
 	fmt.Println("req", req)
+
+	nodesToRemove, err := json.Marshal(req.NodesToRemove)
+	if err != nil {
+		return fmt.Errorf("failed to marshal nodes to remove, err: %v", err)
+	}
+
 	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
 		NodeGroupUUID:    nodeGroupID,
 		DesiredNodes:     int(*req.DesiredNodes),
 		NodeGroupMinSize: getCurrentStateOfNodeGroup.NodeGroupMinSize,
 		NodeGroupMaxSize: getCurrentStateOfNodeGroup.NodeGroupMaxSize,
-		NodesToRemove:    strings.Join(req.NodesToRemove, ","),
+		NodesToRemove:    nodesToRemove,
 	})
 	if err != nil {
 		nodg.logger.Errorf("failed to update node group by uuid %s, err: %v", nodeGroupID, err)

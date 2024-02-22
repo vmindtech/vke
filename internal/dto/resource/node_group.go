@@ -13,18 +13,18 @@ type GetNodeGroupsResponse struct {
 }
 
 type NodeGroup struct {
-	ClusterUUID      string `json:"cluster_uuid"`
-	NodeGroupUUID    string `json:"node_group_uuid"`
-	NodeGroupName    string `json:"node_group_name"`
-	NodeGroupMinSize int    `json:"node_group_min_size"`
-	NodeGroupMaxSize int    `json:"node_group_max_size"`
-	NodeDiskSize     int    `json:"node_disk_size"`
-	NodeFlavorUUID   string `json:"node_flavor_uuid"`
-	NodeGroupsType   string `json:"node_groups_type"`
-	DesiredNodes     int    `json:"desired_nodes"`
-	CurrentNodes     int    `json:"current_nodes"`
-	NodeGroupsStatus string `json:"node_groups_status"`
-	NodesToRemove    string `json:"nodes_to_remove"`
+	ClusterUUID      string   `json:"cluster_uuid"`
+	NodeGroupUUID    string   `json:"node_group_uuid"`
+	NodeGroupName    string   `json:"node_group_name"`
+	NodeGroupMinSize int      `json:"node_group_min_size"`
+	NodeGroupMaxSize int      `json:"node_group_max_size"`
+	NodeDiskSize     int      `json:"node_disk_size"`
+	NodeFlavorUUID   string   `json:"node_flavor_uuid"`
+	NodeGroupsType   string   `json:"node_groups_type"`
+	DesiredNodes     int      `json:"desired_nodes"`
+	CurrentNodes     int      `json:"current_nodes"`
+	NodeGroupsStatus string   `json:"node_groups_status"`
+	NodesToRemove    []string `json:"nodes_to_remove"`
 }
 type UpdateNodeGroupRequest struct {
 	DesiredNodes *uint32 `json:"desiredNodes,omitempty"`
@@ -34,4 +34,9 @@ type UpdateNodeGroupRequest struct {
 	Autoscale *bool `json:"autoscale,omitempty"`
 
 	NodesToRemove []string `json:"nodesToRemove,omitempty"`
+}
+
+type DeleteNodeResponse struct {
+	ClusterID   string `json:"cluster_id"`
+	NodeGroupID string `json:"node_group_id"`
 }

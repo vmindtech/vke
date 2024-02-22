@@ -22,6 +22,7 @@ type IClusterService interface {
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
 	CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error)
 	AddNode(ctx context.Context, authToken string, req request.AddNodeRequest) (resource.AddNodeResponse, error)
+	// DeleteNode(ctx context.Context, authToken, clusterID, nodeID string) (resource.DeleteNodeResponse, error)
 }
 
 type clusterService struct {
@@ -1295,3 +1296,72 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 		MaxSize:     nodeGroup.NodeGroupMaxSize,
 	}, nil
 }
+
+// func (c *clusterService) DeleteNode(ctx context.Context, authToken string, req request.DeleteNodeRequest) (resource.DeleteNodeResponse, error) {
+// 	if authToken == "" {
+// 		c.logger.Errorf("failed to get cluster")
+// 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get cluster")
+// 	}
+
+// 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, req.ClusterID)
+// 	if err != nil {
+// 		c.logger.Errorf("failed to get cluster, error: %v", err)
+// 		return resource.DeleteNodeResponse{}, err
+// 	}
+
+// 	if cluster == nil {
+// 		c.logger.Errorf("failed to get cluster")
+// 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get cluster")
+// 	}
+
+// 	if cluster.ClusterProjectUUID == "" {
+// 		c.logger.Errorf("failed to get cluster")
+// 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get cluster")
+// 	}
+
+// 	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+// 	if err != nil {
+// 		c.logger.Errorf("failed to check auth token, error: %v", err)
+// 		return resource.DeleteNodeResponse{}, err
+// 	}
+
+// 	nodeGroup, err := c.repository.NodeGroups().GetNodeGroupByUUID(ctx, req.NodeGroupID)
+// 	if err != nil {
+// 		c.logger.Errorf("failed to get node group, error: %v", err)
+// 		return resource.DeleteNodeResponse{}, err
+// 	}
+
+// 	if nodeGroup.NodeGroupsStatus != NodeGroupActiveStatus {
+// 		c.logger.Errorf("failed to get node groups")
+// 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get node groups")
+// 	}
+
+// 	desiredCount, err := c.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID, cluster.ClusterProjectUUID)
+// 	if err != nil {
+// 		c.logger.Errorf("failed to get count of server from server group, error: %v", err)
+// 		return resource.DeleteNodeResponse{}, err
+// 	}
+
+// 	if desiredCount <= nodeGroup.NodeGroupMinSize {
+// 		c.logger.Errorf("failed to delete node, node group min size reached")
+// 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to delete node, node group min size reached")
+// 	}
+
+// 	serverResp, err := c.computeService.DeleteCompute(ctx, authToken, req.ComputeID)
+// 	if err != nil {
+// 		c.logger.Errorf("failed to delete compute, error: %v", err)
+// 		return resource.DeleteNodeResponse{}, err
+// 	}
+
+// 	err = c.repository.AuditLog().Create(ctx, &model.AuditLog{
+// 		ClusterUUID: cluster.ClusterUUID,
+// 		ProjectUUID: cluster.ClusterProjectUUID,
+// 		Event:       fmt.Sprintf("Node %s deleted from cluster", nodeGroup.NodeGroupName),
+// 		CreateDate:  time.Now(),
+// 	})
+// 	if err != nil {
+// 		c.logger.Errorf("failed to create audit log, error: %v", err)
+// 		return resource.DeleteNodeResponse{}, err
+// 	}
+
+// }
