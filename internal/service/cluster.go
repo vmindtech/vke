@@ -806,7 +806,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			return resource.CreateClusterResponse{}, err
 		}
 		WorkerRequest.Server.Networks[0].Port = portResp.Port.ID
-		WorkerRequest.Server.Name = fmt.Sprintf("%v-%s", req.ClusterName, workerNodeGroupModel.NodeGroupName)
+		WorkerRequest.Server.Name = workerNodeGroupModel.NodeGroupName
 
 		_, err = c.computeService.CreateCompute(ctx, authToken, *WorkerRequest)
 		if err != nil {
