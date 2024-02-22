@@ -123,10 +123,17 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 	}
 	fmt.Println("req", req)
 
-	nodesToRemove, err := json.Marshal(req.NodesToRemove)
 	if err != nil {
 		return resource.UpdateNodeGroupResponse{}, err
 	}
+	var latestStateOfNodeGroup []string
+	for _, node := range ConvertDataJSONtoStringArray(getCurrentStateOfNodeGroup.NodesToRemove) {
+		latestStateOfNodeGroup = append(latestStateOfNodeGroup, node)
+	}
+	for _, node := range req.NodesToRemove {
+		latestStateOfNodeGroup = append(latestStateOfNodeGroup, node)
+	}
+	nodesToRemove, err := json.Marshal(latestStateOfNodeGroup)
 
 	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
 		NodeGroupUUID:    nodeGroupID,
