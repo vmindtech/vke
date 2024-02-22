@@ -24,6 +24,7 @@ type NodeGroup struct {
 	DesiredNodes     int    `json:"desired_nodes"`
 	CurrentNodes     int    `json:"current_nodes"`
 	NodeGroupsStatus string `json:"node_groups_status"`
+	NodesToRemove    string `json:"nodes_to_remove"`
 }
 type UpdateNodeGroupRequest struct {
 	DesiredNodes *uint32 `json:"desiredNodes,omitempty"`
