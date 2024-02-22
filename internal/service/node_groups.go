@@ -109,6 +109,11 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 		nodg.logger.Errorf("failed to get cluster project uuid by cluster uuid %s, err: %v", clusterID, err)
 		return err
 	}
+	getCurrentStateOfNodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupID)
+	if err != nil {
+		nodg.logger.Errorf("failed to get node group by uuid %s, err: %v", nodeGroupID, err)
+		return err
+	}
 	err = nodg.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
 		nodg.logger.Errorf("failed to check auth token, err: %v", err)
@@ -118,8 +123,8 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
 		NodeGroupUUID:    nodeGroupID,
 		DesiredNodes:     int(*req.DesiredNodes),
-		NodeGroupMinSize: int(*req.MinNodes),
-		NodeGroupMaxSize: int(*req.MaxNodes),
+		NodeGroupMinSize: getCurrentStateOfNodeGroup.NodeGroupMinSize,
+		NodeGroupMaxSize: getCurrentStateOfNodeGroup.NodeGroupMaxSize,
 		NodesToRemove:    strings.Join(req.NodesToRemove, ","),
 	})
 	if err != nil {
