@@ -233,7 +233,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	workerNodeGroupModel := &model.NodeGroups{
 		ClusterUUID:         clusterUUID,
 		NodeGroupUUID:       workerServerGroupResp.ServerGroup.ID,
-		NodeGroupName:       "worker",
+		NodeGroupName:       "vke-worker-group",
 		NodeGroupMinSize:    req.WorkerNodeGroupMinSize,
 		NodeGroupMaxSize:    req.WorkerNodeGroupMaxSize,
 		NodeDiskSize:        req.WorkerDiskSizeGB,
@@ -806,7 +806,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			return resource.CreateClusterResponse{}, err
 		}
 		WorkerRequest.Server.Networks[0].Port = portResp.Port.ID
-		WorkerRequest.Server.Name = workerNodeGroupModel.NodeGroupName
+		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s", workerNodeGroupModel.NodeGroupName, uuid.New().String())
 
 		_, err = c.computeService.CreateCompute(ctx, authToken, *WorkerRequest)
 		if err != nil {
