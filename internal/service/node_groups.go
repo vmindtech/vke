@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -114,9 +115,9 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 		nodg.logger.Errorf("failed to check auth token, err: %v", err)
 		return err
 	}
-	fmt.Println("MinNodes: " + string(*req.MinNodes))
-	fmt.Println("MaxNodes: " + string(*req.MaxNodes))
-	fmt.Println("DesiredNodes: " + string(*req.DesiredNodes))
+	fmt.Sprintf("MinNodes: %s", strconv.Itoa(int(*req.MinNodes)))
+	fmt.Println("MaxNodes: " + strconv.Itoa(int(*req.MinNodes)))
+	fmt.Println("DesiredNodes: " + strconv.Itoa(int(*req.MinNodes)))
 	fmt.Println("NodesToRemove: " + req.NodesToRemove[0])
 	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
 		NodeGroupUUID:    nodeGroupID,
