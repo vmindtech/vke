@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/internal/dto/resource"
@@ -112,12 +114,17 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 		nodg.logger.Errorf("failed to check auth token, err: %v", err)
 		return err
 	}
-
+	fmt.Println("MinNodes: " + string(*req.MinNodes))
+	fmt.Println("MaxNodes: " + string(*req.MaxNodes))
+	fmt.Println("DesiredNodes: " + string(*req.DesiredNodes))
+	fmt.Println("NodesToRemove: " + req.NodesToRemove[0])
 	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
 		NodeGroupUUID:    nodeGroupID,
 		DesiredNodes:     int(*req.DesiredNodes),
 		NodeGroupMinSize: int(*req.MinNodes),
-		NodeGroupMaxSize: int(*req.MaxNodes)})
+		NodeGroupMaxSize: int(*req.MaxNodes),
+		NodesToRemove:    strings.Join(req.NodesToRemove, ","),
+	})
 	if err != nil {
 		nodg.logger.Errorf("failed to update node group by uuid %s, err: %v", nodeGroupID, err)
 		return err

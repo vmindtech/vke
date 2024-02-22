@@ -1,6 +1,8 @@
 package model
 
-import "time"
+import (
+	"time"
+)
 
 type NodeGroups struct {
 	ID                  int64     `json:"-" gorm:"primary_key;auto_increment"`
@@ -18,6 +20,7 @@ type NodeGroups struct {
 	NodeGroupUpdateDate time.Time `json:"node_group_update_date" gorm:"type:datetime;default:null"`
 	NodeGroupDeleteDate time.Time `json:"node_group_delete_date" gorm:"type:datetime;default:null"`
 	DesiredNodes        int       `json:"desired_nodes" gorm:"type:int(11)"`
+	NodesToRemove       string    `json:"node_to_remove" gorm:"type:varchar(10000)"`
 }
 
 func (NodeGroups) TableName() string {
