@@ -58,3 +58,12 @@ func ConvertDataJSONtoStringArray(jsonData datatypes.JSON) []string {
 
 	return result
 }
+
+func DeleteItemFromArray(a []string, item string) []string {
+	for i, v := range a {
+		if v == item {
+			return append(a[:i], a[i+1:]...)
+		}
+	}
+	return a
+}

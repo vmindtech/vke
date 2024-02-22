@@ -25,6 +25,7 @@ type IComputeService interface {
 	GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID, projectUUID string) (int, error)
 	GetInstances(ctx context.Context, authToken, nodeGroupUUID string) ([]resource.Servers, error)
 	GetClusterFlavor(ctx context.Context, authToken string, clusterUUID string) ([]resource.Flavor, error)
+	DeleteCompute(ctx context.Context, authToken, serverID string) error
 }
 
 type computeService struct {
@@ -426,7 +427,32 @@ func (cs *computeService) DeleteComputeandPort(ctx context.Context, authToken, s
 	}
 	return nil
 }
+func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, serverID), nil)
+	if err != nil {
+		cs.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
 
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		cs.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		cs.logger.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	return nil
+}
 func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID, projectUUID string) (int, error) {
 	err := cs.identityService.CheckAuthToken(ctx, authToken, projectUUID)
 	if err != nil {
