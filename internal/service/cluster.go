@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/k0kubun/pp"
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/config"
 	"github.com/vmindtech/vke/internal/dto/request"
@@ -242,6 +241,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		NodeGroupsType:      NodeGroupWorkerType,
 		IsHidden:            false,
 		NodeGroupCreateDate: time.Now(),
+		DesiredNodes:        req.WorkerNodeGroupMinSize,
 	}
 
 	err = c.repository.NodeGroups().CreateNodeGroups(ctx, workerNodeGroupModel)
@@ -1230,8 +1230,6 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 		return resource.AddNodeResponse{}, err
 	}
 
-	pp.Println(cluster)
-
 	createServerRequest := request.CreateComputeRequest{
 		Server: request.Server{
 			Name:             nodeGroup.NodeGroupName + "-" + uuid.New().String(),
@@ -1276,6 +1274,14 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 	})
 	if err != nil {
 		c.logger.Errorf("failed to create audit log, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+	err = c.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
+		DesiredNodes:        (desiredCount) + 1,
+		NodeGroupUpdateDate: time.Now(),
+	})
+	if err != nil {
+		c.logger.Errorf("failed to update node groups, error: %v", err)
 		return resource.AddNodeResponse{}, err
 	}
 
