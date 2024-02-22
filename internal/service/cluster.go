@@ -1279,6 +1279,7 @@ func (c *clusterService) AddNode(ctx context.Context, authToken string, req requ
 	err = c.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
 		DesiredNodes:        (desiredCount) + 1,
 		NodeGroupUpdateDate: time.Now(),
+		NodeGroupUUID:       nodeGroup.NodeGroupUUID,
 	})
 	if err != nil {
 		c.logger.Errorf("failed to update node groups, error: %v", err)
