@@ -293,12 +293,10 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 		nodg.logger.Errorf("failed to get cluster, error: %v", err)
 		return resource.DeleteNodeResponse{}, err
 	}
-
 	if cluster == nil {
 		nodg.logger.Errorf("failed to get cluster")
 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get cluster")
 	}
-
 	if cluster.ClusterProjectUUID == "" {
 		nodg.logger.Errorf("failed to get cluster")
 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get cluster")
@@ -307,12 +305,6 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 	err = nodg.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
 		nodg.logger.Errorf("failed to check auth token, error: %v", err)
-		return resource.DeleteNodeResponse{}, err
-	}
-
-	nodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupID)
-	if err != nil {
-		nodg.logger.Errorf("failed to get node group, error: %v", err)
 		return resource.DeleteNodeResponse{}, err
 	}
 
@@ -326,7 +318,7 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get node group")
 	}
 
-	if ng.DesiredNodes <= nodeGroup.NodeGroupMinSize {
+	if ng.DesiredNodes <= ng.NodeGroupMinSize {
 		nodg.logger.Errorf("failed to delete node, node group min size reached")
 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to delete node, node group min size reached")
 	}
@@ -368,7 +360,7 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 	err = nodg.repository.AuditLog().CreateAuditLog(ctx, &model.AuditLog{
 		ClusterUUID: cluster.ClusterUUID,
 		ProjectUUID: cluster.ClusterProjectUUID,
-		Event:       fmt.Sprintf("Node %s deleted from cluster", nodeGroup.NodeGroupName),
+		Event:       fmt.Sprintf("Node %s deleted from cluster", ng.NodeGroupName),
 		CreateDate:  time.Now(),
 	})
 	if err != nil {
@@ -376,7 +368,7 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 		return resource.DeleteNodeResponse{}, err
 	}
 	return resource.DeleteNodeResponse{
-		NodeGroupID: nodeGroup.NodeGroupUUID,
+		NodeGroupID: ng.NodeGroupUUID,
 		ClusterID:   cluster.ClusterUUID,
 	}, nil
 
