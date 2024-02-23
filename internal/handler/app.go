@@ -175,7 +175,7 @@ func (a *appHandler) AddNode(c *fiber.Ctx) error {
 		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
-	resp, err := a.appService.Cluster().AddNode(ctx, authToken, req)
+	resp, err := a.appService.NodeGroups().AddNode(ctx, authToken, req)
 	if err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
 	}
