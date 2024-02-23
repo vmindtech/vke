@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -330,8 +331,9 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 	}
 	for _, server := range compute {
 		for _, nodes := range ConvertDataJSONtoStringArray(ng.NodesToRemove) {
+			cleanNodeName := strings.Split(nodes, "//")
 
-			if server.InstanceName == nodes {
+			if server.InstanceName == cleanNodeName[1] {
 				err = nodg.computeService.DeleteCompute(ctx, authToken, server.InstanceUUID)
 				if err != nil {
 					nodg.logger.Errorf("failed to delete compute, error: %v", err)
