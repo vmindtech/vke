@@ -1,5 +1,5 @@
 #!/bin/bash
-curl -LO -k https://github.com/vmindtech/vke-agent/releases/download/v0.0.3/vke-agent_v1.0.0_linux_amd64.tar.gz
+curl -LO -k https://github.com/vmindtech/vke-agent/releases/download/v1.0.0/vke-agent_v1.0.0_linux_amd64.tar.gz
 systemctl stop ufw
 systemctl disable ufw
 tar -xvf vke-agent_v0.0.3_linux_amd64.tar.gz
