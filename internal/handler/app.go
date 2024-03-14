@@ -164,10 +164,8 @@ func (a *appHandler) CreateKubeconfig(c *fiber.Ctx) error {
 }
 
 func (a *appHandler) AddNode(c *fiber.Ctx) error {
-	var req request.AddNodeRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
-	}
+	cluster_id := c.Params("cluster_id")
+	nodegroup_id := c.Params("nodegroup_id")
 
 	ctx := context.Background()
 
@@ -176,7 +174,7 @@ func (a *appHandler) AddNode(c *fiber.Ctx) error {
 		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
-	resp, err := a.appService.NodeGroups().AddNode(ctx, authToken, req)
+	resp, err := a.appService.NodeGroups().AddNode(ctx, authToken, cluster_id, nodegroup_id)
 	if err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
 	}

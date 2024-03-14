@@ -18,7 +18,7 @@ import (
 type INodeGroupsService interface {
 	GetNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string) ([]resource.NodeGroup, error)
 	UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req resource.UpdateNodeGroupRequest) (resource.UpdateNodeGroupResponse, error)
-	AddNode(ctx context.Context, authToken string, req request.AddNodeRequest) (resource.AddNodeResponse, error)
+	AddNode(ctx context.Context, authToken string, clusterUUID, nodeGroupUUID string) (resource.AddNodeResponse, error)
 	DeleteNode(ctx context.Context, authToken, clusterID, nodeGroupID, instanceName string) (resource.DeleteNodeResponse, error)
 }
 
@@ -112,13 +112,13 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 		return resp, nil
 	}
 }
-func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, req request.AddNodeRequest) (resource.AddNodeResponse, error) {
+func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, clusterUUID, nodeGroupUUD string) (resource.AddNodeResponse, error) {
 	if authToken == "" {
 		nodg.logger.Errorf("failed to get cluster")
 		return resource.AddNodeResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
-	cluster, err := nodg.repository.Cluster().GetClusterByUUID(ctx, req.ClusterID)
+	cluster, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
 	if err != nil {
 		nodg.logger.Errorf("failed to get cluster, error: %v", err)
 		return resource.AddNodeResponse{}, err
@@ -140,7 +140,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, re
 		return resource.AddNodeResponse{}, err
 	}
 
-	nodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, req.NodeGroupID)
+	nodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupUUD)
 	if err != nil {
 		nodg.logger.Errorf("failed to get node group, error: %v", err)
 		return resource.AddNodeResponse{}, err

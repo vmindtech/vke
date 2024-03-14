@@ -48,7 +48,7 @@ func (r *route) appRoutes(fr fiber.Router) {
 	appGroup.Delete("/cluster/:cluster_id", r.appHandler.DestroyCluster)
 	appGroup.Get("/kubeconfig/:cluster_id", r.appHandler.GetKubeConfig)
 	appGroup.Post("/kubeconfig", r.appHandler.CreateKubeconfig)
-	appGroup.Post("/cluster/add-node", r.appHandler.AddNode)
+	appGroup.Post("/cluster/:cluster_id/nodegroups/:nodegroup_id/nodes/add", r.appHandler.AddNode)
 	appGroup.Get("/cluster/:cluster_id/nodegroups", r.appHandler.GetNodeGroups)
 	appGroup.Get("/cluster/:cluster_id/nodegroups/:nodegroup_id", r.appHandler.GetNodeGroups)
 	appGroup.Put("/cluster/:cluster_id/nodegroups/:nodegroup_id", r.appHandler.UpdateNodeGroups)
