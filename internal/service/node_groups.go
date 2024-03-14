@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,7 +19,7 @@ type INodeGroupsService interface {
 	GetNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string) ([]resource.NodeGroup, error)
 	UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req resource.UpdateNodeGroupRequest) (resource.UpdateNodeGroupResponse, error)
 	AddNode(ctx context.Context, authToken string, req request.AddNodeRequest) (resource.AddNodeResponse, error)
-	DeleteNode(ctx context.Context, authToken, clusterID, nodeID string) (resource.DeleteNodeResponse, error)
+	DeleteNode(ctx context.Context, authToken, clusterID, nodeID, instanceName string) (resource.DeleteNodeResponse, error)
 }
 
 type nodeGroupsService struct {
@@ -283,7 +282,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, re
 		MaxSize:     nodeGroup.NodeGroupMaxSize,
 	}, nil
 }
-func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string, nodeGroupID string, clusterUUID string) (resource.DeleteNodeResponse, error) {
+func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string, clusterUUID string, nodeGroupID string, instanceName string) (resource.DeleteNodeResponse, error) {
 	if authToken == "" {
 		nodg.logger.Errorf("failed to get cluster")
 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get cluster")
@@ -330,31 +329,11 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 		return resource.DeleteNodeResponse{}, err
 	}
 	for _, server := range compute {
-		for _, nodes := range ConvertDataJSONtoStringArray(ng.NodesToRemove) {
-			cleanNodeName := strings.Split(nodes, "//")
-
-			if server.InstanceName == cleanNodeName[1] {
-				err = nodg.computeService.DeleteCompute(ctx, authToken, server.InstanceUUID)
-				if err != nil {
-					nodg.logger.Errorf("failed to delete compute, error: %v", err)
-					return resource.DeleteNodeResponse{}, err
-				}
-				newNodesToRemove := DeleteItemFromArray(ConvertDataJSONtoStringArray(ng.NodesToRemove), nodes)
-				nodesToRemoveJSON, err := json.Marshal(newNodesToRemove)
-				if err != nil {
-					nodg.logger.Errorf("failed to marshal nodes to remove, error: %v", err)
-					return resource.DeleteNodeResponse{}, err
-				}
-				err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
-					DesiredNodes:        (ng.DesiredNodes) - 1,
-					NodeGroupUpdateDate: time.Now(),
-					NodeGroupUUID:       nodeGroupID,
-					NodesToRemove:       nodesToRemoveJSON,
-				})
-				if err != nil {
-					nodg.logger.Errorf("failed to update node groups, error: %v", err)
-					return resource.DeleteNodeResponse{}, err
-				}
+		if server.InstanceName == instanceName {
+			err = nodg.computeService.DeleteCompute(ctx, authToken, server.InstanceUUID)
+			if err != nil {
+				nodg.logger.Errorf("failed to delete compute, error: %v", err)
+				return resource.DeleteNodeResponse{}, err
 			}
 		}
 	}
@@ -392,46 +371,17 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 		nodg.logger.Errorf("failed to check auth token, err: %v", err)
 		return resource.UpdateNodeGroupResponse{}, err
 	}
-	fmt.Println("req", req)
-
-	if err != nil {
-		return resource.UpdateNodeGroupResponse{}, err
-	}
-	var latestStateOfNode []string
-	var checkCurrentNode bool
-	for _, node := range ConvertDataJSONtoStringArray(getCurrentStateOfNodeGroup.NodesToRemove) {
-		latestStateOfNode = append(latestStateOfNode, node)
-	}
-	for _, node := range req.NodesToRemove {
-		for _, currentNode := range latestStateOfNode {
-			if currentNode == node {
-				checkCurrentNode = true
-				break
-			}
-		}
-		if checkCurrentNode == false {
-			latestStateOfNode = append(latestStateOfNode, node)
-		}
-	}
-	nodesToRemove, err := json.Marshal(latestStateOfNode)
 
 	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
 		NodeGroupUUID:    nodeGroupID,
 		DesiredNodes:     int(*req.DesiredNodes),
 		NodeGroupMinSize: getCurrentStateOfNodeGroup.NodeGroupMinSize,
 		NodeGroupMaxSize: getCurrentStateOfNodeGroup.NodeGroupMaxSize,
-		NodesToRemove:    nodesToRemove,
 	})
 	if err != nil {
 		nodg.logger.Errorf("failed to update node group by uuid %s, err: %v", nodeGroupID, err)
 		return resource.UpdateNodeGroupResponse{}, err
 	}
-	_, err = nodg.DeleteNode(ctx, authToken, nodeGroupID, clusterID)
-	if err != nil {
-		nodg.logger.Errorf("failed to delete node by uuid %s, err: %v", nodeGroupID, err)
-		return resource.UpdateNodeGroupResponse{}, err
-	}
-
 	response := resource.UpdateNodeGroupResponse{
 		ClusterID:    clusterID,
 		NodeGroupID:  nodeGroupID,
