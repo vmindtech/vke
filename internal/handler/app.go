@@ -249,14 +249,14 @@ func (a *appHandler) UpdateNodeGroups(c *fiber.Ctx) error {
 	return c.JSON(resp)
 }
 func (a *appHandler) DeleteNode(c *fiber.Ctx) error {
-	nodeID := c.Params("node_id")
+	nodeGroupID := c.Params("nodegroup_id")
 	clusterID := c.Params("cluster_id")
-	instanceName := c.Query("instance_name")
+	instanceName := c.Params("instance_name")
 	ctx := context.Background()
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
 		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
-	resp, _ := a.appService.NodeGroups().DeleteNode(ctx, authToken, clusterID, nodeID, instanceName)
+	resp, _ := a.appService.NodeGroups().DeleteNode(ctx, authToken, clusterID, nodeGroupID, instanceName)
 	return c.JSON(resp)
 }

@@ -19,7 +19,7 @@ type INodeGroupsService interface {
 	GetNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string) ([]resource.NodeGroup, error)
 	UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req resource.UpdateNodeGroupRequest) (resource.UpdateNodeGroupResponse, error)
 	AddNode(ctx context.Context, authToken string, req request.AddNodeRequest) (resource.AddNodeResponse, error)
-	DeleteNode(ctx context.Context, authToken, clusterID, nodeID, instanceName string) (resource.DeleteNodeResponse, error)
+	DeleteNode(ctx context.Context, authToken, clusterID, nodeGroupID, instanceName string) (resource.DeleteNodeResponse, error)
 }
 
 type nodeGroupsService struct {
@@ -318,15 +318,20 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get node group")
 	}
 
-	if ng.DesiredNodes <= ng.NodeGroupMinSize {
-		nodg.logger.Errorf("failed to delete node, node group min size reached")
-		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to delete node, node group min size reached")
-	}
-
-	compute, err := nodg.computeService.GetInstances(ctx, authToken, nodeGroupID)
+	compute, err := nodg.computeService.GetInstances(ctx, authToken, ng.NodeGroupUUID)
 	if err != nil {
 		nodg.logger.Errorf("failed to get instances, error: %v", err)
 		return resource.DeleteNodeResponse{}, err
+
+	}
+	computeCount, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, authToken, ng.NodeGroupUUID, cluster.ClusterProjectUUID)
+	if err != nil {
+		nodg.logger.Errorf("failed to get count of server from server group, error: %v", err)
+		return resource.DeleteNodeResponse{}, err
+	}
+	if computeCount <= ng.NodeGroupMinSize {
+		nodg.logger.Errorf("failed to delete node, node group min size reached")
+		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to delete node, node group min size reached")
 	}
 	for _, server := range compute {
 		if server.InstanceName == instanceName {
