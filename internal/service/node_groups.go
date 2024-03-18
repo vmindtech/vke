@@ -265,7 +265,6 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		return resource.AddNodeResponse{}, err
 	}
 	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
-		DesiredNodes:        (desiredCount) + 1,
 		NodeGroupUpdateDate: time.Now(),
 		NodeGroupUUID:       nodeGroup.NodeGroupUUID,
 	})
@@ -386,6 +385,31 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 	if err != nil {
 		nodg.logger.Errorf("failed to update node group by uuid %s, err: %v", nodeGroupID, err)
 		return resource.UpdateNodeGroupResponse{}, err
+	}
+	currentSize, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroupID, clusterProjectUUID.ClusterProjectUUID)
+	if err != nil {
+		nodg.logger.Errorf("failed to get count of server from server group, err: %v", err)
+		return resource.UpdateNodeGroupResponse{}, err
+	}
+	if getCurrentStateOfNodeGroup.DesiredNodes != currentSize {
+		delta := int(getCurrentStateOfNodeGroup.DesiredNodes) - currentSize
+		if delta > 0 {
+			for i := 0; i < delta; i++ {
+				_, err := nodg.AddNode(ctx, authToken, clusterID, nodeGroupID)
+				if err != nil {
+					nodg.logger.Errorf("failed to add node, err: %v", err)
+					return resource.UpdateNodeGroupResponse{}, err
+				}
+			}
+		} else {
+			for i := 0; i < -delta; i++ {
+				_, err := nodg.DeleteNode(ctx, authToken, clusterID, nodeGroupID, "")
+				if err != nil {
+					nodg.logger.Errorf("failed to delete node, err: %v", err)
+					return resource.UpdateNodeGroupResponse{}, err
+				}
+			}
+		}
 	}
 	response := resource.UpdateNodeGroupResponse{
 		ClusterID:    clusterID,
