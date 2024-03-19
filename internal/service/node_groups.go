@@ -77,7 +77,6 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			DesiredNodes:     nodeGroup.DesiredNodes,
 			CurrentNodes:     count,
 			NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
-			NodesToRemove:    ConvertDataJSONtoStringArray(nodeGroup.NodesToRemove),
 		})
 		return resp, nil
 	} else {
@@ -106,7 +105,6 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 				DesiredNodes:     nodeGroup.DesiredNodes,
 				CurrentNodes:     count,
 				NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
-				NodesToRemove:    ConvertDataJSONtoStringArray(nodeGroup.NodesToRemove),
 			})
 		}
 		return resp, nil
