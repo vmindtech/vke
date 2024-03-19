@@ -493,8 +493,6 @@ func (ns *networkService) DeleteNetworkPort(ctx context.Context, authToken strin
 	}
 	r.Header.Add("X-Auth-Token", authToken)
 
-	r.Header.Add("X-Auth-Token", authToken)
-
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
