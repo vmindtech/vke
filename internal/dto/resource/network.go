@@ -58,3 +58,7 @@ type SubnetWithDetails struct {
 	GatewayIP string `json:"gateway_ip"`
 	CIDR      string `json:"cidr"`
 }
+
+type NetworkPortsResponse struct {
+	Ports []string `json:"ports"`
+}

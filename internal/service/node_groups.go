@@ -334,10 +334,22 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 	}
 	for _, server := range compute {
 		if server.InstanceName == instanceName {
+			getPortIDs, err := nodg.networkService.GetComputeNetworkPorts(ctx, authToken, server.InstanceUUID)
+			if err != nil {
+				nodg.logger.Errorf("failed to get compute network ports, error: %v", err)
+				return resource.DeleteNodeResponse{}, err
+			}
 			err = nodg.computeService.DeleteCompute(ctx, authToken, server.InstanceUUID)
 			if err != nil {
 				nodg.logger.Errorf("failed to delete compute, error: %v", err)
 				return resource.DeleteNodeResponse{}, err
+			}
+			for _, portID := range getPortIDs.Ports {
+				err = nodg.networkService.DeleteNetworkPort(ctx, authToken, portID)
+				if err != nil {
+					nodg.logger.Errorf("failed to delete network port, error: %v", err)
+					return resource.DeleteNodeResponse{}, err
+				}
 			}
 		}
 	}

@@ -26,8 +26,10 @@ type INetworkService interface {
 	CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error)
 	DeleteSecurityGroup(ctx context.Context, authToken, clusterMasterSecurityGroup, clusterWorkerSecurityGroup string) error
 	DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error
+	DeleteNetworkPort(ctx context.Context, authToken string, portID string) error
 	GetSecurityGroupByID(ctx context.Context, authToken, securityGroupID string) (resource.GetSecurityGroupResponse, error)
 	GetSubnetByID(ctx context.Context, authToken, subnetID string) (resource.SubnetResponse, error)
+	GetComputeNetworkPorts(ctx context.Context, authToken, instanceID string) (resource.NetworkPortsResponse, error)
 }
 
 type networkService struct {
@@ -440,4 +442,72 @@ func (ns *networkService) GetSubnetByID(ctx context.Context, authToken, subnetID
 	}
 
 	return respData, nil
+}
+func (ns *networkService) GetComputeNetworkPorts(ctx context.Context, authToken, instanceID string) (resource.NetworkPortsResponse, error) {
+	getNetworkDetail, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instanceID, osInterfacePath), nil)
+	if err != nil {
+		ns.logger.Errorf("failed to create request, error: %v", err)
+		return resource.NetworkPortsResponse{}, err
+	}
+	getNetworkDetail.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(getNetworkDetail)
+	if err != nil {
+		ns.logger.Errorf("failed to send request, error: %v", err)
+		return resource.NetworkPortsResponse{}, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		ns.logger.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.NetworkPortsResponse{}, fmt.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		ns.logger.Errorf("failed to read response body, error: %v", err)
+		return resource.NetworkPortsResponse{}, err
+	}
+	var respData map[string][]map[string]interface{}
+	err = json.Unmarshal([]byte(body), &respData)
+	if err != nil {
+		ns.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		return resource.NetworkPortsResponse{}, err
+	}
+
+	attachments := respData["interfaceAttachments"]
+	var portIDs resource.NetworkPortsResponse
+	for _, attachment := range attachments {
+		portIDs.Ports = append(portIDs.Ports, attachment["port_id"].(string))
+	}
+	return portIDs, nil
+
+}
+func (ns *networkService) DeleteNetworkPort(ctx context.Context, authToken string, portID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort, portID), nil)
+	if err != nil {
+		ns.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		ns.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		ns.logger.Errorf("failed to delete network port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete network port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	return nil
 }
