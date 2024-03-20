@@ -213,7 +213,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		NodeGroupsType:      NodeGroupMasterType,
 		IsHidden:            true,
 		NodeGroupCreateDate: time.Now(),
-		DesiredNodes:        3,
 	}
 
 	err = c.repository.NodeGroups().CreateNodeGroups(ctx, masterNodeGroupModel)
@@ -241,7 +240,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		NodeGroupsType:      NodeGroupWorkerType,
 		IsHidden:            false,
 		NodeGroupCreateDate: time.Now(),
-		DesiredNodes:        req.WorkerNodeGroupMinSize,
 	}
 
 	err = c.repository.NodeGroups().CreateNodeGroups(ctx, workerNodeGroupModel)

@@ -21,14 +21,12 @@ type NodeGroup struct {
 	NodeDiskSize     int    `json:"node_disk_size"`
 	NodeFlavorUUID   string `json:"node_flavor_uuid"`
 	NodeGroupsType   string `json:"node_groups_type"`
-	DesiredNodes     int    `json:"desired_nodes"`
 	CurrentNodes     int    `json:"current_nodes"`
 	NodeGroupsStatus string `json:"node_groups_status"`
 }
 type UpdateNodeGroupRequest struct {
-	DesiredNodes *uint32 `json:"desiredNodes,omitempty"`
-	MinNodes     *uint32 `json:"minNodes,omitempty"`
-	MaxNodes     *uint32 `json:"maxNodes,omitempty"`
+	MinNodes *uint32 `json:"minNodes,omitempty"`
+	MaxNodes *uint32 `json:"maxNodes,omitempty"`
 
 	Autoscale *bool `json:"autoscale,omitempty"`
 
@@ -40,10 +38,9 @@ type DeleteNodeResponse struct {
 	NodeGroupID string `json:"node_group_id"`
 }
 type UpdateNodeGroupResponse struct {
-	ClusterID    string `json:"cluster_id"`
-	NodeGroupID  string `json:"node_group_id"`
-	MinSize      int    `json:"min_size"`
-	MaxSize      int    `json:"max_size"`
-	Status       string `json:"status"`
-	DesiredNodes int    `json:"desired_nodes"`
+	ClusterID   string `json:"cluster_id"`
+	NodeGroupID string `json:"node_group_id"`
+	MinSize     int    `json:"min_size"`
+	MaxSize     int    `json:"max_size"`
+	Status      string `json:"status"`
 }

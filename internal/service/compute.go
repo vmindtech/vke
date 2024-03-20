@@ -571,7 +571,6 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 		NodeDiskSize:     nodeGroup.NodeDiskSize,
 		NodeFlavorUUID:   nodeGroup.NodeFlavorUUID,
 		NodeGroupsType:   nodeGroup.NodeGroupsType,
-		DesiredNodes:     nodeGroup.DesiredNodes,
 		CurrentNodes:     count,
 		NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
 	})

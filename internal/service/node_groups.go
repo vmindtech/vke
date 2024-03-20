@@ -74,7 +74,6 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			NodeDiskSize:     nodeGroup.NodeDiskSize,
 			NodeFlavorUUID:   nodeGroup.NodeFlavorUUID,
 			NodeGroupsType:   nodeGroup.NodeGroupsType,
-			DesiredNodes:     nodeGroup.DesiredNodes,
 			CurrentNodes:     count,
 			NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
 		})
@@ -102,7 +101,6 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 				NodeDiskSize:     nodeGroup.NodeDiskSize,
 				NodeFlavorUUID:   nodeGroup.NodeFlavorUUID,
 				NodeGroupsType:   nodeGroup.NodeGroupsType,
-				DesiredNodes:     nodeGroup.DesiredNodes,
 				CurrentNodes:     count,
 				NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
 			})
@@ -149,13 +147,13 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		return resource.AddNodeResponse{}, fmt.Errorf("failed to get node groups")
 	}
 
-	desiredCount, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID, cluster.ClusterProjectUUID)
+	currentCount, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID, cluster.ClusterProjectUUID)
 	if err != nil {
 		nodg.logger.Errorf("failed to get count of server from server group, error: %v", err)
 		return resource.AddNodeResponse{}, err
 	}
 
-	if desiredCount >= nodeGroup.NodeGroupMaxSize {
+	if currentCount >= nodeGroup.NodeGroupMaxSize {
 		nodg.logger.Errorf("failed to add node, node group max size reached")
 		return resource.AddNodeResponse{}, fmt.Errorf("failed to add node, node group max size reached")
 	}
@@ -388,7 +386,6 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 
 	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
 		NodeGroupUUID:    nodeGroupID,
-		DesiredNodes:     int(*req.DesiredNodes),
 		NodeGroupMinSize: getCurrentStateOfNodeGroup.NodeGroupMinSize,
 		NodeGroupMaxSize: getCurrentStateOfNodeGroup.NodeGroupMaxSize,
 	})
@@ -397,12 +394,11 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 		return resource.UpdateNodeGroupResponse{}, err
 	}
 	response := resource.UpdateNodeGroupResponse{
-		ClusterID:    clusterID,
-		NodeGroupID:  nodeGroupID,
-		MinSize:      getCurrentStateOfNodeGroup.NodeGroupMinSize,
-		MaxSize:      getCurrentStateOfNodeGroup.NodeGroupMaxSize,
-		Status:       getCurrentStateOfNodeGroup.NodeGroupsStatus,
-		DesiredNodes: getCurrentStateOfNodeGroup.DesiredNodes,
+		ClusterID:   clusterID,
+		NodeGroupID: nodeGroupID,
+		MinSize:     getCurrentStateOfNodeGroup.NodeGroupMinSize,
+		MaxSize:     getCurrentStateOfNodeGroup.NodeGroupMaxSize,
+		Status:      getCurrentStateOfNodeGroup.NodeGroupsStatus,
 	}
 	return response, nil
 }
