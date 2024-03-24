@@ -22,6 +22,7 @@ type IAppHandler interface {
 	ClusterInfo(c *fiber.Ctx) error
 	CreateCluster(c *fiber.Ctx) error
 	GetCluster(c *fiber.Ctx) error
+	GetClustersByProjectId(c *fiber.Ctx) error
 	DestroyCluster(c *fiber.Ctx) error
 	GetKubeConfig(c *fiber.Ctx) error
 	CreateKubeconfig(c *fiber.Ctx) error
@@ -93,6 +94,24 @@ func (a *appHandler) GetCluster(c *fiber.Ctx) error {
 	resp, err := a.appService.Cluster().GetCluster(ctx, authToken, clusterID)
 	if err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+	}
+
+	return c.JSON(response.NewSuccessResponse(resp))
+}
+
+func (a *appHandler) GetClustersByProjectId(c *fiber.Ctx) error {
+	projectID := c.Params("project_id")
+
+	ctx := context.Background()
+
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+	}
+
+	resp, err := a.appService.Cluster().GetClustersByProjectId(ctx, authToken, projectID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(response.NewErrorResponse(ctx, err))
 	}
 
 	return c.JSON(response.NewSuccessResponse(resp))
