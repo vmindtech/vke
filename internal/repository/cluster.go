@@ -9,7 +9,7 @@ import (
 
 type IClusterRepository interface {
 	GetClusterByUUID(ctx context.Context, uuid string) (*model.Cluster, error)
-	GetClustersByProjectId(ctx context.Context, project_id string) ([]model.Cluster, error)
+	GetClustersByProjectId(ctx context.Context, projectId string) ([]model.Cluster, error)
 	CreateCluster(ctx context.Context, cluster *model.Cluster) error
 	UpdateCluster(ctx context.Context, cluster *model.Cluster) error
 	DeleteUpdateCluster(ctx context.Context, cluster *model.Cluster, clusterUUID string) error
@@ -42,14 +42,14 @@ func (c *ClusterRepository) GetClusterByUUID(ctx context.Context, uuid string) (
 	return &cluster, nil
 }
 
-func (c *ClusterRepository) GetClustersByProjectId(ctx context.Context, project_id string) ([]model.Cluster, error) {
+func (c *ClusterRepository) GetClustersByProjectId(ctx context.Context, projectId string) ([]model.Cluster, error) {
 	var clusters []model.Cluster
 
 	err := c.mysqlInstance.
 		Database().
 		Debug().
 		WithContext(ctx).
-		Where(&model.Cluster{ClusterProjectUUID: project_id}).
+		Where(&model.Cluster{ClusterProjectUUID: projectId}).
 		Find(&clusters).
 		Error
 
