@@ -18,6 +18,7 @@ import (
 type IClusterService interface {
 	CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest) (resource.CreateClusterResponse, error)
 	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
+	GetClustersByProjectId(ctx context.Context, authToken, projectID string) ([]resource.GetClusterResponse, error)
 	DestroyCluster(ctx context.Context, authToken, clusterID string) (resource.DestroyCluster, error)
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
 	CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error)
@@ -908,6 +909,53 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 	}
 
 	return clusterResp, nil
+}
+
+func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, projectID string) ([]resource.GetClusterResponse, error) {
+	clusters, err := c.repository.Cluster().GetClustersByProjectId(ctx, projectID)
+	if err != nil {
+		c.logger.Errorf("failed to get cluster, error: %v", err)
+		return []resource.GetClusterResponse{}, err
+	}
+
+	if clusters == nil {
+		c.logger.Errorf("failed to get cluster")
+		return []resource.GetClusterResponse{}, nil
+	}
+
+	err = c.identityService.CheckAuthToken(ctx, authToken, projectID)
+	if err != nil {
+		c.logger.Errorf("failed to check auth token, error: %v", err)
+		return []resource.GetClusterResponse{}, err
+	}
+
+	var clustersResp []resource.GetClusterResponse
+
+	for _, cluster := range clusters {
+		var clusterWorkerServerGroupsUUIDString []string
+		err = json.Unmarshal(cluster.ClusterWorkerServerGroupsUUID, &clusterWorkerServerGroupsUUIDString)
+		if err != nil {
+			c.logger.Errorf("failed to unmarshal cluster worker server groups uuid, error: %v", err)
+			break
+		}
+		clustersResp = append(clustersResp, resource.GetClusterResponse{
+			ClusterID:                     cluster.ClusterUUID,
+			ProjectID:                     cluster.ClusterProjectUUID,
+			KubernetesVersion:             cluster.ClusterVersion,
+			ClusterAPIAccess:              cluster.ClusterAPIAccess,
+			ClusterWorkerServerGroupsUUID: clusterWorkerServerGroupsUUIDString,
+			ClusterMasterServerGroupUUID:  cluster.ClusterMasterServerGroupUUID,
+			ClusterMasterSecurityGroup:    cluster.MasterSecurityGroup,
+			ClusterWorkerSecurityGroup:    cluster.WorkerSecurityGroup,
+			ClusterStatus:                 cluster.ClusterStatus,
+		})
+	}
+
+	if clustersResp == nil {
+		return nil, err
+	}
+
+	return clustersResp, nil
 }
 
 func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterID string) (resource.DestroyCluster, error) {

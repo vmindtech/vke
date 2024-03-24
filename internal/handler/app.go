@@ -22,6 +22,7 @@ type IAppHandler interface {
 	ClusterInfo(c *fiber.Ctx) error
 	CreateCluster(c *fiber.Ctx) error
 	GetCluster(c *fiber.Ctx) error
+	GetClustersByProjectId(c *fiber.Ctx) error
 	DestroyCluster(c *fiber.Ctx) error
 	GetKubeConfig(c *fiber.Ctx) error
 	CreateKubeconfig(c *fiber.Ctx) error
