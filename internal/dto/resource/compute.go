@@ -57,3 +57,8 @@ type OpenstackFlavors struct {
 	RAM   int    `json:"ram"`
 	VCPUs int    `json:"vcpus"`
 }
+
+type GetServerGroupMemberListResponse struct {
+	Members []string `json:"members"`
+}
+

@@ -24,7 +24,7 @@ type INetworkService interface {
 	CreateSecurityGroupRuleForIP(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForIpRequest) error
 	CreateSecurityGroupRuleForSG(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForSgRequest) error
 	CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error)
-	DeleteSecurityGroup(ctx context.Context, authToken, clusterMasterSecurityGroup, clusterWorkerSecurityGroup string) error
+	DeleteSecurityGroup(ctx context.Context, authToken, clusterSecurityGroupId string) error
 	DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error
 	DeleteNetworkPort(ctx context.Context, authToken string, portID string) error
 	GetSecurityGroupByID(ctx context.Context, authToken, securityGroupID string) (resource.GetSecurityGroupResponse, error)
@@ -294,8 +294,8 @@ func (ns *networkService) CreateFloatingIP(ctx context.Context, authToken string
 	return respDecoder, nil
 }
 
-func (ns *networkService) DeleteSecurityGroup(ctx context.Context, authToken, clusterMasterSecurityGroup, clusterWorkerSecurityGroup string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath, clusterMasterSecurityGroup), nil)
+func (ns *networkService) DeleteSecurityGroup(ctx context.Context, authToken, clusterSecurityGroupId string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath, clusterSecurityGroupId), nil)
 	if err != nil {
 		ns.logger.Errorf("failed to create request, error: %v", err)
 		return err
@@ -313,29 +313,6 @@ func (ns *networkService) DeleteSecurityGroup(ctx context.Context, authToken, cl
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		ns.logger.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-
-	r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath, clusterWorkerSecurityGroup), nil)
-	if err != nil {
-		ns.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-
-	client = &http.Client{}
-	resp, err = client.Do(r)
-	if err != nil {
-		ns.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		ns.logger.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 		return fmt.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
@@ -361,10 +338,8 @@ func (ns *networkService) DeleteFloatingIP(ctx context.Context, authToken, float
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		ns.logger.Errorf("failed to delete floating ip, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 		return fmt.Errorf("failed to delete floating ip, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
-
 	return nil
 }
 
@@ -443,6 +418,7 @@ func (ns *networkService) GetSubnetByID(ctx context.Context, authToken, subnetID
 
 	return respData, nil
 }
+
 func (ns *networkService) GetComputeNetworkPorts(ctx context.Context, authToken, instanceID string) (resource.NetworkPortsResponse, error) {
 	getNetworkDetail, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instanceID, osInterfacePath), nil)
 	if err != nil {

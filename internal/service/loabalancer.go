@@ -29,9 +29,13 @@ type ILoadbalancerService interface {
 	CreateHealthHTTPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorHTTPRequest) error
 	CreateHealthTCPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorTCPRequest) error
 	CheckLoadBalancerOperationStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error)
-	DeleteLoadbalancerPool(ctx context.Context, authToken, loadBalancerID string) error
-	DeleteLoadbalancerListener(ctx context.Context, authToken, loadBalancerID string) error
 	DeleteLoadbalancer(ctx context.Context, authToken, loadBalancerID string) error
+	GetLoadBalancerPools(ctx context.Context, authToken, loadBalancerID string) (resource.GetLoadBalancerPoolsResponse, error)
+	CheckLoadBalancerDeletingPools(ctx context.Context, authToken, poolID string) error
+	DeleteLoadbalancerPools(ctx context.Context, authToken, poolID string) error
+	GetLoadBalancerListeners(ctx context.Context, authToken, loadBalancerID string) (resource.GetLoadBalancerListenersResponse, error)
+	DeleteLoadbalancerListeners(ctx context.Context, authToken, listenerID string) error
+	CheckLoadBalancerDeletingListeners(ctx context.Context, authToken, listenerID string) error
 }
 
 type loadbalancerService struct {
@@ -449,11 +453,11 @@ func (lbc *loadbalancerService) CheckLoadBalancerOperationStatus(ctx context.Con
 	return resource.ListLoadBalancerResponse{}, nil
 }
 
-func (lbc *loadbalancerService) DeleteLoadbalancerPool(ctx context.Context, authToken, loadBalancerID string) error {
+func (lbc *loadbalancerService) GetLoadBalancerPools(ctx context.Context, authToken, loadBalancerID string) (resource.GetLoadBalancerPoolsResponse, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
 	if err != nil {
 		lbc.logger.Errorf("failed to create request, error: %v", err)
-		return err
+		return resource.GetLoadBalancerPoolsResponse{}, err
 	}
 
 	r.Header.Add("X-Auth-Token", authToken)
@@ -462,91 +466,51 @@ func (lbc *loadbalancerService) DeleteLoadbalancerPool(ctx context.Context, auth
 	resp, err := client.Do(r)
 	if err != nil {
 		lbc.logger.Errorf("failed to send request, error: %v", err)
-		return err
+		return resource.GetLoadBalancerPoolsResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		lbc.logger.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.GetLoadBalancerPoolsResponse{}, fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		lbc.logger.Errorf("failed to read response body, error: %v", err)
-		return err
+		return resource.GetLoadBalancerPoolsResponse{}, err
 	}
 	var respdata map[string]map[string]interface{}
 	err = json.Unmarshal([]byte(body), &respdata)
 	if err != nil {
 		lbc.logger.Errorf("failed to unmarshal response body, error: %v", err)
-		return err
+		return resource.GetLoadBalancerPoolsResponse{}, err
 	}
 
 	poolsInterface := respdata["loadbalancer"]["pools"]
 
 	pools := poolsInterface.([]interface{})
-	waitIterator := 0
-	waitSeconds := 10
-	for _, pool := range pools {
-		poolID := pool.(map[string]interface{})["id"].(string)
-		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
-		if err != nil {
-			lbc.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
+	var respPools resource.GetLoadBalancerPoolsResponse
 
-		r.Header.Add("X-Auth-Token", authToken)
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			lbc.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusNoContent {
-			lbc.logger.Errorf("failed to delete load balancer pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to delete load balancer pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-		for {
-			if waitIterator < 8 {
-				time.Sleep(time.Duration(waitSeconds) * time.Second)
-				fmt.Printf("Waiting for load balancer pool to be deleted, waited %v seconds\n", waitSeconds)
-				waitIterator++
-				waitSeconds = waitSeconds + 5
-				r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
-				if err != nil {
-					lbc.logger.Errorf("failed to create request, error: %v", err)
-					return err
-				}
-
-				r.Header.Add("X-Auth-Token", authToken)
-
-				client = &http.Client{}
-				resp, err = client.Do(r)
-				if err != nil {
-					lbc.logger.Errorf("failed to send request, error: %v", err)
-					return err
-				}
-				defer resp.Body.Close()
-
-				if resp.StatusCode == http.StatusNotFound {
-					break
-				}
+	for _, member := range pools {
+		if poolMap, ok := member.(map[string]interface{}); ok {
+			if id, exists := poolMap["id"].(string); exists {
+				respPools.Pools = append(respPools.Pools, id)
 			} else {
-				return fmt.Errorf("failed to delete load balancer pool, provisioning status is not DELETED")
+				lbc.logger.Errorf("failed to get pool id")
+				return resource.GetLoadBalancerPoolsResponse{}, fmt.Errorf("failed to get pool id")
 			}
+		} else {
+			lbc.logger.Errorf("failed to get pool id")
+			return resource.GetLoadBalancerPoolsResponse{}, fmt.Errorf("failed to get pool id")
 		}
 	}
 
-	return nil
+	return respPools, nil
 }
 
-func (lbc *loadbalancerService) DeleteLoadbalancerListener(ctx context.Context, authToken, loadBalancerID string) error {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
+func (lbc *loadbalancerService) DeleteLoadbalancerPools(ctx context.Context, authToken, poolID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
 	if err != nil {
 		lbc.logger.Errorf("failed to create request, error: %v", err)
 		return err
@@ -562,83 +526,165 @@ func (lbc *loadbalancerService) DeleteLoadbalancerListener(ctx context.Context, 
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusNoContent {
+		lbc.logger.Errorf("failed to delete load balancer pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete load balancer pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+	return nil
+}
+
+func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Context, authToken, poolID string) error {
+	waitIterator := 0
+	waitSeconds := 10
+	for {
+		if waitIterator < 8 {
+			time.Sleep(time.Duration(waitSeconds) * time.Second)
+			fmt.Printf("Waiting for load balancer pool to be deleted, waited %v seconds\n", waitSeconds)
+			waitIterator++
+			waitSeconds = waitSeconds + 5
+			r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
+			if err != nil {
+				lbc.logger.Errorf("failed to create request, error: %v", err)
+				return err
+			}
+
+			r.Header.Add("X-Auth-Token", authToken)
+
+			client := &http.Client{}
+			resp, err := client.Do(r)
+			if err != nil {
+				lbc.logger.Errorf("failed to send request, error: %v", err)
+				return err
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode == http.StatusNotFound {
+				break
+			}
+		} else {
+			return fmt.Errorf("failed to delete load balancer pool, provisioning status is not DELETED")
+		}
+	}
+
+	return nil
+
+}
+func (lbc *loadbalancerService) GetLoadBalancerListeners(ctx context.Context, authToken, loadBalancerID string) (resource.GetLoadBalancerListenersResponse, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
+	if err != nil {
+		lbc.logger.Errorf("failed to create request, error: %v", err)
+		return resource.GetLoadBalancerListenersResponse{}, err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		lbc.logger.Errorf("failed to send request, error: %v", err)
+		return resource.GetLoadBalancerListenersResponse{}, err
+	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		lbc.logger.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.GetLoadBalancerListenersResponse{}, fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		lbc.logger.Errorf("failed to read response body, error: %v", err)
-		return err
+		return resource.GetLoadBalancerListenersResponse{}, err
 	}
 	var respdata map[string]map[string]interface{}
 	err = json.Unmarshal([]byte(body), &respdata)
 	if err != nil {
 		lbc.logger.Errorf("failed to unmarshal response body, error: %v", err)
-		return err
+		return resource.GetLoadBalancerListenersResponse{}, err
 	}
 
 	listenersInterface := respdata["loadbalancer"]["listeners"]
 
 	listeners := listenersInterface.([]interface{})
 
-	waitIterator := 0
-	waitSeconds := 10
+	var respListeners resource.GetLoadBalancerListenersResponse
 
 	for _, listener := range listeners {
-		listenerID := listener.(map[string]interface{})["id"].(string)
-		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
-		if err != nil {
-			lbc.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			lbc.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusNoContent {
-			lbc.logger.Errorf("failed to delete load balancer listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to delete load balancer listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-		for {
-			if waitIterator < 8 {
-				time.Sleep(time.Duration(waitSeconds) * time.Second)
-				fmt.Printf("Waiting for load balancer listener to be deleted, waited %v seconds\n", waitSeconds)
-				waitIterator++
-				waitSeconds = waitSeconds + 5
-				r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
-				if err != nil {
-					lbc.logger.Errorf("failed to create request, error: %v", err)
-					return err
-				}
-
-				r.Header.Add("X-Auth-Token", authToken)
-
-				client = &http.Client{}
-				resp, err = client.Do(r)
-				if err != nil {
-					lbc.logger.Errorf("failed to send request, error: %v", err)
-					return err
-				}
-				defer resp.Body.Close()
-
-				if resp.StatusCode == http.StatusNotFound {
-					break
-				}
+		if listenerMap, ok := listener.(map[string]interface{}); ok {
+			if id, exists := listenerMap["id"].(string); exists {
+				respListeners.Listeners = append(respListeners.Listeners, id)
 			} else {
-				return fmt.Errorf("failed to delete load balancer listener, provisioning status is not DELETED")
+				lbc.logger.Errorf("failed to get listener id")
+				return resource.GetLoadBalancerListenersResponse{}, fmt.Errorf("failed to get listener id")
 			}
+		} else {
+			lbc.logger.Errorf("failed to get listener id")
+			return resource.GetLoadBalancerListenersResponse{}, fmt.Errorf("failed to get listener id")
 		}
 	}
+
+	return respListeners, nil
+}
+
+func (lbc *loadbalancerService) DeleteLoadbalancerListeners(ctx context.Context, authToken, listenerID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
+	if err != nil {
+		lbc.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		lbc.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		lbc.logger.Errorf("failed to delete load balancer listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete load balancer listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
 	return nil
+}
+
+func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.Context, authToken, listenerID string) error {
+	waitIterator := 0
+	waitSeconds := 10
+	for {
+		if waitIterator < 8 {
+			time.Sleep(time.Duration(waitSeconds) * time.Second)
+			fmt.Printf("Waiting for load balancer listener to be deleted, waited %v seconds\n", waitSeconds)
+			waitIterator++
+			waitSeconds = waitSeconds + 5
+			r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
+			if err != nil {
+				lbc.logger.Errorf("failed to create request, error: %v", err)
+				return err
+			}
+
+			r.Header.Add("X-Auth-Token", authToken)
+
+			client := &http.Client{}
+			resp, err := client.Do(r)
+			if err != nil {
+				lbc.logger.Errorf("failed to send request, error: %v", err)
+				return err
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode == http.StatusNotFound {
+				break
+			}
+		} else {
+			return fmt.Errorf("failed to delete load balancer listener, provisioning status is not DELETED")
+		}
+	}
+
+	return nil
+
 }
 
 func (lbc *loadbalancerService) DeleteLoadbalancer(ctx context.Context, authToken, loadBalancerID string) error {

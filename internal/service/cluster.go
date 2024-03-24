@@ -948,19 +948,45 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 	}
 
 	//Delete LoadBalancer Pool and Listener
+	getLoadBalancerPoolsResponse, err := c.loadbalancerService.GetLoadBalancerPools(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	if err != nil {
+		c.logger.Errorf("failed to get load balancer pools, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
 
-	deleteLoadBalancerListenerResp := c.loadbalancerService.DeleteLoadbalancerListener(ctx, authToken, cluster.ClusterLoadbalancerUUID)
-	if deleteLoadBalancerListenerResp != nil {
-		c.logger.Errorf("failed to delete load balancer pool, error: %v", err)
+	for _, member := range getLoadBalancerPoolsResponse.Pools {
+		err = c.loadbalancerService.DeleteLoadbalancerPools(ctx, authToken, member)
+		if err != nil {
+			c.logger.Errorf("failed to delete load balancer pools, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
+		err = c.loadbalancerService.CheckLoadBalancerDeletingPools(ctx, authToken, member)
+		if err != nil {
+			c.logger.Errorf("failed to check load balancer deleting pools, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
+	}
+	getLoadBalancerListenersResponse, err := c.loadbalancerService.GetLoadBalancerListeners(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	if err != nil {
+		c.logger.Errorf("failed to get load balancer listeners, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
-	deleteLoadBalancerPoolResp := c.loadbalancerService.DeleteLoadbalancerPool(ctx, authToken, cluster.ClusterLoadbalancerUUID)
-	if deleteLoadBalancerPoolResp != nil {
-		c.logger.Errorf("failed to delete load balancer pool, error: %v", err)
-		return resource.DestroyCluster{}, err
+	for _, member := range getLoadBalancerListenersResponse.Listeners {
+		err = c.loadbalancerService.DeleteLoadbalancerListeners(ctx, authToken, member)
+		if err != nil {
+			c.logger.Errorf("failed to delete load balancer listeners, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
+		err = c.loadbalancerService.CheckLoadBalancerDeletingListeners(ctx, authToken, member)
+		if err != nil {
+			c.logger.Errorf("failed to check load balancer deleting listeners, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
 	}
-	deleteLoadBalancerResp := c.loadbalancerService.DeleteLoadbalancer(ctx, authToken, cluster.ClusterLoadbalancerUUID)
-	if deleteLoadBalancerResp != nil {
+
+	//Delete LoadBalancer
+	err = c.loadbalancerService.DeleteLoadbalancer(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	if err != nil {
 		c.logger.Errorf("failed to delete load balancer, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
@@ -981,25 +1007,81 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		}
 	}
 
+	// Delete Master Server Group Members ports and compute and server group
+	getMasterServerGroupMembersListResp, err := c.computeService.GetServerGroupMemberList(ctx, authToken, cluster.ClusterMasterServerGroupUUID)
+	if err != nil {
+		c.logger.Errorf("failed to get server group members list, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+	for _, member := range getMasterServerGroupMembersListResp.Members {
+		getMasterComputePortIdResp, err := c.networkService.GetComputePortId(ctx, authToken, member)
+		if err != nil {
+			c.logger.Errorf("failed to get compute port id, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
+		err = c.computeService.DeletePort(ctx, authToken, getMasterComputePortIdResp.PortId)
+		if err != nil {
+			c.logger.Errorf("failed to delete port, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
+		err = c.computeService.DeleteCompute(ctx, authToken, member)
+		if err != nil {
+			c.logger.Errorf("failed to delete compute, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
+	}
+	err = c.computeService.DeleteServerGroup(ctx, authToken, cluster.ClusterMasterServerGroupUUID)
+	if err != nil {
+		c.logger.Errorf("failed to delete server group, error: %v", err)
+		return resource.DestroyCluster{}, err
+	}
+
+	// Delete Worker Server Group Members ports and compute and server groups
 	var clusterWorkerServerGroupsUUIDString []string
 	err = json.Unmarshal(cluster.ClusterWorkerServerGroupsUUID, &clusterWorkerServerGroupsUUIDString)
 	if err != nil {
 		c.logger.Errorf("failed to unmarshal cluster worker server groups uuid, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
-	deleteComputeResp := c.computeService.DeleteComputeandPort(ctx, authToken, cluster.ClusterMasterServerGroupUUID, cluster.ClusterMasterServerGroupUUID, clusterWorkerServerGroupsUUIDString)
-	if deleteComputeResp != nil {
-		c.logger.Errorf("failed to delete compute, error: %v", err)
-		return resource.DestroyCluster{}, err
+	for _, workerServerGroupUUID := range clusterWorkerServerGroupsUUIDString {
+		getWorkerServerGroupMembersListResp, err := c.computeService.GetServerGroupMemberList(ctx, authToken, workerServerGroupUUID)
+		if err != nil {
+			c.logger.Errorf("failed to get server group members list, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
+		for _, member := range getWorkerServerGroupMembersListResp.Members {
+			getWorkerComputePortIdResp, err := c.networkService.GetComputePortId(ctx, authToken, member)
+			if err != nil {
+				c.logger.Errorf("failed to get compute port id, error: %v", err)
+				return resource.DestroyCluster{}, err
+			}
+			err = c.computeService.DeletePort(ctx, authToken, getWorkerComputePortIdResp.PortId)
+			if err != nil {
+				c.logger.Errorf("failed to delete port, error: %v", err)
+				return resource.DestroyCluster{}, err
+			}
+			err = c.computeService.DeleteCompute(ctx, authToken, member)
+			if err != nil {
+				c.logger.Errorf("failed to delete compute, error: %v", err)
+				return resource.DestroyCluster{}, err
+			}
+		}
+		err = c.computeService.DeleteServerGroup(ctx, authToken, workerServerGroupUUID)
+		if err != nil {
+			c.logger.Errorf("failed to delete server group, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
 	}
 
-	deleteServerGroupResp := c.computeService.DeleteServerGroup(ctx, authToken, cluster.ClusterMasterServerGroupUUID, clusterWorkerServerGroupsUUIDString)
-	if deleteServerGroupResp != nil {
-		c.logger.Errorf("failed to delete server group, error: %v", err)
+	// Delete Master Security Group
+	err = c.networkService.DeleteSecurityGroup(ctx, authToken, cluster.MasterSecurityGroup)
+	if err != nil {
+		c.logger.Errorf("failed to delete security group, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
-	deleteSecurityGroupResp := c.networkService.DeleteSecurityGroup(ctx, authToken, cluster.MasterSecurityGroup, cluster.WorkerSecurityGroup)
-	if deleteSecurityGroupResp != nil {
+	// Delete Worker Security Group
+	err = c.networkService.DeleteSecurityGroup(ctx, authToken, cluster.WorkerSecurityGroup)
+	if err != nil {
 		c.logger.Errorf("failed to delete security group, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}

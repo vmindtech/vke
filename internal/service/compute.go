@@ -120,8 +120,8 @@ func (cs *computeService) CreateServerGroup(ctx context.Context, authToken strin
 	return respDecoder, nil
 }
 
-func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clusterMasterServerGroupUUID string, clusterWorkerServerGroupsUUID []string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, clusterMasterServerGroupUUID), nil)
+func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clusterServerGroupUUID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, clusterServerGroupUUID), nil)
 	if err != nil {
 		cs.logger.Errorf("failed to create request, error: %v", err)
 		return err
@@ -142,166 +142,35 @@ func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clus
 		cs.logger.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 		return fmt.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
-
-	for _, member := range clusterWorkerServerGroupsUUID {
-		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, member), nil)
-		if err != nil {
-			cs.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			cs.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusNoContent {
-			cs.logger.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-	}
-
 	return nil
 }
 
-func (cs *computeService) DeleteComputeandPort(ctx context.Context, authToken, serverID, clusterMasterServerGroupUUID string, clusterWorkerGroupsUUID []string) error {
-	for _, member := range clusterWorkerGroupsUUID {
-		r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, member), nil)
-		if err != nil {
-			cs.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-		r.Header.Add("Content-Type", "application/json")
-
-		client := &http.Client{}
-		resp, err := client.Do(r)
-		if err != nil {
-			cs.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			cs.logger.Errorf("failed to read response body, error: %v", err)
-			return err
-		}
-		var respData map[string]map[string]interface{}
-		err = json.Unmarshal([]byte(body), &respData)
-
-		if err != nil {
-			cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
-			return err
-		}
-
-		serverGroup := respData["server_group"]
-
-		membersInterface := serverGroup["members"]
-
-		members := membersInterface.([]interface{})
-
-		for _, instance := range members {
-			r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance, osInterfacePath), nil)
-			if err != nil {
-				cs.logger.Errorf("failed to create request, error: %v", err)
-				return err
-			}
-
-			r.Header.Add("X-Auth-Token", authToken)
-
-			client = &http.Client{}
-			resp, err = client.Do(r)
-			if err != nil {
-				cs.logger.Errorf("failed to send request, error: %v", err)
-				return err
-			}
-
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusOK {
-				cs.logger.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-				return fmt.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			}
-
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				cs.logger.Errorf("failed to read response body, error: %v", err)
-				return err
-			}
-			var respData map[string][]map[string]interface{}
-			err = json.Unmarshal([]byte(body), &respData)
-			if err != nil {
-				cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
-				return err
-			}
-
-			attachments := respData["interfaceAttachments"]
-
-			portID := attachments[0]["port_id"].(string)
-
-			r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort, portID), nil)
-			if err != nil {
-				cs.logger.Errorf("failed to create request, error: %v", err)
-				return err
-			}
-
-			r.Header.Add("X-Auth-Token", authToken)
-
-			client = &http.Client{}
-			resp, err = client.Do(r)
-			if err != nil {
-				cs.logger.Errorf("failed to send request, error: %v", err)
-				return err
-			}
-
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusNoContent {
-				cs.logger.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-				return fmt.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			}
-
-			r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance), nil)
-			if err != nil {
-				cs.logger.Errorf("failed to create request, error: %v", err)
-				return err
-			}
-
-			r.Header.Add("X-Auth-Token", authToken)
-			r.Header.Add("Content-Type", "application/json")
-
-			client = &http.Client{}
-			resp, err = client.Do(r)
-			if err != nil {
-				cs.logger.Errorf("failed to send request, error: %v", err)
-				return err
-			}
-
-			defer resp.Body.Close()
-
-			if resp.StatusCode != http.StatusNoContent {
-				cs.logger.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-				return fmt.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			}
-		}
+func (cs *computeService) DeletePort(ctx context.Context, authToken, portID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort, portID), nil)
+	if err != nil {
+		cs.logger.Errorf("failed to create request, error: %v", err)
+		return err
 	}
 
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, clusterMasterServerGroupUUID), nil)
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		cs.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		cs.logger.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+	return nil
+}
+func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, serverID), nil)
 	if err != nil {
 		cs.logger.Errorf("failed to create request, error: %v", err)
 		return err
@@ -319,20 +188,48 @@ func (cs *computeService) DeleteComputeandPort(ctx context.Context, authToken, s
 
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusNoContent {
+		cs.logger.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+	return nil
+}
+
+func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToken, ServerGroupID string) (resource.GetServerGroupMemberListResponse, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, ServerGroupID), nil)
+	if err != nil {
+		cs.logger.Errorf("failed to create request, error: %v", err)
+		return resource.GetServerGroupMemberListResponse{}, err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		cs.logger.Errorf("failed to send request, error: %v", err)
+		return resource.GetServerGroupMemberListResponse{}, err
+	}
+
+	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.GetServerGroupMemberListResponse{}, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		cs.logger.Errorf("failed to read response body, error: %v", err)
-		return err
+		return resource.GetServerGroupMemberListResponse{}, err
 	}
 	var respData map[string]map[string]interface{}
 	err = json.Unmarshal([]byte(body), &respData)
+
 	if err != nil {
 		cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
-		return err
+		return resource.GetServerGroupMemberListResponse{}, err
 	}
 
 	serverGroup := respData["server_group"]
@@ -341,91 +238,13 @@ func (cs *computeService) DeleteComputeandPort(ctx context.Context, authToken, s
 
 	members := membersInterface.([]interface{})
 
-	for _, instance := range members {
-		r, err = http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance, osInterfacePath), nil)
-		if err != nil {
-			cs.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
+	var respMembers resource.GetServerGroupMemberListResponse
 
-		r.Header.Add("X-Auth-Token", authToken)
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			cs.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			cs.logger.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to list interface, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			cs.logger.Errorf("failed to read response body, error: %v", err)
-			return err
-		}
-		var respData map[string][]map[string]interface{}
-		err = json.Unmarshal([]byte(body), &respData)
-		if err != nil {
-			cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
-			return err
-		}
-
-		attachments := respData["interfaceAttachments"]
-
-		portID := attachments[0]["port_id"].(string)
-
-		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort, portID), nil)
-		if err != nil {
-			cs.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			cs.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusNoContent {
-			cs.logger.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
-
-		r, err = http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instance), nil)
-		if err != nil {
-			cs.logger.Errorf("failed to create request, error: %v", err)
-			return err
-		}
-
-		r.Header.Add("X-Auth-Token", authToken)
-		r.Header.Add("Content-Type", "application/json")
-
-		client = &http.Client{}
-		resp, err = client.Do(r)
-		if err != nil {
-			cs.logger.Errorf("failed to send request, error: %v", err)
-			return err
-		}
-
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusNoContent {
-			cs.logger.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-			return fmt.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		}
+	for _, member := range members {
+		respMembers.Members = append(respMembers.Members, member.(string))
 	}
-	return nil
+
+	return respMembers, nil
 }
 func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID string) error {
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, serverID), nil)
