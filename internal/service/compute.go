@@ -20,12 +20,12 @@ import (
 type IComputeService interface {
 	CreateCompute(ctx context.Context, authToken string, req request.CreateComputeRequest) (resource.CreateComputeResponse, error)
 	CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.ServerGroupResponse, error)
-	DeleteServerGroup(ctx context.Context, authToken, clusterMasterServerGroupUUID string, clusterWorkerServerGroupsUUID []string) error
-	DeleteComputeandPort(ctx context.Context, authToken, serverID, clusterMasterServerGroupUUID string, clusterWorkerGroupsUUID []string) error
+	DeleteServerGroup(ctx context.Context, authToken, clusterServerGroupUUID string) error
 	GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID, projectUUID string) (int, error)
 	GetInstances(ctx context.Context, authToken, nodeGroupUUID string) ([]resource.Servers, error)
 	GetClusterFlavor(ctx context.Context, authToken string, clusterUUID string) ([]resource.Flavor, error)
 	DeleteCompute(ctx context.Context, authToken, serverID string) error
+	GetServerGroupMemberList(ctx context.Context, authToken, ServerGroupID string) (resource.GetServerGroupMemberListResponse, error)
 }
 
 type computeService struct {
@@ -169,32 +169,6 @@ func (cs *computeService) DeletePort(ctx context.Context, authToken, portID stri
 	}
 	return nil
 }
-func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, serverID), nil)
-	if err != nil {
-		cs.logger.Errorf("failed to create request, error: %v", err)
-		return err
-	}
-
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(r)
-	if err != nil {
-		cs.logger.Errorf("failed to send request, error: %v", err)
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		cs.logger.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return fmt.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-	}
-	return nil
-}
-
 func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToken, ServerGroupID string) (resource.GetServerGroupMemberListResponse, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, ServerGroupID), nil)
 	if err != nil {

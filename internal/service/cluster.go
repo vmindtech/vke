@@ -1014,12 +1014,12 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		return resource.DestroyCluster{}, err
 	}
 	for _, member := range getMasterServerGroupMembersListResp.Members {
-		getMasterComputePortIdResp, err := c.networkService.GetComputePortId(ctx, authToken, member)
+		getMasterComputePortIdResp, err := c.networkService.GetComputeNetworkPorts(ctx, authToken, member)
 		if err != nil {
 			c.logger.Errorf("failed to get compute port id, error: %v", err)
 			return resource.DestroyCluster{}, err
 		}
-		err = c.computeService.DeletePort(ctx, authToken, getMasterComputePortIdResp.PortId)
+		err = c.networkService.DeleteNetworkPort(ctx, authToken, getMasterComputePortIdResp.Ports[0])
 		if err != nil {
 			c.logger.Errorf("failed to delete port, error: %v", err)
 			return resource.DestroyCluster{}, err
@@ -1050,12 +1050,12 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 			return resource.DestroyCluster{}, err
 		}
 		for _, member := range getWorkerServerGroupMembersListResp.Members {
-			getWorkerComputePortIdResp, err := c.networkService.GetComputePortId(ctx, authToken, member)
+			getWorkerComputePortIdResp, err := c.networkService.GetComputeNetworkPorts(ctx, authToken, member)
 			if err != nil {
 				c.logger.Errorf("failed to get compute port id, error: %v", err)
 				return resource.DestroyCluster{}, err
 			}
-			err = c.computeService.DeletePort(ctx, authToken, getWorkerComputePortIdResp.PortId)
+			err = c.networkService.DeleteNetworkPort(ctx, authToken, getWorkerComputePortIdResp.Ports[0])
 			if err != nil {
 				c.logger.Errorf("failed to delete port, error: %v", err)
 				return resource.DestroyCluster{}, err
