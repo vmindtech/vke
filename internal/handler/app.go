@@ -99,6 +99,24 @@ func (a *appHandler) GetCluster(c *fiber.Ctx) error {
 	return c.JSON(response.NewSuccessResponse(resp))
 }
 
+func (a *appHandler) GetClustersByProjectId(c *fiber.Ctx) error {
+	projectID := c.Params("project_id")
+
+	ctx := context.Background()
+
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+	}
+
+	resp, err := a.appService.Cluster().GetClustersByProjectId(ctx, authToken, projectID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(response.NewErrorResponse(ctx, err))
+	}
+
+	return c.JSON(response.NewSuccessResponse(resp))
+}
+
 func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 	clusterID := c.Params("cluster_id")
 
