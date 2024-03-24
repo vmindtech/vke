@@ -1,7 +1,7 @@
 #!/bin/bash
-curl -LO -k https://github.com/vmindtech/vke-agent/releases/download/v0.0.3/vke-agent_v0.0.3_linux_amd64.tar.gz
+curl -LO -k https://github.com/vmindtech/vke-agent/releases/download/v1.0.0/vke-agent_v1.0.0_linux_amd64.tar.gz
 systemctl stop ufw
 systemctl disable ufw
-tar -xvf vke-agent_v0.0.3_linux_amd64.tar.gz
+tar -xvf vke-agent_v1.0.0_linux_amd64.tar.gz
 chmod +x vke-agent
 ./vke-agent -initialize={{.initiliazeFlag}} -rke2AgentType="{{.rke2AgentType}}" -rke2Token="{{.rke2Token}}" -serverAddress="{{.serverAddress}}" -kubeversion='{{.kubeVersion}}' -tlsSan="{{.serverAddress}}" -rke2ClusterName="{{.clusterName}}" -rke2ClusterUUID="{{.clusterUUID}}" -rke2AgentVKEAPIEndpoint="{{.vkeAPIEndpoint}}" -rke2AgentVKEAPIAuthToken="{{.authToken}}"

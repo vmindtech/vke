@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/k0kubun/pp"
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/config"
 	"github.com/vmindtech/vke/internal/dto/request"
@@ -22,7 +21,6 @@ type IClusterService interface {
 	DestroyCluster(ctx context.Context, authToken, clusterID string) (resource.DestroyCluster, error)
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
 	CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error)
-	AddNode(ctx context.Context, authToken string, req request.AddNodeRequest) (resource.AddNodeResponse, error)
 }
 
 type clusterService struct {
@@ -89,6 +87,7 @@ const (
 	ListenerPoolPath       = "v2/lbaas/pools"
 	healthMonitorPath      = "v2/lbaas/healthmonitors"
 	computePath            = "v2.1/servers"
+	flavorPath             = "v2.1/flavors"
 	projectPath            = "v3/projects"
 	serverGroupPath        = "v2.1/os-server-groups"
 	amphoraePath           = "v2/octavia/amphorae"
@@ -232,7 +231,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	workerNodeGroupModel := &model.NodeGroups{
 		ClusterUUID:         clusterUUID,
 		NodeGroupUUID:       workerServerGroupResp.ServerGroup.ID,
-		NodeGroupName:       fmt.Sprintf("%v-worker", req.ClusterName),
+		NodeGroupName:       "vke-worker-group",
 		NodeGroupMinSize:    req.WorkerNodeGroupMinSize,
 		NodeGroupMaxSize:    req.WorkerNodeGroupMaxSize,
 		NodeDiskSize:        req.WorkerDiskSizeGB,
@@ -352,7 +351,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	//worker to worker
 
 	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
-	err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+	err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
@@ -805,7 +804,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			return resource.CreateClusterResponse{}, err
 		}
 		WorkerRequest.Server.Networks[0].Port = portResp.Port.ID
-		WorkerRequest.Server.Name = fmt.Sprintf("%v-%s", req.ClusterName, workerNodeGroupModel.NodeGroupName)
+		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s", workerNodeGroupModel.NodeGroupName, uuid.New().String())
 
 		_, err = c.computeService.CreateCompute(ctx, authToken, *WorkerRequest)
 		if err != nil {
@@ -1202,169 +1201,5 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 
 	return resource.CreateKubeconfigResponse{
 		ClusterUUID: kubeConfig.ClusterUUID,
-	}, nil
-}
-
-func (c *clusterService) AddNode(ctx context.Context, authToken string, req request.AddNodeRequest) (resource.AddNodeResponse, error) {
-	if authToken == "" {
-		c.logger.Errorf("failed to get cluster")
-		return resource.AddNodeResponse{}, fmt.Errorf("failed to get cluster")
-	}
-
-	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, req.ClusterID)
-	if err != nil {
-		c.logger.Errorf("failed to get cluster, error: %v", err)
-		return resource.AddNodeResponse{}, err
-	}
-
-	if cluster == nil {
-		c.logger.Errorf("failed to get cluster")
-		return resource.AddNodeResponse{}, fmt.Errorf("failed to get cluster")
-	}
-
-	if cluster.ClusterProjectUUID == "" {
-		c.logger.Errorf("failed to get cluster")
-		return resource.AddNodeResponse{}, fmt.Errorf("failed to get cluster")
-	}
-
-	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
-	if err != nil {
-		c.logger.Errorf("failed to check auth token, error: %v", err)
-		return resource.AddNodeResponse{}, err
-	}
-
-	nodeGroup, err := c.repository.NodeGroups().GetNodeGroupByUUID(ctx, req.NodeGroupID)
-	if err != nil {
-		c.logger.Errorf("failed to get node group, error: %v", err)
-		return resource.AddNodeResponse{}, err
-	}
-
-	if nodeGroup.NodeGroupsStatus != NodeGroupActiveStatus {
-		c.logger.Errorf("failed to get node groups")
-		return resource.AddNodeResponse{}, fmt.Errorf("failed to get node groups")
-	}
-
-	desiredCount, err := c.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID)
-	if err != nil {
-		c.logger.Errorf("failed to get count of server from server group, error: %v", err)
-		return resource.AddNodeResponse{}, err
-	}
-
-	if desiredCount >= nodeGroup.NodeGroupMaxSize {
-		c.logger.Errorf("failed to add node, node group max size reached")
-		return resource.AddNodeResponse{}, fmt.Errorf("failed to add node, node group max size reached")
-	}
-
-	subnetIDs := []string{}
-	err = json.Unmarshal(cluster.ClusterSubnets, &subnetIDs)
-	if err != nil {
-		c.logger.Errorf("failed to unmarshal cluster subnets, error: %v", err)
-		return resource.AddNodeResponse{}, err
-	}
-
-	networkIDResp, err := c.networkService.GetNetworkID(ctx, authToken, subnetIDs[0])
-	if err != nil {
-		c.logger.Errorf("failed to get network id, error: %v", err)
-		return resource.AddNodeResponse{}, err
-	}
-
-	randSubnetId := GetRandomStringFromArray(subnetIDs)
-
-	createPortRequest := request.CreateNetworkPortRequest{
-		Port: request.Port{
-			Name:         nodeGroup.NodeGroupName,
-			NetworkID:    networkIDResp.Subnet.NetworkID,
-			AdminStateUp: true,
-			FixedIps: []request.FixedIp{
-				{
-					SubnetID: randSubnetId,
-				},
-			},
-			SecurityGroups: []string{cluster.WorkerSecurityGroup},
-		},
-	}
-
-	portResp, err := c.networkService.CreateNetworkPort(ctx, authToken, createPortRequest)
-	if err != nil {
-		c.logger.Errorf("failed to create port, error: %v", err)
-		return resource.AddNodeResponse{}, err
-	}
-
-	rke2InitScript, err := GenerateUserDataFromTemplate("false",
-		WorkerServerType,
-		cluster.ClusterAgentToken,
-		cluster.ClusterEndpoint,
-		cluster.ClusterVersion,
-		cluster.ClusterName,
-		cluster.ClusterUUID,
-		config.GlobalConfig.GetWebConfig().Endpoint,
-		authToken,
-	)
-	if err != nil {
-		c.logger.Errorf("failed to generate user data from template, error: %v", err)
-		return resource.AddNodeResponse{}, err
-	}
-
-	securityGroup, err := c.networkService.GetSecurityGroupByID(ctx, authToken, cluster.WorkerSecurityGroup)
-	if err != nil {
-		c.logger.Errorf("failed to get security group, error: %v", err)
-		return resource.AddNodeResponse{}, err
-	}
-
-	pp.Println(cluster)
-
-	createServerRequest := request.CreateComputeRequest{
-		Server: request.Server{
-			Name:             nodeGroup.NodeGroupName,
-			ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
-			FlavorRef:        nodeGroup.NodeFlavorUUID,
-			KeyName:          cluster.ClusterNodeKeypairName,
-			AvailabilityZone: "nova",
-			BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
-				{
-					BootIndex:           0,
-					DestinationType:     "volume",
-					DeleteOnTermination: true,
-					SourceType:          "image",
-					UUID:                config.GlobalConfig.GetImageRefConfig().ImageRef,
-					VolumeSize:          nodeGroup.NodeDiskSize,
-				},
-			},
-			Networks: []request.Networks{
-				{Port: portResp.Port.ID},
-			},
-			SecurityGroups: []request.SecurityGroups{
-				{Name: securityGroup.SecurityGroup.Name},
-			},
-			UserData: Base64Encoder(rke2InitScript),
-		},
-		SchedulerHints: request.SchedulerHints{
-			Group: nodeGroup.NodeGroupUUID,
-		},
-	}
-
-	serverResp, err := c.computeService.CreateCompute(ctx, authToken, createServerRequest)
-	if err != nil {
-		c.logger.Errorf("failed to create compute, error: %v", err)
-		return resource.AddNodeResponse{}, err
-	}
-
-	err = c.repository.AuditLog().CreateAuditLog(ctx, &model.AuditLog{
-		ClusterUUID: cluster.ClusterUUID,
-		ProjectUUID: cluster.ClusterProjectUUID,
-		Event:       fmt.Sprintf("Node %s added to cluster", nodeGroup.NodeGroupName),
-		CreateDate:  time.Now(),
-	})
-	if err != nil {
-		c.logger.Errorf("failed to create audit log, error: %v", err)
-		return resource.AddNodeResponse{}, err
-	}
-
-	return resource.AddNodeResponse{
-		NodeGroupID: nodeGroup.NodeGroupUUID,
-		ComputeID:   serverResp.Server.ID,
-		ClusterID:   cluster.ClusterUUID,
-		MinSize:     nodeGroup.NodeGroupMinSize,
-		MaxSize:     nodeGroup.NodeGroupMaxSize,
 	}, nil
 }

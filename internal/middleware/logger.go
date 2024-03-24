@@ -16,6 +16,7 @@ func LoggerMiddleware(l *logrus.Logger) func(c *fiber.Ctx) error {
 		err = c.Next()
 
 		l.WithFields(logrus.Fields{
+			"ip":       c.IP(),
 			"request":  getRequestLogFields(c),
 			"response": getResponseLogFields(c.Response().StatusCode(), t),
 		}).Info("weblogger")
@@ -36,8 +37,6 @@ func getResponseLogFields(status int, t time.Time) logrus.Fields {
 	return logrus.Fields{
 		"status":   status,
 		"duration": fmt.Sprint(time.Since(t).Round(time.Millisecond)),
-		"body": map[string]interface{}{
-			"data": fiber.Map{},
-		},
+		"body":     fiber.Map{},
 	}
 }

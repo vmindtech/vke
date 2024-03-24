@@ -1,6 +1,8 @@
 package model
 
-import "time"
+import (
+	"time"
+)
 
 type NodeGroups struct {
 	ID                  int64     `json:"-" gorm:"primary_key;auto_increment"`

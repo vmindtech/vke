@@ -3,9 +3,12 @@ package service
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"math/rand"
 	"text/template"
 	"time"
+
+	"gorm.io/datatypes"
 )
 
 func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serverAddress, kubeVersion, clusterName, clusterUUID, vkeAPIEndpoint, authToken string) (string, error) {
@@ -47,4 +50,20 @@ func GetRandomStringFromArray(a []string) string {
 func IsValidBase64(s string) bool {
 	_, err := base64.StdEncoding.DecodeString(s)
 	return err == nil
+}
+
+func ConvertDataJSONtoStringArray(jsonData datatypes.JSON) []string {
+	result := []string{}
+	_ = json.Unmarshal([]byte(jsonData), &result)
+
+	return result
+}
+
+func DeleteItemFromArray(a []string, item string) []string {
+	for i, v := range a {
+		if v == item {
+			return append(a[:i], a[i+1:]...)
+		}
+	}
+	return a
 }

@@ -20,12 +20,12 @@ import (
 type IComputeService interface {
 	CreateCompute(ctx context.Context, authToken string, req request.CreateComputeRequest) (resource.CreateComputeResponse, error)
 	CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.ServerGroupResponse, error)
-	DeleteServerGroup(ctx context.Context, authToken, clusterServerGroupUUID string) error
-	DeletePort(ctx context.Context, authToken, portID string) error
+	DeleteServerGroup(ctx context.Context, authToken, clusterMasterServerGroupUUID string, clusterWorkerServerGroupsUUID []string) error
+	DeleteComputeandPort(ctx context.Context, authToken, serverID, clusterMasterServerGroupUUID string, clusterWorkerGroupsUUID []string) error
+	GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID, projectUUID string) (int, error)
+	GetInstances(ctx context.Context, authToken, nodeGroupUUID string) ([]resource.Servers, error)
+	GetClusterFlavor(ctx context.Context, authToken string, clusterUUID string) ([]resource.Flavor, error)
 	DeleteCompute(ctx context.Context, authToken, serverID string) error
-	GetServerGroupMemberList(ctx context.Context, authToken, ServerGroupID string) (resource.GetServerGroupMemberListResponse, error)
-	GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID string) (int, error)
-	GetInstances(ctx context.Context, authToken, nodeGroupUUID string) (resource.Servers, error)
 }
 
 type computeService struct {
@@ -246,9 +246,34 @@ func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToke
 
 	return respMembers, nil
 }
+func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, serverID), nil)
+	if err != nil {
+		cs.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
 
-func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID string) (int, error) {
-	err := cs.identityService.CheckAuthToken(ctx, authToken, "")
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		cs.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		cs.logger.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	return nil
+}
+func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID, projectUUID string) (int, error) {
+	err := cs.identityService.CheckAuthToken(ctx, authToken, projectUUID)
 	if err != nil {
 		cs.logger.Errorf("failed to check auth token, error: %v", err)
 		return 0, err
@@ -290,26 +315,26 @@ func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, a
 
 	return len(respData.ServerGroup.Members), nil
 }
-func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroupUUID string) (resource.Servers, error) {
+func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroupUUID string) ([]resource.Servers, error) {
 	ClusterUUID, err := cs.repository.NodeGroups().GetClusterProjectUUIDByNodeGroupUUID(ctx, nodeGroupUUID)
 	if err != nil {
-		return resource.Servers{}, err
+		return []resource.Servers{}, err
 	}
 	clusterProjectUUID, err := cs.repository.Cluster().GetClusterByUUID(ctx, ClusterUUID)
 	if err != nil {
-		return resource.Servers{}, err
+		return []resource.Servers{}, err
 	}
 
 	err = cs.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
 		cs.logger.Errorf("failed to check auth token, error: %v", err)
-		return resource.Servers{}, err
+		return []resource.Servers{}, err
 	}
 
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, nodeGroupUUID), nil)
 	if err != nil {
 		cs.logger.Errorf("failed to create request, error: %v", err)
-		return resource.Servers{}, err
+		return []resource.Servers{}, err
 	}
 
 	r.Header.Add("X-Auth-Token", authToken)
@@ -319,29 +344,170 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 	resp, err := client.Do(r)
 	if err != nil {
 		cs.logger.Errorf("failed to send request, error: %v", err)
-		return resource.Servers{}, err
+		return []resource.Servers{}, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		return resource.Servers{}, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return []resource.Servers{}, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		cs.logger.Errorf("failed to read response body, error: %v", err)
-		return resource.Servers{}, err
+		return []resource.Servers{}, err
 	}
 	var data resource.ServerGroupResponse
 	err = json.Unmarshal([]byte(body), &data)
 	if err != nil {
 		cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
-		return resource.Servers{}, err
+		return []resource.Servers{}, err
 	}
-	var respData resource.Servers
-	respData.Servers = data.ServerGroup.Members
-	fmt.Println(respData)
+	// fmt.Println("ClusterUUID: ", ClusterUUID)
+	// fmt.Println("NodeGroupUUID: ", nodeGroupUUID)
+	// fmt.Println("authToken: ", authToken)
+
+	nodeGroup, err := cs.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupUUID)
+	if err != nil {
+		cs.logger.Errorf("failed to get node group, error: %v", err)
+		return []resource.Servers{}, err
+	}
+	count, err := cs.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID, clusterProjectUUID.ClusterProjectUUID)
+	if err != nil {
+		cs.logger.Errorf("failed to check current node size, err: %v", err)
+		return []resource.Servers{}, err
+	}
+
+	var respNodeGroup []resource.NodeGroup
+	respNodeGroup = append(respNodeGroup, resource.NodeGroup{
+		ClusterUUID:      nodeGroup.ClusterUUID,
+		NodeGroupUUID:    nodeGroup.NodeGroupUUID,
+		NodeGroupName:    nodeGroup.NodeGroupName,
+		NodeGroupMinSize: nodeGroup.NodeGroupMinSize,
+		NodeGroupMaxSize: nodeGroup.NodeGroupMaxSize,
+		NodeDiskSize:     nodeGroup.NodeDiskSize,
+		NodeFlavorUUID:   nodeGroup.NodeFlavorUUID,
+		NodeGroupsType:   nodeGroup.NodeGroupsType,
+		CurrentNodes:     count,
+		NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
+	})
+	var intanceDetail resource.OpenstacServersResponse
+	var responseData []resource.Servers
+	for _, member := range data.ServerGroup.Members {
+		intanceDetail, err = cs.GetInstancesDetail(ctx, authToken, member)
+		for _, data := range respNodeGroup {
+
+			responseData = append(responseData, resource.Servers{
+				ClusterUUID:   nodeGroup.ClusterUUID,
+				InstanceName:  intanceDetail.OpenstackServers.Name,
+				InstanceUUID:  intanceDetail.OpenstackServers.ID,
+				NodeGroupUUID: nodeGroup.NodeGroupUUID,
+				MinSize:       data.NodeGroupMinSize,
+				MaxSize:       data.NodeGroupMaxSize,
+				Flavor:        data.NodeFlavorUUID,
+				Status:        intanceDetail.OpenstackServers.Status,
+			})
+
+		}
+		if err != nil {
+			cs.logger.Errorf("failed to get instance detail, error: %v", err)
+			return []resource.Servers{}, err
+		}
+	}
+
+	return responseData, nil
+}
+func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, instanceUUID string) (resource.OpenstacServersResponse, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instanceUUID), nil)
+	if err != nil {
+		cs.logger.Errorf("failed to create request, error: %v", err)
+		return resource.OpenstacServersResponse{}, err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		cs.logger.Errorf("failed to send request, error: %v", err)
+		return resource.OpenstacServersResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return resource.OpenstacServersResponse{}, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		cs.logger.Errorf("failed to read response body, error: %v", err)
+		return resource.OpenstacServersResponse{}, err
+	}
+	var respData resource.OpenstacServersResponse
+	err = json.Unmarshal([]byte(body), &respData)
+	if err != nil {
+		cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		return resource.OpenstacServersResponse{}, err
+	}
 	return respData, nil
+}
+
+func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string, clusterUUID string) ([]resource.Flavor, error) {
+	clusterProjectUUID, err := cs.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
+	if err != nil {
+		cs.logger.Errorf("failed to get cluster project uuid by cluster uuid %s, err: %v", clusterUUID, err)
+		return nil, err
+	}
+	err = cs.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
+	if err != nil {
+		cs.logger.Errorf("failed to check auth token, err: %v", err)
+		return nil, err
+	}
+	getNodeGroups, err := cs.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterUUID, "")
+	if err != nil {
+		cs.logger.Errorf("failed to get node groups by cluster uuid %s, err: %v", clusterUUID, err)
+		return nil, err
+	}
+	var getFlavorsCluster []resource.Flavor
+	for _, nodeGroup := range getNodeGroups {
+
+		r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, flavorPath, nodeGroup.NodeFlavorUUID), nil)
+		if err != nil {
+			cs.logger.Errorf("failed to create request, error: %v", err)
+			return nil, err
+		}
+		r.Header.Add("X-Auth-Token", authToken)
+		r.Header.Add("Content-Type", "application/json")
+		client := &http.Client{}
+		resp, err := client.Do(r)
+		if err != nil {
+			cs.logger.Errorf("failed to send request, error: %v", err)
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			return nil, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			cs.logger.Errorf("failed to read response body, error: %v", err)
+			return nil, err
+		}
+		var respData resource.OpenstackFlavorResponse
+		err = json.Unmarshal([]byte(body), &respData)
+		if err != nil {
+			cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+			return nil, err
+		}
+		getFlavorsCluster = append(getFlavorsCluster, resource.Flavor{
+			Id:       respData.Flavor.ID,
+			Category: "compute",
+			State:    "available",
+			VCPUs:    respData.Flavor.VCPUs,
+			RAM:      respData.Flavor.RAM,
+			GPUs:     0,
+		})
+	}
+	return getFlavorsCluster, nil
 }

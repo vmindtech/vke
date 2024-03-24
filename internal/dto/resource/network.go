@@ -59,6 +59,6 @@ type SubnetWithDetails struct {
 	CIDR      string `json:"cidr"`
 }
 
-type GetComputePortIdResponse struct {
-	PortId string `json:"port_id"`
+type NetworkPortsResponse struct {
+	Ports []string `json:"ports"`
 }
