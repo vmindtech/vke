@@ -50,6 +50,7 @@ func (c *ClusterRepository) GetClustersByProjectId(ctx context.Context, projectI
 		Debug().
 		WithContext(ctx).
 		Where(&model.Cluster{ClusterProjectUUID: projectId}).
+		Not(&model.Cluster{ClusterStatus: "Deleted"}).
 		Find(&clusters).
 		Error
 
