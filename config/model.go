@@ -47,7 +47,11 @@ type PublicNetworkID struct {
 }
 
 type OpenStackApiConfig struct {
-	NovaMicroversion string
+	NovaMicroVersion string
+}
+
+type VkeAgentConfig struct {
+	VkeAgentVersion string
 }
 
 func (w WebConfig) IsProductionEnv() bool {

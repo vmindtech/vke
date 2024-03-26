@@ -202,6 +202,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		cluster.ClusterUUID,
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
+		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 	)
 	if err != nil {
 		nodg.logger.Errorf("failed to generate user data from template, error: %v", err)

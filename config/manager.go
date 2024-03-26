@@ -22,6 +22,7 @@ type IConfigureManager interface {
 	GetLanguageConfig() LanguageConfig
 	GetEndpointsConfig() APIEndpointsConfig
 	GetOpenStackApiConfig() OpenStackApiConfig
+	GetVkeAgentConfig() VkeAgentConfig
 }
 
 type configureManager struct {
@@ -33,6 +34,7 @@ type configureManager struct {
 	Cloudflare         CloudflareConfig
 	Language           LanguageConfig
 	OpenStackApiConfig OpenStackApiConfig
+	VkeAgentConfig     VkeAgentConfig
 }
 
 func NewConfigureManager() IConfigureManager {
@@ -51,6 +53,7 @@ func NewConfigureManager() IConfigureManager {
 		PublicNetworkID:    loadPublicNetworkIDConfig(),
 		APIEndpoints:       loadAPIEndpointsConfig(),
 		OpenStackApiConfig: loadOpenStackApiConfig(),
+		VkeAgentConfig:     loadVkeAgentConfig(),
 	}
 
 	return GlobalConfig
@@ -112,7 +115,13 @@ func loadAPIEndpointsConfig() APIEndpointsConfig {
 
 func loadOpenStackApiConfig() OpenStackApiConfig {
 	return OpenStackApiConfig{
-		NovaMicroversion: viper.GetString("NOVA_MICRO_VERSION"),
+		NovaMicroVersion: viper.GetString("NOVA_MICRO_VERSION"),
+	}
+}
+
+func loadVkeAgentConfig() VkeAgentConfig {
+	return VkeAgentConfig{
+		VkeAgentVersion: viper.GetString("VKE_AGENT_VERSION"),
 	}
 }
 
@@ -151,6 +160,12 @@ func (c *configureManager) GetEndpointsConfig() APIEndpointsConfig {
 
 func (c *configureManager) GetOpenStackApiConfig() OpenStackApiConfig {
 	return OpenStackApiConfig{
-		NovaMicroversion: viper.GetString("NOVA_MICRO_VERSION"),
+		NovaMicroVersion: viper.GetString("NOVA_MICRO_VERSION"),
+	}
+}
+
+func (c *configureManager) GetVkeAgentConfig() VkeAgentConfig {
+	return VkeAgentConfig{
+		VkeAgentVersion: viper.GetString("VKE_AGENT_VERSION"),
 	}
 }

@@ -95,7 +95,7 @@ func (cs *computeService) CreateServerGroup(ctx context.Context, authToken strin
 
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
-	r.Header.Add("x-openstack-nova-api-version", config.GlobalConfig.GetOpenStackApiConfig().NovaMicroversion)
+	r.Header.Add("x-openstack-nova-api-version", config.GlobalConfig.GetOpenStackApiConfig().NovaMicroVersion)
 
 	client := &http.Client{}
 	resp, err := client.Do(r)
