@@ -57,7 +57,8 @@ To get a local copy up and running, follow these simple steps.
             "PUBLIC_NETWORK_ID": "",
             "IMAGE_REF": "",
             "NOVA_MICRO_VERSION": "",
-            "ENDPOINT": ""
+            "ENDPOINT": "",
+            "VKE_AGENT_VERSION": ""
         }
    ```
     Set the environment variable for your application's environment using the following commands in the terminal:
