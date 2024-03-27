@@ -17,9 +17,10 @@ import (
 
 type INodeGroupsService interface {
 	GetNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string) ([]resource.NodeGroup, error)
-	UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req resource.UpdateNodeGroupRequest) (resource.UpdateNodeGroupResponse, error)
+	UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req request.UpdateNodeGroupRequest) (resource.UpdateNodeGroupResponse, error)
 	AddNode(ctx context.Context, authToken string, clusterUUID, nodeGroupUUID string) (resource.AddNodeResponse, error)
 	DeleteNode(ctx context.Context, authToken, clusterID, nodeGroupID, instanceName string) (resource.DeleteNodeResponse, error)
+	CreateNodeGroup(ctx context.Context, authToken, clusterID string, req request.CreateNodeGroupRequest) (resource.CreateNodeGroupResponse, error)
 }
 
 type nodeGroupsService struct {
@@ -368,7 +369,7 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 
 }
 
-func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req resource.UpdateNodeGroupRequest) (resource.UpdateNodeGroupResponse, error) {
+func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req request.UpdateNodeGroupRequest) (resource.UpdateNodeGroupResponse, error) {
 	clusterProjectUUID, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		nodg.logger.Errorf("failed to get cluster project uuid by cluster uuid %s, err: %v", clusterID, err)
@@ -402,4 +403,49 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 		Status:      getCurrentStateOfNodeGroup.NodeGroupsStatus,
 	}
 	return response, nil
+}
+func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, clusterID string, req request.CreateNodeGroupRequest) (resource.CreateNodeGroupResponse, error) {
+	cluster, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
+	if err != nil {
+		nodg.logger.Errorf("failed to get cluster, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	if cluster == nil {
+		nodg.logger.Errorf("failed to get cluster")
+		return resource.CreateNodeGroupResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	if cluster.ClusterProjectUUID == "" {
+		nodg.logger.Errorf("failed to get cluster")
+		return resource.CreateNodeGroupResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	err = nodg.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	if err != nil {
+		nodg.logger.Errorf("failed to check auth token, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	nodeGroupLabelsJSON, err := json.Marshal(req.NodeGroupLabels)
+	if err != nil {
+		nodg.logger.Errorf("failed to marshal node group labels, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	nodeGroupUUID := uuid.New().String()
+	err = nodg.repository.NodeGroups().CreateNodeGroup(ctx, &model.NodeGroups{
+		NodeGroupUUID:       nodeGroupUUID,
+		ClusterUUID:         cluster.ClusterUUID,
+		NodeGroupName:       req.NodeGroupName,
+		NodeFlavorUUID:      req.NodeFlavorUUID,
+		NodeDiskSize:        req.NodeDiskSize,
+		NodeGroupLabels:     nodeGroupLabelsJSON,
+		NodeGroupMinSize:    req.NodeGroupMinSize,
+		NodeGroupMaxSize:    req.NodeGroupMaxSize,
+		NodeGroupsType:      WorkerServerType,
+		NodeGroupsStatus:    NodeGroupCreatingStatus,
+		IsHidden:            false,
+		NodeGroupCreateDate: time.Now(),
+	})
 }

@@ -24,14 +24,6 @@ type NodeGroup struct {
 	CurrentNodes     int    `json:"current_nodes"`
 	NodeGroupsStatus string `json:"node_groups_status"`
 }
-type UpdateNodeGroupRequest struct {
-	MinNodes *uint32 `json:"minNodes,omitempty"`
-	MaxNodes *uint32 `json:"maxNodes,omitempty"`
-
-	Autoscale *bool `json:"autoscale,omitempty"`
-
-	NodesToRemove []string `json:"nodesToRemove,omitempty"`
-}
 
 type DeleteNodeResponse struct {
 	ClusterID   string `json:"cluster_id"`
@@ -43,4 +35,9 @@ type UpdateNodeGroupResponse struct {
 	MinSize     int    `json:"min_size"`
 	MaxSize     int    `json:"max_size"`
 	Status      string `json:"status"`
+}
+
+type CreateNodeGroupResponse struct {
+	ClusterID   string `json:"cluster_id"`
+	NodeGroupID string `json:"node_group_id"`
 }
