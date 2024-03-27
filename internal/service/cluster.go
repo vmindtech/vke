@@ -294,6 +294,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
+		"",
 	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
@@ -647,6 +648,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
+		"",
 	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
@@ -764,6 +766,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
+		"",
 	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)

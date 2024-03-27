@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -194,6 +195,13 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		return resource.AddNodeResponse{}, err
 	}
 
+	nodeGroupLabelsArr := []string{}
+	err = json.Unmarshal(nodeGroup.NodeGroupLabels, &nodeGroupLabelsArr)
+	if err != nil {
+		nodg.logger.Errorf("failed to unmarshal node group labels, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+
 	rke2InitScript, err := GenerateUserDataFromTemplate("false",
 		WorkerServerType,
 		cluster.ClusterRegisterToken,
@@ -204,6 +212,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
+		strings.Join(nodeGroupLabelsArr, ","),
 	)
 	if err != nil {
 		nodg.logger.Errorf("failed to generate user data from template, error: %v", err)
@@ -433,9 +442,172 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
-	nodeGroupUUID := uuid.New().String()
-	err = nodg.repository.NodeGroups().CreateNodeGroup(ctx, &model.NodeGroups{
-		NodeGroupUUID:       nodeGroupUUID,
+	createServerGroupReq := request.CreateServerGroupRequest{
+		ServerGroup: request.ServerGroup{
+			Name:   fmt.Sprintf("%v-%v-worker-server-group", cluster.ClusterName, req.NodeGroupName),
+			Policy: "soft-anti-affinity",
+		},
+	}
+
+	serverGroupResp, err := nodg.computeService.CreateServerGroup(ctx, authToken, createServerGroupReq)
+	if err != nil {
+		nodg.logger.Errorf("failed to create server group, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	createSecurityGroupReq := &request.CreateSecurityGroupRequest{
+		SecurityGroup: request.SecurityGroup{
+			Name:        fmt.Sprintf("%v-%v-worker-sg", cluster.ClusterName, req.NodeGroupName),
+			Description: fmt.Sprintf("%v-%v-worker-sg", cluster.ClusterName, req.NodeGroupName),
+		},
+	}
+
+	securityGroupResp, err := nodg.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+	if err != nil {
+		nodg.logger.Errorf("failed to create security group, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	createSecuritGroupRuleReq := &request.CreateSecurityGroupRuleForSgRequest{
+		SecurityGroupRule: request.SecurityGroupRuleForSG{
+			Direction:       "ingress",
+			Ethertype:       "IPv4",
+			SecurityGroupID: securityGroupResp.SecurityGroup.ID,
+			RemoteGroupID:   cluster.MasterSecurityGroup,
+		},
+	}
+
+	err = nodg.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecuritGroupRuleReq)
+	if err != nil {
+		nodg.logger.Errorf("failed to create security group rule for sg, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	createSecuritGroupRuleReq.SecurityGroupRule.RemoteGroupID = securityGroupResp.SecurityGroup.ID
+
+	err = nodg.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecuritGroupRuleReq)
+	if err != nil {
+		nodg.logger.Errorf("failed to create security group rule for sg, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	createSecuritGroupRuleReq.SecurityGroupRule.RemoteGroupID = cluster.WorkerSecurityGroup
+
+	err = nodg.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecuritGroupRuleReq)
+	if err != nil {
+		nodg.logger.Errorf("failed to create security group rule for sg, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	createSecuritGroupRuleReq.SecurityGroupRule.SecurityGroupID = cluster.WorkerSecurityGroup
+	createSecuritGroupRuleReq.SecurityGroupRule.RemoteGroupID = securityGroupResp.SecurityGroup.ID
+
+	err = nodg.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecuritGroupRuleReq)
+	if err != nil {
+		nodg.logger.Errorf("failed to create security group rule for sg, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	createSecuritGroupRuleReq.SecurityGroupRule.SecurityGroupID = cluster.MasterSecurityGroup
+	createSecuritGroupRuleReq.SecurityGroupRule.RemoteGroupID = securityGroupResp.SecurityGroup.ID
+
+	err = nodg.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecuritGroupRuleReq)
+	if err != nil {
+		nodg.logger.Errorf("failed to create security group rule for sg, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	rke2WorkerInitScript, err := GenerateUserDataFromTemplate("false",
+		WorkerServerType,
+		cluster.ClusterRegisterToken,
+		cluster.ClusterEndpoint,
+		cluster.ClusterVersion,
+		cluster.ClusterName,
+		clusterID,
+		config.GlobalConfig.GetWebConfig().Endpoint,
+		authToken,
+		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
+		strings.Join(req.NodeGroupLabels, ","),
+	)
+	if err != nil {
+		nodg.logger.Errorf("failed to generate user data from template, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	WorkerRequest := &request.CreateComputeRequest{
+		Server: request.Server{
+			Name:             "ServerName",
+			ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
+			FlavorRef:        req.NodeFlavorUUID,
+			KeyName:          cluster.ClusterNodeKeypairName,
+			AvailabilityZone: "nova",
+			SecurityGroups: []request.SecurityGroups{
+				{Name: securityGroupResp.SecurityGroup.Name},
+				{Name: fmt.Sprintf("%v-worker-sg", cluster.ClusterName)},
+			},
+			BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
+				{
+					BootIndex:           0,
+					DestinationType:     "volume",
+					DeleteOnTermination: true,
+					SourceType:          "image",
+					UUID:                config.GlobalConfig.GetImageRefConfig().ImageRef,
+					VolumeSize:          req.NodeDiskSize,
+				},
+			},
+			UserData: Base64Encoder(rke2WorkerInitScript),
+		},
+		SchedulerHints: request.SchedulerHints{
+			Group: serverGroupResp.ServerGroup.ID,
+		},
+	}
+
+	subnetIDSArr := []string{}
+	err = json.Unmarshal(cluster.ClusterSubnets, &subnetIDSArr)
+	if err != nil {
+		nodg.logger.Errorf("failed to unmarshal cluster subnets, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	getNetworkIdResp, err := nodg.networkService.GetNetworkID(ctx, authToken, subnetIDSArr[0])
+	if err != nil {
+		nodg.logger.Errorf("failed to get networkId, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	for i := 0; i <= req.NodeGroupMinSize; i++ {
+		randSubnetId := GetRandomStringFromArray(subnetIDSArr)
+		portRequest := &request.CreateNetworkPortRequest{
+			Port: request.Port{
+				NetworkID:    getNetworkIdResp.Subnet.NetworkID,
+				Name:         fmt.Sprintf("%v-%s-port", cluster.ClusterName, req.NodeGroupName),
+				AdminStateUp: true,
+				FixedIps: []request.FixedIp{
+					{
+						SubnetID: randSubnetId,
+					},
+				},
+				SecurityGroups: []string{securityGroupResp.SecurityGroup.ID},
+			},
+		}
+		portResp, err := nodg.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
+		if err != nil {
+			nodg.logger.Errorf("failed to create network port, error: %v", err)
+			return resource.CreateNodeGroupResponse{}, err
+		}
+		WorkerRequest.Server.Networks = []request.Networks{
+			{Port: portResp.Port.ID},
+		}
+		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s", req.NodeGroupName, uuid.New().String())
+
+		_, err = nodg.computeService.CreateCompute(ctx, authToken, *WorkerRequest)
+		if err != nil {
+			return resource.CreateNodeGroupResponse{}, err
+		}
+	}
+
+	err = nodg.repository.NodeGroups().CreateNodeGroups(ctx, &model.NodeGroups{
+		NodeGroupUUID:       serverGroupResp.ServerGroup.ID,
 		ClusterUUID:         cluster.ClusterUUID,
 		NodeGroupName:       req.NodeGroupName,
 		NodeFlavorUUID:      req.NodeFlavorUUID,
@@ -443,9 +615,31 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		NodeGroupLabels:     nodeGroupLabelsJSON,
 		NodeGroupMinSize:    req.NodeGroupMinSize,
 		NodeGroupMaxSize:    req.NodeGroupMaxSize,
-		NodeGroupsType:      WorkerServerType,
-		NodeGroupsStatus:    NodeGroupCreatingStatus,
+		NodeGroupsType:      NodeGroupWorkerType,
+		NodeGroupsStatus:    NodeGroupActiveStatus,
 		IsHidden:            false,
 		NodeGroupCreateDate: time.Now(),
 	})
+
+	if err != nil {
+		nodg.logger.Errorf("failed to create node group, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	err = nodg.repository.AuditLog().CreateAuditLog(ctx, &model.AuditLog{
+		ClusterUUID: cluster.ClusterUUID,
+		ProjectUUID: cluster.ClusterProjectUUID,
+		Event:       fmt.Sprintf("Node group %s created", req.NodeGroupName),
+		CreateDate:  time.Now(),
+	})
+
+	if err != nil {
+		nodg.logger.Errorf("failed to create audit log, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	return resource.CreateNodeGroupResponse{
+		ClusterID:   cluster.ClusterUUID,
+		NodeGroupID: serverGroupResp.ServerGroup.ID,
+	}, nil
 }
