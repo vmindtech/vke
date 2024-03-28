@@ -421,6 +421,9 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 	return response, nil
 }
 func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, clusterID string, req request.CreateNodeGroupRequest) (resource.CreateNodeGroupResponse, error) {
+	if len(req.NodeGroupName) > 26 {
+		return resource.CreateNodeGroupResponse{}, fmt.Errorf("node group name is too long")
+	}
 	cluster, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		nodg.logger.Errorf("failed to get cluster, error: %v", err)
@@ -563,7 +566,7 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		WorkerRequest.Server.Networks = []request.Networks{
 			{Port: portResp.Port.ID},
 		}
-		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s-%s", cluster.ClusterName, req.NodeGroupName, uuid.New().String())
+		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s", req.NodeGroupName, uuid.New().String())
 
 		_, err = nodg.computeService.CreateCompute(ctx, authToken, *WorkerRequest)
 		if err != nil {
