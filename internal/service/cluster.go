@@ -340,30 +340,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	// //worker to master
-	// createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
-	// err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
-	// if err != nil {
-	// 	c.logger.Errorf("failed to create security group rule, error: %v", err)
-	// 	return resource.CreateClusterResponse{}, err
-	// }
-	// // master to worker
-	// createSecurityGroupRuleReqSG.SecurityGroupRule.SecurityGroupID = createWorkerSecurityResp.SecurityGroup.ID
-	// createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createMasterSecurityResp.SecurityGroup.ID
-	// err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
-	// if err != nil {
-	// 	c.logger.Errorf("failed to create security group rule, error: %v", err)
-	// 	return resource.CreateClusterResponse{}, err
-	// }
-
-	// //worker to worker
-
-	// createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
-	// err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
-	// if err != nil {
-	// 	c.logger.Errorf("failed to create security group rule, error: %v", err)
-	// 	return resource.CreateClusterResponse{}, err
-	// }
 
 	// temporary for ssh access
 	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "22"
@@ -819,7 +795,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			return resource.CreateClusterResponse{}, err
 		}
 		WorkerRequest.Server.Networks[0].Port = portResp.Port.ID
-		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s", workerNodeGroupModel.NodeGroupName, uuid.New().String())
+		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s-%s", req.ClusterName, workerNodeGroupModel.NodeGroupName, uuid.New().String())
 
 		_, err = c.computeService.CreateCompute(ctx, authToken, *WorkerRequest)
 		if err != nil {

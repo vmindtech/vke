@@ -178,7 +178,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 
 	createPortRequest := request.CreateNetworkPortRequest{
 		Port: request.Port{
-			Name:         nodeGroup.NodeGroupName,
+			Name:         fmt.Sprintf("%s-%s", cluster.ClusterName, nodeGroup.NodeGroupName),
 			NetworkID:    networkIDResp.Subnet.NetworkID,
 			AdminStateUp: true,
 			FixedIps: []request.FixedIp{
