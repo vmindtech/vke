@@ -416,7 +416,7 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 		ClusterID:   clusterID,
 		NodeGroupID: nodeGroupID,
 		MinSize:     int(*req.MinNodes),
-		MaxSize:     int(*req.MaxNodes)
+		MaxSize:     int(*req.MaxNodes),
 		Status:      getCurrentStateOfNodeGroup.NodeGroupsStatus,
 	}
 	return response, nil
