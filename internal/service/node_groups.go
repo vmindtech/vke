@@ -197,12 +197,13 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 	}
 
 	nodeGroupLabelsArr := []string{}
-	err = json.Unmarshal(nodeGroup.NodeGroupLabels, &nodeGroupLabelsArr)
-	if err != nil {
-		nodg.logger.Errorf("failed to unmarshal node group labels, error: %v", err)
-		return resource.AddNodeResponse{}, err
+	if nodeGroup.NodeGroupLabels != nil {
+		err = json.Unmarshal(nodeGroup.NodeGroupLabels, &nodeGroupLabelsArr)
+		if err != nil {
+			nodg.logger.Errorf("failed to unmarshal node group labels, error: %v", err)
+			return resource.AddNodeResponse{}, err
+		}
 	}
-
 	rke2InitScript, err := GenerateUserDataFromTemplate("false",
 		WorkerServerType,
 		cluster.ClusterRegisterToken,
