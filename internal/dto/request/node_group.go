@@ -5,8 +5,6 @@ type UpdateNodeGroupRequest struct {
 	MaxNodes *uint32 `json:"maxNodes,omitempty"`
 
 	Autoscale *bool `json:"autoscale,omitempty"`
-
-	NodesToRemove []string `json:"nodesToRemove,omitempty"`
 }
 
 type CreateNodeGroupRequest struct {

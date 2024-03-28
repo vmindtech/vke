@@ -405,8 +405,8 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 
 	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
 		NodeGroupUUID:    nodeGroupID,
-		NodeGroupMinSize: getCurrentStateOfNodeGroup.NodeGroupMinSize,
-		NodeGroupMaxSize: getCurrentStateOfNodeGroup.NodeGroupMaxSize,
+		NodeGroupMinSize: int(*req.MinNodes),
+		NodeGroupMaxSize: int(*req.MaxNodes),
 	})
 	if err != nil {
 		nodg.logger.Errorf("failed to update node group by uuid %s, err: %v", nodeGroupID, err)
@@ -415,8 +415,8 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 	response := resource.UpdateNodeGroupResponse{
 		ClusterID:   clusterID,
 		NodeGroupID: nodeGroupID,
-		MinSize:     getCurrentStateOfNodeGroup.NodeGroupMinSize,
-		MaxSize:     getCurrentStateOfNodeGroup.NodeGroupMaxSize,
+		MinSize:     int(*req.MinNodes),
+		MaxSize:     int(*req.MaxNodes)
 		Status:      getCurrentStateOfNodeGroup.NodeGroupsStatus,
 	}
 	return response, nil
