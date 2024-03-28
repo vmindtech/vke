@@ -313,7 +313,7 @@ func (ns *networkService) DeleteSecurityGroup(ctx context.Context, authToken, cl
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("failed to delete security group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete %s security group, status code: %v, error msg: %v", clusterSecurityGroupId, resp.StatusCode, resp.Status)
 	}
 
 	return nil

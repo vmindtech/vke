@@ -185,6 +185,16 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to create security group, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
+	// create security group for shared
+	createSecurityGroupReq.SecurityGroup.Name = fmt.Sprintf("%v-cluster-shared-sg", req.ClusterName)
+	createSecurityGroupReq.SecurityGroup.Description = fmt.Sprintf("%v-cluster-shared-sg", req.ClusterName)
+
+	createClusterSharedSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+	if err != nil {
+		c.logger.Errorf("failed to create security group, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
+	ClusterSharedSecurityGroupUUID := createClusterSharedSecurityResp.SecurityGroup.ID
 
 	clusterSubdomainHash := uuid.New().String()
 	rke2Token := uuid.New().String()
@@ -203,17 +213,18 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	masterNodeGroupModel := &model.NodeGroups{
-		ClusterUUID:         clusterUUID,
-		NodeGroupUUID:       masterServerGroupResp.ServerGroup.ID,
-		NodeGroupName:       fmt.Sprintf("%v-master", req.ClusterName),
-		NodeGroupMinSize:    3,
-		NodeGroupMaxSize:    3,
-		NodeDiskSize:        80,
-		NodeFlavorUUID:      req.MasterInstanceFlavorUUID,
-		NodeGroupsStatus:    NodeGroupCreatingStatus,
-		NodeGroupsType:      NodeGroupMasterType,
-		IsHidden:            true,
-		NodeGroupCreateDate: time.Now(),
+		ClusterUUID:            clusterUUID,
+		NodeGroupUUID:          masterServerGroupResp.ServerGroup.ID,
+		NodeGroupName:          fmt.Sprintf("%v-master", req.ClusterName),
+		NodeGroupMinSize:       3,
+		NodeGroupMaxSize:       3,
+		NodeDiskSize:           80,
+		NodeFlavorUUID:         req.MasterInstanceFlavorUUID,
+		NodeGroupsStatus:       NodeGroupCreatingStatus,
+		NodeGroupsType:         NodeGroupMasterType,
+		NodeGroupSecurityGroup: createMasterSecurityResp.SecurityGroup.ID,
+		IsHidden:               true,
+		NodeGroupCreateDate:    time.Now(),
 	}
 
 	err = c.repository.NodeGroups().CreateNodeGroups(ctx, masterNodeGroupModel)
@@ -222,7 +233,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	createServerGroupReq.ServerGroup.Name = fmt.Sprintf("%v-worker-server-group", req.ClusterName)
+	createServerGroupReq.ServerGroup.Name = fmt.Sprintf("%v-default-worker-server-group", req.ClusterName)
 	workerServerGroupResp, err := c.computeService.CreateServerGroup(ctx, authToken, *createServerGroupReq)
 	if err != nil {
 		c.logger.Errorf("failed to create server group, error: %v", err)
@@ -230,17 +241,18 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	workerNodeGroupModel := &model.NodeGroups{
-		ClusterUUID:         clusterUUID,
-		NodeGroupUUID:       workerServerGroupResp.ServerGroup.ID,
-		NodeGroupName:       "vke-worker-group",
-		NodeGroupMinSize:    req.WorkerNodeGroupMinSize,
-		NodeGroupMaxSize:    req.WorkerNodeGroupMaxSize,
-		NodeDiskSize:        req.WorkerDiskSizeGB,
-		NodeFlavorUUID:      req.WorkerInstanceFlavorUUID,
-		NodeGroupsStatus:    NodeGroupCreatingStatus,
-		NodeGroupsType:      NodeGroupWorkerType,
-		IsHidden:            false,
-		NodeGroupCreateDate: time.Now(),
+		ClusterUUID:            clusterUUID,
+		NodeGroupUUID:          workerServerGroupResp.ServerGroup.ID,
+		NodeGroupName:          "vke-default-worker-group",
+		NodeGroupMinSize:       req.WorkerNodeGroupMinSize,
+		NodeGroupMaxSize:       req.WorkerNodeGroupMaxSize,
+		NodeDiskSize:           req.WorkerDiskSizeGB,
+		NodeFlavorUUID:         req.WorkerInstanceFlavorUUID,
+		NodeGroupsStatus:       NodeGroupCreatingStatus,
+		NodeGroupsType:         NodeGroupWorkerType,
+		NodeGroupSecurityGroup: createWorkerSecurityResp.SecurityGroup.ID,
+		IsHidden:               false,
+		NodeGroupCreateDate:    time.Now(),
 	}
 
 	err = c.repository.NodeGroups().CreateNodeGroups(ctx, workerNodeGroupModel)
@@ -255,28 +267,21 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return resource.CreateClusterResponse{}, err
 	}
 
-	clusterWorkerGroupsUUID, err := json.Marshal([]string{workerServerGroupResp.ServerGroup.ID})
-	if err != nil {
-		c.logger.Errorf("failed to marshal worker server group id, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
-
 	clModel := &model.Cluster{
-		ClusterUUID:                   clusterUUID,
-		ClusterName:                   req.ClusterName,
-		ClusterCreateDate:             time.Now(),
-		ClusterVersion:                req.KubernetesVersion,
-		ClusterStatus:                 CreatingClusterStatus,
-		ClusterProjectUUID:            req.ProjectID,
-		ClusterLoadbalancerUUID:       lbResp.LoadBalancer.ID,
-		ClusterRegisterToken:          rke2Token,
-		ClusterAgentToken:             rke2AgentToken,
-		ClusterMasterServerGroupUUID:  masterServerGroupResp.ServerGroup.ID,
-		ClusterWorkerServerGroupsUUID: clusterWorkerGroupsUUID,
-		ClusterSubnets:                subnetIdsJSON,
-		ClusterNodeKeypairName:        req.NodeKeyPairName,
-		ClusterAPIAccess:              req.ClusterAPIAccess,
-		FloatingIPUUID:                floatingIPUUID,
+		ClusterUUID:                clusterUUID,
+		ClusterName:                req.ClusterName,
+		ClusterCreateDate:          time.Now(),
+		ClusterVersion:             req.KubernetesVersion,
+		ClusterStatus:              CreatingClusterStatus,
+		ClusterProjectUUID:         req.ProjectID,
+		ClusterLoadbalancerUUID:    lbResp.LoadBalancer.ID,
+		ClusterRegisterToken:       rke2Token,
+		ClusterAgentToken:          rke2AgentToken,
+		ClusterSubnets:             subnetIdsJSON,
+		ClusterNodeKeypairName:     req.NodeKeyPairName,
+		ClusterAPIAccess:           req.ClusterAPIAccess,
+		FloatingIPUUID:             floatingIPUUID,
+		ClusterSharedSecurityGroup: ClusterSharedSecurityGroupUUID,
 	}
 	err = c.repository.Cluster().CreateCluster(ctx, clModel)
 	if err != nil {
@@ -321,13 +326,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	//for any access between cluster nodes
-	// master to master
+	// shared to shared Security Group
 	createSecurityGroupRuleReqSG := &request.CreateSecurityGroupRuleForSgRequest{
 		SecurityGroupRule: request.SecurityGroupRuleForSG{
 			Direction:       "ingress",
 			Ethertype:       "IPv4",
-			SecurityGroupID: createMasterSecurityResp.SecurityGroup.ID,
-			RemoteGroupID:   createMasterSecurityResp.SecurityGroup.ID,
+			SecurityGroupID: createClusterSharedSecurityResp.SecurityGroup.ID,
+			RemoteGroupID:   createClusterSharedSecurityResp.SecurityGroup.ID,
 		},
 	}
 	err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
@@ -335,34 +340,35 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-	//worker to master
-	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
-	err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
-	if err != nil {
-		c.logger.Errorf("failed to create security group rule, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
-	// master to worker
-	createSecurityGroupRuleReqSG.SecurityGroupRule.SecurityGroupID = createWorkerSecurityResp.SecurityGroup.ID
-	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createMasterSecurityResp.SecurityGroup.ID
-	err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
-	if err != nil {
-		c.logger.Errorf("failed to create security group rule, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
+	// //worker to master
+	// createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
+	// err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
+	// if err != nil {
+	// 	c.logger.Errorf("failed to create security group rule, error: %v", err)
+	// 	return resource.CreateClusterResponse{}, err
+	// }
+	// // master to worker
+	// createSecurityGroupRuleReqSG.SecurityGroupRule.SecurityGroupID = createWorkerSecurityResp.SecurityGroup.ID
+	// createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createMasterSecurityResp.SecurityGroup.ID
+	// err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
+	// if err != nil {
+	// 	c.logger.Errorf("failed to create security group rule, error: %v", err)
+	// 	return resource.CreateClusterResponse{}, err
+	// }
 
-	//worker to worker
+	// //worker to worker
 
-	createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
-	err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
-	if err != nil {
-		c.logger.Errorf("failed to create security group rule, error: %v", err)
-		return resource.CreateClusterResponse{}, err
-	}
+	// createSecurityGroupRuleReqSG.SecurityGroupRule.RemoteGroupID = createWorkerSecurityResp.SecurityGroup.ID
+	// err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
+	// if err != nil {
+	// 	c.logger.Errorf("failed to create security group rule, error: %v", err)
+	// 	return resource.CreateClusterResponse{}, err
+	// }
 
 	// temporary for ssh access
 	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "22"
 	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "22"
+	createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createClusterSharedSecurityResp.SecurityGroup.ID
 	err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 	if err != nil {
 		c.logger.Errorf("failed to create security group rule, error: %v", err)
@@ -379,11 +385,11 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 					SubnetID: randSubnetId,
 				},
 			},
-			SecurityGroups: []string{createMasterSecurityResp.SecurityGroup.ID},
+			SecurityGroups: []string{createMasterSecurityResp.SecurityGroup.ID, createClusterSharedSecurityResp.SecurityGroup.ID},
 		},
 	}
 	portRequest.Port.Name = fmt.Sprintf("%v-master-1-port", req.ClusterName)
-	portRequest.Port.SecurityGroups = []string{createMasterSecurityResp.SecurityGroup.ID}
+	portRequest.Port.SecurityGroups = []string{createMasterSecurityResp.SecurityGroup.ID, createClusterSharedSecurityResp.SecurityGroup.ID}
 	portResp, err := c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
 	if err != nil {
 		c.logger.Errorf("failed to create network port, error: %v", err)
@@ -399,6 +405,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			AvailabilityZone: "nova",
 			SecurityGroups: []request.SecurityGroups{
 				{Name: createMasterSecurityResp.SecurityGroup.Name},
+				{Name: createClusterSharedSecurityResp.SecurityGroup.Name},
 			},
 			BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
 				{
@@ -711,7 +718,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to create compute, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-
+	masterNodeGroupModel.NodeGroupSecurityGroup = createMasterSecurityResp.SecurityGroup.ID
 	masterNodeGroupModel.NodeGroupsStatus = NodeGroupActiveStatus
 	masterNodeGroupModel.NodeGroupUpdateDate = time.Now()
 
@@ -782,6 +789,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			AvailabilityZone: "nova",
 			SecurityGroups: []request.SecurityGroups{
 				{Name: createWorkerSecurityResp.SecurityGroup.Name},
+				{Name: createClusterSharedSecurityResp.SecurityGroup.Name},
 			},
 			BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
 				{
@@ -804,7 +812,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	for i := 1; i <= req.WorkerNodeGroupMinSize; i++ {
 		portRequest.Port.Name = fmt.Sprintf("%v-%s-port", req.ClusterName, workerNodeGroupModel.NodeGroupName)
-		portRequest.Port.SecurityGroups = []string{createWorkerSecurityResp.SecurityGroup.ID}
+		portRequest.Port.SecurityGroups = []string{createWorkerSecurityResp.SecurityGroup.ID, createClusterSharedSecurityResp.SecurityGroup.ID}
 		portResp, err = c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
 		if err != nil {
 			c.logger.Errorf("failed to create network port, error: %v", err)
@@ -820,6 +828,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	workerNodeGroupModel.NodeGroupsStatus = NodeGroupActiveStatus
+	workerNodeGroupModel.NodeGroupSecurityGroup = createWorkerSecurityResp.SecurityGroup.ID
 	workerNodeGroupModel.NodeGroupUpdateDate = time.Now()
 
 	err = c.repository.NodeGroups().UpdateNodeGroups(ctx, workerNodeGroupModel)
@@ -827,9 +836,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to update node groups, error: %v", err)
 		return resource.CreateClusterResponse{}, err
 	}
-
-	clModel.MasterSecurityGroup = createMasterSecurityResp.SecurityGroup.ID
-	clModel.WorkerSecurityGroup = createWorkerSecurityResp.SecurityGroup.ID
+	clModel.ClusterSharedSecurityGroup = createClusterSharedSecurityResp.SecurityGroup.ID
 	clModel.ClusterStatus = ActiveClusterStatus
 	clModel.ClusterEndpoint = addDNSResp.Result.Name
 	clModel.ClusterUpdateDate = time.Now()
@@ -847,12 +854,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterStatus:                 clModel.ClusterStatus,
 		ClusterProjectUUID:            clModel.ClusterProjectUUID,
 		ClusterLoadbalancerUUID:       clModel.ClusterLoadbalancerUUID,
-		ClusterMasterServerGroupUUID:  clModel.ClusterMasterServerGroupUUID,
-		ClusterWorkerServerGroupsUUID: []string{workerServerGroupResp.ServerGroup.ID},
+		ClusterMasterServerGroupUUID:  masterNodeGroupModel.NodeGroupUUID,
+		ClusterWorkerServerGroupsUUID: workerNodeGroupModel.NodeGroupUUID,
 		ClusterSubnets:                req.SubnetIDs,
+		WorkerCount:                   req.WorkerNodeGroupMinSize,
+		WorkerType:                    req.WorkerInstanceFlavorUUID,
+		WorkerDiskSize:                req.WorkerDiskSizeGB,
 		ClusterEndpoint:               clModel.ClusterEndpoint,
-		MasterSecurityGroup:           clModel.MasterSecurityGroup,
-		WorkerSecurityGroup:           clModel.WorkerSecurityGroup,
 		ClusterAPIAccess:              clModel.ClusterAPIAccess,
 		ClusterVersion:                clModel.ClusterVersion,
 	}
@@ -896,22 +904,13 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 		return resource.GetClusterResponse{}, err
 	}
 
-	var clusterWorkerServerGroupsUUIDString []string
-	err = json.Unmarshal(cluster.ClusterWorkerServerGroupsUUID, &clusterWorkerServerGroupsUUIDString)
-	if err != nil {
-		c.logger.Errorf("failed to unmarshal cluster worker server groups uuid, error: %v", err)
-		return resource.GetClusterResponse{}, err
-	}
 	clusterResp := resource.GetClusterResponse{
-		ClusterID:                     cluster.ClusterUUID,
-		ProjectID:                     cluster.ClusterProjectUUID,
-		KubernetesVersion:             cluster.ClusterVersion,
-		ClusterAPIAccess:              cluster.ClusterAPIAccess,
-		ClusterWorkerServerGroupsUUID: clusterWorkerServerGroupsUUIDString,
-		ClusterMasterServerGroupUUID:  cluster.ClusterMasterServerGroupUUID,
-		ClusterMasterSecurityGroup:    cluster.MasterSecurityGroup,
-		ClusterWorkerSecurityGroup:    cluster.WorkerSecurityGroup,
-		ClusterStatus:                 cluster.ClusterStatus,
+		ClusterID:                  cluster.ClusterUUID,
+		ProjectID:                  cluster.ClusterProjectUUID,
+		KubernetesVersion:          cluster.ClusterVersion,
+		ClusterAPIAccess:           cluster.ClusterAPIAccess,
+		ClusterStatus:              cluster.ClusterStatus,
+		ClusterSharedSecurityGroup: cluster.ClusterSharedSecurityGroup,
 	}
 
 	return clusterResp, nil
@@ -938,22 +937,13 @@ func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, 
 	var clustersResp []resource.GetClusterResponse
 
 	for _, cluster := range clusters {
-		var clusterWorkerServerGroupsUUIDString []string
-		err = json.Unmarshal(cluster.ClusterWorkerServerGroupsUUID, &clusterWorkerServerGroupsUUIDString)
-		if err != nil {
-			c.logger.Errorf("failed to unmarshal cluster worker server groups uuid, error: %v", err)
-			break
-		}
 		clustersResp = append(clustersResp, resource.GetClusterResponse{
-			ClusterID:                     cluster.ClusterUUID,
-			ProjectID:                     cluster.ClusterProjectUUID,
-			KubernetesVersion:             cluster.ClusterVersion,
-			ClusterAPIAccess:              cluster.ClusterAPIAccess,
-			ClusterWorkerServerGroupsUUID: clusterWorkerServerGroupsUUIDString,
-			ClusterMasterServerGroupUUID:  cluster.ClusterMasterServerGroupUUID,
-			ClusterMasterSecurityGroup:    cluster.MasterSecurityGroup,
-			ClusterWorkerSecurityGroup:    cluster.WorkerSecurityGroup,
-			ClusterStatus:                 cluster.ClusterStatus,
+			ClusterID:                  cluster.ClusterUUID,
+			ProjectID:                  cluster.ClusterProjectUUID,
+			KubernetesVersion:          cluster.ClusterVersion,
+			ClusterAPIAccess:           cluster.ClusterAPIAccess,
+			ClusterStatus:              cluster.ClusterStatus,
+			ClusterSharedSecurityGroup: cluster.ClusterSharedSecurityGroup,
 		})
 	}
 
@@ -1060,50 +1050,27 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 			return resource.DestroyCluster{}, err
 		}
 	}
-
-	// Delete Master Server Group Members ports and compute and server group
-	getMasterServerGroupMembersListResp, err := c.computeService.GetServerGroupMemberList(ctx, authToken, cluster.ClusterMasterServerGroupUUID)
+	nodeGroupsOfCluster, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "")
 	if err != nil {
-		c.logger.Errorf("failed to get server group members list, error: %v", err)
+		c.logger.Errorf("failed to get node groups by cluster uuid, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
-	for _, member := range getMasterServerGroupMembersListResp.Members {
-		getMasterComputePortIdResp, err := c.networkService.GetComputeNetworkPorts(ctx, authToken, member)
-		if err != nil {
-			c.logger.Errorf("failed to get compute port id, error: %v", err)
-			return resource.DestroyCluster{}, err
-		}
-		err = c.networkService.DeleteNetworkPort(ctx, authToken, getMasterComputePortIdResp.Ports[0])
-		if err != nil {
-			c.logger.Errorf("failed to delete port, error: %v", err)
-			return resource.DestroyCluster{}, err
-		}
-		err = c.computeService.DeleteCompute(ctx, authToken, member)
-		if err != nil {
-			c.logger.Errorf("failed to delete compute, error: %v", err)
-			return resource.DestroyCluster{}, err
-		}
-	}
-	err = c.computeService.DeleteServerGroup(ctx, authToken, cluster.ClusterMasterServerGroupUUID)
-	if err != nil {
-		c.logger.Errorf("failed to delete server group, error: %v", err)
-		return resource.DestroyCluster{}, err
-	}
-
 	// Delete Worker Server Group Members ports and compute and server groups
 	var clusterWorkerServerGroupsUUIDString []string
-	err = json.Unmarshal(cluster.ClusterWorkerServerGroupsUUID, &clusterWorkerServerGroupsUUIDString)
+	for _, nodeGroup := range nodeGroupsOfCluster {
+		clusterWorkerServerGroupsUUIDString = append(clusterWorkerServerGroupsUUIDString, nodeGroup.NodeGroupUUID)
+	}
 	if err != nil {
 		c.logger.Errorf("failed to unmarshal cluster worker server groups uuid, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
-	for _, workerServerGroupUUID := range clusterWorkerServerGroupsUUIDString {
-		getWorkerServerGroupMembersListResp, err := c.computeService.GetServerGroupMemberList(ctx, authToken, workerServerGroupUUID)
+	for _, serverGroup := range nodeGroupsOfCluster {
+		getServerGroupMembersListResp, err := c.computeService.GetServerGroupMemberList(ctx, authToken, serverGroup.NodeGroupUUID)
 		if err != nil {
 			c.logger.Errorf("failed to get server group members list, error: %v", err)
 			return resource.DestroyCluster{}, err
 		}
-		for _, member := range getWorkerServerGroupMembersListResp.Members {
+		for _, member := range getServerGroupMembersListResp.Members {
 			getWorkerComputePortIdResp, err := c.networkService.GetComputeNetworkPorts(ctx, authToken, member)
 			if err != nil {
 				c.logger.Errorf("failed to get compute port id, error: %v", err)
@@ -1120,23 +1087,32 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 				return resource.DestroyCluster{}, err
 			}
 		}
-		err = c.computeService.DeleteServerGroup(ctx, authToken, workerServerGroupUUID)
+		err = c.computeService.DeleteServerGroup(ctx, authToken, serverGroup.NodeGroupUUID)
 		if err != nil {
 			c.logger.Errorf("failed to delete server group, error: %v", err)
 			return resource.DestroyCluster{}, err
 		}
+		// Delete Worker Security Group
+		err = c.networkService.DeleteSecurityGroup(ctx, authToken, serverGroup.NodeGroupSecurityGroup)
+		if err != nil {
+			c.logger.Errorf("failed to delete NodeGroupSecurityGroup, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
+		ngModel := &model.NodeGroups{
+			NodeGroupUUID:       serverGroup.NodeGroupUUID,
+			NodeGroupsStatus:    NodeGroupDeletedStatus,
+			NodeGroupUpdateDate: time.Now(),
+		}
+		err = c.repository.NodeGroups().UpdateNodeGroups(ctx, ngModel)
+		if err != nil {
+			c.logger.Errorf("failed to update node groups, error: %v", err)
+			return resource.DestroyCluster{}, err
+		}
 	}
-
-	// Delete Master Security Group
-	err = c.networkService.DeleteSecurityGroup(ctx, authToken, cluster.MasterSecurityGroup)
+	// Delete Cluster Shared Security Group
+	err = c.networkService.DeleteSecurityGroup(ctx, authToken, cluster.ClusterSharedSecurityGroup)
 	if err != nil {
-		c.logger.Errorf("failed to delete security group, error: %v", err)
-		return resource.DestroyCluster{}, err
-	}
-	// Delete Worker Security Group
-	err = c.networkService.DeleteSecurityGroup(ctx, authToken, cluster.WorkerSecurityGroup)
-	if err != nil {
-		c.logger.Errorf("failed to delete security group, error: %v", err)
+		c.logger.Errorf("failed to delete ClusterSharedSecurityGroup, error: %v", err)
 		return resource.DestroyCluster{}, err
 	}
 	clModel := &model.Cluster{

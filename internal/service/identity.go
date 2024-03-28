@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/sirupsen/logrus"
@@ -42,10 +41,10 @@ func (i *identityService) CheckAuthToken(ctx context.Context, authToken, project
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		i.logger.Errorf("failed to check auth token, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		// i.logger.Errorf("failed to check auth token, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		// if err != nil {
+		// 	log.Fatalln(err)
+		// }
 		return fmt.Errorf("failed to check auth token, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 

@@ -22,6 +22,7 @@ type INodeGroupsService interface {
 	AddNode(ctx context.Context, authToken string, clusterUUID, nodeGroupUUID string) (resource.AddNodeResponse, error)
 	DeleteNode(ctx context.Context, authToken, clusterID, nodeGroupID, instanceName string) (resource.DeleteNodeResponse, error)
 	CreateNodeGroup(ctx context.Context, authToken, clusterID string, req request.CreateNodeGroupRequest) (resource.CreateNodeGroupResponse, error)
+	DeleteNodeGroup(ctx context.Context, authToken, clusterID, nodeGroupID string) error
 }
 
 type nodeGroupsService struct {
@@ -185,7 +186,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 					SubnetID: randSubnetId,
 				},
 			},
-			SecurityGroups: []string{cluster.WorkerSecurityGroup},
+			SecurityGroups: []string{cluster.ClusterSharedSecurityGroup, nodeGroup.NodeGroupSecurityGroup},
 		},
 	}
 
@@ -219,9 +220,14 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		return resource.AddNodeResponse{}, err
 	}
 
-	securityGroup, err := nodg.networkService.GetSecurityGroupByID(ctx, authToken, cluster.WorkerSecurityGroup)
+	sharedSecurityGroup, err := nodg.networkService.GetSecurityGroupByID(ctx, authToken, cluster.ClusterSharedSecurityGroup)
 	if err != nil {
-		nodg.logger.Errorf("failed to get security group, error: %v", err)
+		nodg.logger.Errorf("failed to get sharedSecurityGroup, error: %v", err)
+		return resource.AddNodeResponse{}, err
+	}
+	nodeSecurityGroup, err := nodg.networkService.GetSecurityGroupByID(ctx, authToken, nodeGroup.NodeGroupSecurityGroup)
+	if err != nil {
+		nodg.logger.Errorf("failed to get nodeSecurityGroup, error: %v", err)
 		return resource.AddNodeResponse{}, err
 	}
 
@@ -246,7 +252,8 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 				{Port: portResp.Port.ID},
 			},
 			SecurityGroups: []request.SecurityGroups{
-				{Name: securityGroup.SecurityGroup.Name},
+				{Name: sharedSecurityGroup.SecurityGroup.ID},
+				{Name: nodeSecurityGroup.SecurityGroup.ID},
 			},
 			UserData: Base64Encoder(rke2InitScript),
 		},
@@ -468,55 +475,6 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
-	createSecuritGroupRuleReq := &request.CreateSecurityGroupRuleForSgRequest{
-		SecurityGroupRule: request.SecurityGroupRuleForSG{
-			Direction:       "ingress",
-			Ethertype:       "IPv4",
-			SecurityGroupID: securityGroupResp.SecurityGroup.ID,
-			RemoteGroupID:   cluster.MasterSecurityGroup,
-		},
-	}
-
-	err = nodg.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecuritGroupRuleReq)
-	if err != nil {
-		nodg.logger.Errorf("failed to create security group rule for sg, error: %v", err)
-		return resource.CreateNodeGroupResponse{}, err
-	}
-
-	createSecuritGroupRuleReq.SecurityGroupRule.RemoteGroupID = securityGroupResp.SecurityGroup.ID
-
-	err = nodg.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecuritGroupRuleReq)
-	if err != nil {
-		nodg.logger.Errorf("failed to create security group rule for sg, error: %v", err)
-		return resource.CreateNodeGroupResponse{}, err
-	}
-
-	createSecuritGroupRuleReq.SecurityGroupRule.RemoteGroupID = cluster.WorkerSecurityGroup
-
-	err = nodg.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecuritGroupRuleReq)
-	if err != nil {
-		nodg.logger.Errorf("failed to create security group rule for sg, error: %v", err)
-		return resource.CreateNodeGroupResponse{}, err
-	}
-
-	createSecuritGroupRuleReq.SecurityGroupRule.SecurityGroupID = cluster.WorkerSecurityGroup
-	createSecuritGroupRuleReq.SecurityGroupRule.RemoteGroupID = securityGroupResp.SecurityGroup.ID
-
-	err = nodg.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecuritGroupRuleReq)
-	if err != nil {
-		nodg.logger.Errorf("failed to create security group rule for sg, error: %v", err)
-		return resource.CreateNodeGroupResponse{}, err
-	}
-
-	createSecuritGroupRuleReq.SecurityGroupRule.SecurityGroupID = cluster.MasterSecurityGroup
-	createSecuritGroupRuleReq.SecurityGroupRule.RemoteGroupID = securityGroupResp.SecurityGroup.ID
-
-	err = nodg.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecuritGroupRuleReq)
-	if err != nil {
-		nodg.logger.Errorf("failed to create security group rule for sg, error: %v", err)
-		return resource.CreateNodeGroupResponse{}, err
-	}
-
 	rke2WorkerInitScript, err := GenerateUserDataFromTemplate("false",
 		WorkerServerType,
 		cluster.ClusterRegisterToken,
@@ -534,6 +492,13 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
+	//Get Cluster Shared Security Group
+	getClusterSharedSecurityGroup, err := nodg.networkService.GetSecurityGroupByID(ctx, authToken, cluster.ClusterSharedSecurityGroup)
+	if err != nil {
+		nodg.logger.Errorf("failed to get security group, error: %v", err)
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
 	WorkerRequest := &request.CreateComputeRequest{
 		Server: request.Server{
 			Name:             "ServerName",
@@ -543,7 +508,7 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 			AvailabilityZone: "nova",
 			SecurityGroups: []request.SecurityGroups{
 				{Name: securityGroupResp.SecurityGroup.Name},
-				{Name: fmt.Sprintf("%v-worker-sg", cluster.ClusterName)},
+				{Name: getClusterSharedSecurityGroup.SecurityGroup.Name},
 			},
 			BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
 				{
@@ -575,7 +540,7 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
-	for i := 0; i <= req.NodeGroupMinSize; i++ {
+	for i := 1; i <= req.NodeGroupMinSize; i++ {
 		randSubnetId := GetRandomStringFromArray(subnetIDSArr)
 		portRequest := &request.CreateNetworkPortRequest{
 			Port: request.Port{
@@ -587,7 +552,7 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 						SubnetID: randSubnetId,
 					},
 				},
-				SecurityGroups: []string{securityGroupResp.SecurityGroup.ID},
+				SecurityGroups: []string{securityGroupResp.SecurityGroup.ID, getClusterSharedSecurityGroup.SecurityGroup.ID},
 			},
 		}
 		portResp, err := nodg.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
@@ -598,7 +563,7 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		WorkerRequest.Server.Networks = []request.Networks{
 			{Port: portResp.Port.ID},
 		}
-		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s", req.NodeGroupName, uuid.New().String())
+		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s-%s", cluster.ClusterName, req.NodeGroupName, uuid.New().String())
 
 		_, err = nodg.computeService.CreateCompute(ctx, authToken, *WorkerRequest)
 		if err != nil {
@@ -607,18 +572,19 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 	}
 
 	err = nodg.repository.NodeGroups().CreateNodeGroups(ctx, &model.NodeGroups{
-		NodeGroupUUID:       serverGroupResp.ServerGroup.ID,
-		ClusterUUID:         cluster.ClusterUUID,
-		NodeGroupName:       req.NodeGroupName,
-		NodeFlavorUUID:      req.NodeFlavorUUID,
-		NodeDiskSize:        req.NodeDiskSize,
-		NodeGroupLabels:     nodeGroupLabelsJSON,
-		NodeGroupMinSize:    req.NodeGroupMinSize,
-		NodeGroupMaxSize:    req.NodeGroupMaxSize,
-		NodeGroupsType:      NodeGroupWorkerType,
-		NodeGroupsStatus:    NodeGroupActiveStatus,
-		IsHidden:            false,
-		NodeGroupCreateDate: time.Now(),
+		NodeGroupUUID:          serverGroupResp.ServerGroup.ID,
+		ClusterUUID:            cluster.ClusterUUID,
+		NodeGroupName:          req.NodeGroupName,
+		NodeFlavorUUID:         req.NodeFlavorUUID,
+		NodeDiskSize:           req.NodeDiskSize,
+		NodeGroupLabels:        nodeGroupLabelsJSON,
+		NodeGroupMinSize:       req.NodeGroupMinSize,
+		NodeGroupMaxSize:       req.NodeGroupMaxSize,
+		NodeGroupsType:         NodeGroupWorkerType,
+		NodeGroupSecurityGroup: securityGroupResp.SecurityGroup.ID,
+		NodeGroupsStatus:       NodeGroupActiveStatus,
+		IsHidden:               false,
+		NodeGroupCreateDate:    time.Now(),
 	})
 
 	if err != nil {
@@ -642,4 +608,85 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		ClusterID:   cluster.ClusterUUID,
 		NodeGroupID: serverGroupResp.ServerGroup.ID,
 	}, nil
+}
+
+func (nodg *nodeGroupsService) DeleteNodeGroup(ctx context.Context, authToken, clusterID, nodeGroupID string) error {
+	cluster, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
+	if err != nil {
+		nodg.logger.Errorf("failed to get cluster, error: %v", err)
+		return err
+	}
+	if cluster.ClusterProjectUUID == "" {
+		nodg.logger.Errorf("failed to get cluster")
+		return fmt.Errorf("failed to get cluster")
+	}
+	err = nodg.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	if err != nil {
+		nodg.logger.Errorf("failed to check auth token, error: %v", err)
+		return err
+	}
+	nodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupID)
+	if err != nil {
+		nodg.logger.Errorf("failed to get node group, error: %v", err)
+		return err
+	}
+	computes, err := nodg.computeService.GetInstances(ctx, authToken, nodeGroup.NodeGroupUUID)
+	if err != nil {
+		nodg.logger.Errorf("failed to get instances, error: %v", err)
+		return err
+	}
+	for _, server := range computes {
+		getNetworkPortID, err := nodg.networkService.GetComputeNetworkPorts(ctx, authToken, server.InstanceUUID)
+		if err != nil {
+			nodg.logger.Errorf("failed to get compute network ports, error: %v", err)
+			return err
+		}
+		for _, portID := range getNetworkPortID.Ports {
+			err := nodg.networkService.DeleteNetworkPort(ctx, authToken, portID)
+			if err != nil {
+				nodg.logger.Errorf("failed to delete network port, error: %v", err)
+				return err
+			}
+		}
+		err = nodg.computeService.DeleteCompute(ctx, authToken, server.InstanceUUID)
+		if err != nil {
+			nodg.logger.Errorf("failed to delete compute, error: %v", err)
+			return err
+		}
+	}
+	err = nodg.computeService.DeleteServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID)
+	if err != nil {
+		nodg.logger.Errorf("failed to delete server group, error: %v", err)
+		return err
+	}
+	err = nodg.networkService.DeleteSecurityGroup(ctx, authToken, nodeGroup.NodeGroupSecurityGroup)
+	if err != nil {
+		nodg.logger.Errorf("failed to delete security group, error: %v", err)
+		return err
+	}
+
+	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
+		NodeGroupUUID:       nodeGroupID,
+		NodeGroupsStatus:    NodeGroupDeletedStatus,
+		IsHidden:            true,
+		NodeGroupUpdateDate: time.Now(),
+	})
+	if err != nil {
+		nodg.logger.Errorf("failed to update node group, error: %v", err)
+		return err
+	}
+
+	err = nodg.repository.AuditLog().CreateAuditLog(ctx, &model.AuditLog{
+		ClusterUUID: cluster.ClusterUUID,
+		ProjectUUID: cluster.ClusterProjectUUID,
+		Event:       fmt.Sprintf("Node group %s deleted", nodeGroup.NodeGroupName),
+		CreateDate:  time.Now(),
+	})
+	if err != nil {
+		nodg.logger.Errorf("failed to create audit log, error: %v", err)
+		return err
+	}
+
+	return nil
+
 }
