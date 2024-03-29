@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -738,7 +739,12 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	// Worker Create
-
+	defaultWorkerLabels := []string{"type=default-worker"}
+	nodeGroupLabelsJSON, err := json.Marshal(defaultWorkerLabels)
+	if err != nil {
+		c.logger.Errorf("failed to marshal node group labels, error: %v", err)
+		return resource.CreateClusterResponse{}, err
+	}
 	rke2WorkerInitScript, err := GenerateUserDataFromTemplate("false",
 		WorkerServerType,
 		rke2Token,
@@ -749,7 +755,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
-		"",
+		strings.Join(defaultWorkerLabels, ","),
 	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
@@ -802,7 +808,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			return resource.CreateClusterResponse{}, err
 		}
 	}
-
+	workerNodeGroupModel.NodeGroupLabels = nodeGroupLabelsJSON
 	workerNodeGroupModel.NodeGroupsStatus = NodeGroupActiveStatus
 	workerNodeGroupModel.NodeGroupSecurityGroup = createWorkerSecurityResp.SecurityGroup.ID
 	workerNodeGroupModel.NodeGroupUpdateDate = time.Now()
@@ -1047,6 +1053,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 			return resource.DestroyCluster{}, err
 		}
 		for _, member := range getServerGroupMembersListResp.Members {
+			fmt.Println(member)
 			getWorkerComputePortIdResp, err := c.networkService.GetComputeNetworkPorts(ctx, authToken, member)
 			if err != nil {
 				c.logger.Errorf("failed to get compute port id, error: %v", err)
