@@ -29,9 +29,11 @@ type IAppHandler interface {
 	AddNode(c *fiber.Ctx) error
 	GetNodes(c *fiber.Ctx) error
 	GetNodeGroups(c *fiber.Ctx) error
+	CreateNodeGroup(c *fiber.Ctx) error
 	GetClusterFlavor(c *fiber.Ctx) error
 	UpdateNodeGroups(c *fiber.Ctx) error
 	DeleteNode(c *fiber.Ctx) error
+	DeleteNodeGroup(c *fiber.Ctx) error
 }
 
 type appHandler struct {
@@ -253,7 +255,7 @@ func (a *appHandler) GetClusterFlavor(c *fiber.Ctx) error {
 func (a *appHandler) UpdateNodeGroups(c *fiber.Ctx) error {
 	nodeGroupID := c.Params("nodegroup_id")
 	clusterID := c.Params("cluster_id")
-	var req resource.UpdateNodeGroupRequest
+	var req request.UpdateNodeGroupRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
 	}
@@ -276,4 +278,33 @@ func (a *appHandler) DeleteNode(c *fiber.Ctx) error {
 	}
 	resp, _ := a.appService.NodeGroups().DeleteNode(ctx, authToken, clusterID, nodeGroupID, instanceName)
 	return c.JSON(resp)
+}
+func (a *appHandler) CreateNodeGroup(c *fiber.Ctx) error {
+	clusterID := c.Params("cluster_id")
+	var req request.CreateNodeGroupRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
+	}
+	ctx := context.Background()
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+	}
+	resp, _ := a.appService.NodeGroups().CreateNodeGroup(ctx, authToken, clusterID, req)
+	return c.JSON(resp)
+}
+
+func (a *appHandler) DeleteNodeGroup(c *fiber.Ctx) error {
+	nodeGroupID := c.Params("nodegroup_id")
+	clusterID := c.Params("cluster_id")
+	ctx := context.Background()
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+	}
+	err := a.appService.NodeGroups().DeleteNodeGroup(ctx, authToken, clusterID, nodeGroupID)
+	if err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+	}
+	return c.JSON(err)
 }

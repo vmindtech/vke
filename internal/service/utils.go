@@ -11,7 +11,7 @@ import (
 	"gorm.io/datatypes"
 )
 
-func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serverAddress, kubeVersion, clusterName, clusterUUID, vkeAPIEndpoint, authToken, vkeAgentVersion string) (string, error) {
+func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serverAddress, kubeVersion, clusterName, clusterUUID, vkeAPIEndpoint, authToken, vkeAgentVersion, rke2NodeLabel string) (string, error) {
 	shFile := "scripts/rke2-init-sh.tpl"
 	t, err := template.ParseFiles(shFile)
 	if err != nil {
@@ -31,6 +31,7 @@ func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serv
 		"vkeAPIEndpoint":  vkeAPIEndpoint,
 		"authToken":       authToken,
 		"vkeAgentVersion": vkeAgentVersion,
+		"rke2NodeLabel":   rke2NodeLabel,
 	}); err != nil {
 		return "", err
 	}

@@ -27,7 +27,7 @@ func NewNodeGroupsRepository(mysqlInstance mysqldb.IMysqlInstance) *NodeGroupsRe
 
 func (n *NodeGroupsRepository) GetNodeGroupsByClusterUUID(ctx context.Context, uuid, nodeType string) ([]model.NodeGroups, error) {
 	var nodeGroups []model.NodeGroups
-	queryModel := &model.NodeGroups{ClusterUUID: uuid}
+	queryModel := &model.NodeGroups{ClusterUUID: uuid, NodeGroupsStatus: "Active"}
 
 	if nodeType != "" {
 		queryModel.NodeGroupsType = nodeType
