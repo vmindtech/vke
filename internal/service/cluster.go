@@ -436,6 +436,17 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			c.logger.Errorf("failed to create security group rule, error: %v", err)
 			return resource.CreateClusterResponse{}, err
 		}
+
+		// Access NodePort from Subnets for LB
+
+		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "30000"
+		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "32767"
+		createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createClusterSharedSecurityResp.SecurityGroup.ID
+		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		if err != nil {
+			c.logger.Errorf("failed to create security group rule, error: %v", err)
+			return resource.CreateClusterResponse{}, err
+		}
 	}
 
 	// add DNS record to cloudflare
