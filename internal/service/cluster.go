@@ -19,6 +19,7 @@ import (
 type IClusterService interface {
 	CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest) (resource.CreateClusterResponse, error)
 	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
+	GetClusterDetails(ctx context.Context, authToken, clusterID string) (resource.GetClusterDetailsResponse, error)
 	GetClustersByProjectId(ctx context.Context, authToken, projectID string) ([]resource.GetClusterResponse, error)
 	DestroyCluster(ctx context.Context, authToken, clusterID string) (resource.DestroyCluster, error)
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
@@ -30,17 +31,19 @@ type clusterService struct {
 	loadbalancerService ILoadbalancerService
 	networkService      INetworkService
 	computeService      IComputeService
+	nodeGroupsService   INodeGroupsService
 	logger              *logrus.Logger
 	identityService     IIdentityService
 	repository          repository.IRepository
 }
 
-func NewClusterService(l *logrus.Logger, cf ICloudflareService, lbc ILoadbalancerService, ns INetworkService, cs IComputeService, i IIdentityService, r repository.IRepository) IClusterService {
+func NewClusterService(l *logrus.Logger, cf ICloudflareService, lbc ILoadbalancerService, ns INetworkService, cs IComputeService, ng INodeGroupsService, i IIdentityService, r repository.IRepository) IClusterService {
 	return &clusterService{
 		cloudflareService:   cf,
 		loadbalancerService: lbc,
 		networkService:      ns,
 		computeService:      cs,
+		nodeGroupsService:   ng,
 		logger:              l,
 		identityService:     i,
 		repository:          r,
@@ -842,20 +845,9 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	createClusterResp := resource.CreateClusterResponse{
-		ClusterUUID:                   clModel.ClusterUUID,
-		ClusterName:                   clModel.ClusterName,
-		ClusterStatus:                 clModel.ClusterStatus,
-		ClusterProjectUUID:            clModel.ClusterProjectUUID,
-		ClusterLoadbalancerUUID:       clModel.ClusterLoadbalancerUUID,
-		ClusterMasterServerGroupUUID:  masterNodeGroupModel.NodeGroupUUID,
-		ClusterWorkerServerGroupsUUID: workerNodeGroupModel.NodeGroupUUID,
-		ClusterSubnets:                req.SubnetIDs,
-		WorkerCount:                   req.WorkerNodeGroupMinSize,
-		WorkerType:                    req.WorkerInstanceFlavorUUID,
-		WorkerDiskSize:                req.WorkerDiskSizeGB,
-		ClusterEndpoint:               clModel.ClusterEndpoint,
-		ClusterAPIAccess:              clModel.ClusterAPIAccess,
-		ClusterVersion:                clModel.ClusterVersion,
+		ClusterUUID:   clModel.ClusterUUID,
+		ClusterName:   clModel.ClusterName,
+		ClusterStatus: clModel.ClusterStatus,
 	}
 
 	auditLog = &model.AuditLog{
@@ -907,6 +899,76 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 	}
 
 	return clusterResp, nil
+}
+
+func (c *clusterService) GetClusterDetails(ctx context.Context, authToken, clusterID string) (resource.GetClusterDetailsResponse, error) {
+	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
+	if err != nil {
+		c.logger.Errorf("failed to get cluster, error: %v", err)
+		return resource.GetClusterDetailsResponse{}, err
+	}
+
+	if cluster == nil {
+		c.logger.Errorf("failed to get cluster")
+		return resource.GetClusterDetailsResponse{}, nil
+	}
+
+	if cluster.ClusterProjectUUID == "" {
+		c.logger.Errorf("failed to get cluster")
+		return resource.GetClusterDetailsResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	if err != nil {
+		c.logger.Errorf("failed to check auth token, error: %v", err)
+		return resource.GetClusterDetailsResponse{}, err
+	}
+
+	clusterSubnetsArr := []string{}
+
+	err = json.Unmarshal(cluster.ClusterSubnets, &clusterSubnetsArr)
+	if err != nil {
+		c.logger.Errorf("failed to unmarshal cluster subnets, error: %v", err)
+		return resource.GetClusterDetailsResponse{}, err
+	}
+
+	getClusterDetailsResp := resource.GetClusterDetailsResponse{
+		ClusterUUID:             cluster.ClusterUUID,
+		ClusterName:             cluster.ClusterName,
+		ClusterVersion:          cluster.ClusterVersion,
+		ClusterStatus:           cluster.ClusterStatus,
+		ClusterProjectUUID:      cluster.ClusterProjectUUID,
+		ClusterLoadbalancerUUID: cluster.ClusterLoadbalancerUUID,
+		ClusterSubnets:          clusterSubnetsArr,
+		ClusterEndpoint:         cluster.ClusterEndpoint,
+		ClusterAPIAccess:        cluster.ClusterAPIAccess,
+	}
+
+	nodeGroups, err := c.nodeGroupsService.GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID)
+	if err != nil {
+		c.logger.Errorf("failed to get node groups, error: %v", err)
+		return resource.GetClusterDetailsResponse{}, err
+	}
+
+	if nodeGroups == nil {
+		c.logger.Errorf("failed to get node groups")
+
+		getClusterDetailsResp.ClusterMasterServerGroup = resource.NodeGroup{}
+		getClusterDetailsResp.ClusterWorkerServerGroups = []resource.NodeGroup{}
+
+		return getClusterDetailsResp, nil
+	}
+
+	for _, nodeGroup := range nodeGroups {
+		if nodeGroup.NodeGroupsType == NodeGroupMasterType {
+			getClusterDetailsResp.ClusterMasterServerGroup = nodeGroup
+			continue
+		}
+
+		getClusterDetailsResp.ClusterWorkerServerGroups = append(getClusterDetailsResp.ClusterWorkerServerGroups, nodeGroup)
+	}
+
+	return getClusterDetailsResp, nil
 }
 
 func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, projectID string) ([]resource.GetClusterResponse, error) {
