@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/pkg/mysqldb"
+	"gorm.io/gorm"
 )
 
 type INodeGroupsRepository interface {
@@ -75,6 +77,9 @@ func (n *NodeGroupsRepository) GetNodeGroupByUUID(ctx context.Context, uuid stri
 		Error
 
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &nodeGroup, nil

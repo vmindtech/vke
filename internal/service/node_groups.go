@@ -18,6 +18,7 @@ import (
 
 type INodeGroupsService interface {
 	GetNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string) ([]resource.NodeGroup, error)
+	GetNodeGroupsByClusterUUID(ctx context.Context, clusterUUID string) ([]resource.NodeGroup, error)
 	UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req request.UpdateNodeGroupRequest) (resource.UpdateNodeGroupResponse, error)
 	AddNode(ctx context.Context, authToken string, clusterUUID, nodeGroupUUID string) (resource.AddNodeResponse, error)
 	DeleteNode(ctx context.Context, authToken, clusterID, nodeGroupID, instanceName string) (resource.DeleteNodeResponse, error)
@@ -111,6 +112,35 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 		return resp, nil
 	}
 }
+
+func (nodg *nodeGroupsService) GetNodeGroupsByClusterUUID(ctx context.Context, clusterUUID string) ([]resource.NodeGroup, error) {
+	nodeGroups, err := nodg.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterUUID, "")
+	if err != nil {
+		nodg.logger.Errorf("failed to get node groups by cluster uuid %s, err: %v", clusterUUID, err)
+		return nil, err
+	}
+
+	var resp []resource.NodeGroup
+
+	for _, nodeGroup := range nodeGroups {
+		resp = append(resp, resource.NodeGroup{
+			ClusterUUID:      nodeGroup.ClusterUUID,
+			NodeGroupUUID:    nodeGroup.NodeGroupUUID,
+			NodeGroupName:    nodeGroup.NodeGroupName,
+			NodeGroupMinSize: nodeGroup.NodeGroupMinSize,
+			NodeGroupMaxSize: nodeGroup.NodeGroupMaxSize,
+			NodeDiskSize:     nodeGroup.NodeDiskSize,
+			NodeFlavorUUID:   nodeGroup.NodeFlavorUUID,
+			NodeGroupsType:   nodeGroup.NodeGroupsType,
+			CurrentNodes:     0, //ToDo: Keep current node count in db
+			NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
+		})
+
+	}
+
+	return resp, nil
+}
+
 func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, clusterUUID, nodeGroupUUD string) (resource.AddNodeResponse, error) {
 	if authToken == "" {
 		nodg.logger.Errorf("failed to get cluster")

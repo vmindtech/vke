@@ -85,12 +85,22 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 
 func (a *appHandler) GetCluster(c *fiber.Ctx) error {
 	clusterID := c.Params("cluster_id")
+	details := c.Query("details")
 
 	ctx := context.Background()
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
 		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+	}
+
+	if strings.ToLower(details) == "true" {
+		resp, err := a.appService.Cluster().GetClusterDetails(ctx, authToken, clusterID)
+		if err != nil {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+		}
+
+		return c.JSON(response.NewSuccessResponse(resp))
 	}
 
 	resp, err := a.appService.Cluster().GetCluster(ctx, authToken, clusterID)
