@@ -75,9 +75,14 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
-	resp, err := a.appService.Cluster().CreateCluster(ctx, authToken, req)
-	if err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+	clusterUUID := make(chan string)
+
+	go a.appService.Cluster().CreateCluster(ctx, authToken, req, clusterUUID)
+
+	resp := &resource.CreateClusterResponse{
+		ClusterUUID:   <-clusterUUID,
+		ClusterName:   req.ClusterName,
+		ClusterStatus: "CREATING",
 	}
 
 	return c.JSON(response.NewSuccessResponse(resp))
