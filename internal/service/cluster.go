@@ -1610,7 +1610,7 @@ func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, 
 }
 
 func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterID string, clUUID chan string) {
-	clusterUUID := clusterID
+	clusterUUID := uuid.New().String()
 
 	clUUID <- clusterUUID
 
@@ -1626,7 +1626,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 	}
 
 	if cluster.ClusterProjectUUID == "" {
-		c.logger.Errorf("Failed to get ClusterProjectUUID, clusterId: %s", clusterID)
+		c.logger.Errorf("Failed to get cluster, clusterId: %s", clusterID)
 		return
 	}
 
@@ -1636,9 +1636,9 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		return
 	}
 
-	err = c.CreateAuditLog(ctx, clusterID, cluster.ClusterProjectUUID, "Cluster Destroy started")
+	err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Cluster Destroying")
 	if err != nil {
-		c.logger.Errorf("failed to create audit log, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.Errorf("Failed to create audit log, error: %v", err)
 	}
 
 	//Delete LoadBalancer Pool and Listener
@@ -1662,32 +1662,33 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		}
 		err = c.loadbalancerService.CheckLoadBalancerDeletingPools(ctx, authToken, member)
 		if err != nil {
-			c.logger.Errorf("Failed to check load balancer deleting pools, error: %v clusterUUID:%s  Pool: %d", err, clusterUUID, member)
+			c.logger.Errorf("Failed to check load balancer deleting pools, error: %v clusterUUID:%s Pool: %d", err, clusterUUID, member)
 			err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to check load balancer deleting pools")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v", err)
+				c.logger.Errorf("Failed to create audit log, error: %v", err)
 			}
 		}
 	}
 	getLoadBalancerListenersResponse, err := c.loadbalancerService.GetLoadBalancerListeners(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 	if err != nil {
-		c.logger.Errorf("Failed to get load balancer listeners, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.Errorf("Failed to get load balancer listeners, error: %v clusterUUID: %s", err, clusterUUID)
 		err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to get load balancer listeners")
 		if err != nil {
-			c.logger.Errorf("Failed to create audit log, error: %v", err, clusterUUID)
+			c.logger.Errorf("Failed to create audit log, error: %v", err)
 		}
 	}
 	for _, member := range getLoadBalancerListenersResponse.Listeners {
 		err = c.loadbalancerService.DeleteLoadbalancerListeners(ctx, authToken, member)
 		if err != nil {
-			c.logger.Errorf("Failed to delete load balancer listeners, error: %v clusterUUID:%s Listeners:%d", err, clusterUUID, member)
+			c.logger.Errorf("Failed to delete load balancer listeners, error: %v clusterUUID:%s Listener: %d", err, clusterUUID, member)
 			err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to delete load balancer listeners")
 			if err != nil {
 				c.logger.Errorf("Failed to create audit log, error: %v", err)
+			}
 		}
 		err = c.loadbalancerService.CheckLoadBalancerDeletingListeners(ctx, authToken, member)
 		if err != nil {
-			c.logger.Errorf("Failed to check load balancer deleting listeners, error: %v clusterUUID:%s Listeners:%d", err, clusterUUID, member)
+			c.logger.Errorf("Failed to check load balancer deleting listeners, error: %v clusterUUID:%s Listener: %d", err, clusterUUID, member)
 			err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to check load balancer deleting listeners")
 			if err != nil {
 				c.logger.Errorf("Failed to create audit log, error: %v", err)
@@ -1708,8 +1709,8 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 	//Delete DNS Record
 	err = c.cloudflareService.DeleteDNSRecordFromCloudflare(ctx, cluster.ClusterCloudflareRecordID)
 	if err != nil {
-		c.logger.Errorf("Failed to delete DNS record, error: %v clusterUUID:%s", err, clusterUUID)
-		err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to delete DNS record")
+		c.logger.Errorf("Failed to delete dns record, error: %v clusterUUID:%s", err, clusterUUID)
+		err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to delete dns record")
 		if err != nil {
 			c.logger.Errorf("Failed to create audit log, error: %v", err)
 		}
@@ -1724,13 +1725,12 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 			if err != nil {
 				c.logger.Errorf("Failed to create audit log, error: %v", err)
 			}
-		
 		}
 	}
 	nodeGroupsOfCluster, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "")
 	if err != nil {
 		c.logger.Errorf("Failed to get node groups, error: %v clusterUUID: %s", err, clusterUUID)
-	    err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to get node groups")
+		err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to get node groups")
 		if err != nil {
 			c.logger.Errorf("Failed to create audit log, error: %v", err)
 		}
@@ -1741,63 +1741,62 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		clusterWorkerServerGroupsUUIDString = append(clusterWorkerServerGroupsUUIDString, nodeGroup.NodeGroupUUID)
 	}
 	if err != nil {
-		c.logger.Errorf("failed to get node groups, error: %v", err)
-		err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to get node groups")
+		c.logger.Errorf("Failed to unmarshal cluster worker server groups uuid, error: %v", err)
+		err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to unmarshal cluster worker server groups uuid")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.Errorf("Failed to create audit log, error: %v", err)
 		}
 	}
 	for _, serverGroup := range nodeGroupsOfCluster {
 		getServerGroupMembersListResp, err := c.computeService.GetServerGroupMemberList(ctx, authToken, serverGroup.NodeGroupUUID)
 		if err != nil {
-			c.logger.Errorf("failed to get server group members list, error: %v clusterUUID: %s", err, clusterUUID)
+			c.logger.Errorf("Failed to get server group members list, error: %v clusterUUID:%s", err, clusterUUID)
 			err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to get server group members list")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v", err)
+				c.logger.Errorf("Failed to create audit log, error: %v", err)
 			}
 		}
 		for _, member := range getServerGroupMembersListResp.Members {
-			fmt.Println(member)
 			getWorkerComputePortIdResp, err := c.networkService.GetComputeNetworkPorts(ctx, authToken, member)
 			if err != nil {
-				c.logger.Errorf("failed to get port, error: %v, clusterUUID: %s", err, clusterUUID)
-				err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to get port")
+				c.logger.Errorf("Failed to get compute network ports, error: %v clusterUUID:%s PortID: %d", err, clusterUUID, member)
+				err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to get compute network ports")
 				if err != nil {
-					c.logger.Errorf("failed to create audit log, error: %v", err)
+					c.logger.Errorf("Failed to create audit log, error: %v", err)
 				}
 			}
 			err = c.networkService.DeleteNetworkPort(ctx, authToken, getWorkerComputePortIdResp.Ports[0])
 			if err != nil {
-				c.logger.Errorf("failed to delete port, error: %v, clusterUUID: %s", err, clusterUUID)
-				err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to delete port")
+				c.logger.Errorf("Failed to delete network port, error: %v clusterUUID:%s PortID: %d", err, clusterUUID, member)
+				err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to delete network port")
 				if err != nil {
-					c.logger.Errorf("failed to create audit log, error: %v", err)
+					c.logger.Errorf("Failed to create audit log, error: %v", err)
 				}
 			}
 			err = c.computeService.DeleteCompute(ctx, authToken, member)
 			if err != nil {
-				c.logger.Errorf("failed to delete compute, error: %v, clusterUUID: %s", err, clusterUUID)
+				c.logger.Errorf("Failed to delete compute, error: %v clusterUUID:%s ComputeID: %d", err, clusterUUID, member)
 				err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to delete compute")
 				if err != nil {
-					c.logger.Errorf("failed to create audit log, error: %v", err)
+					c.logger.Errorf("Failed to create audit log, error: %v", err)
 				}
 			}
 		}
 		err = c.computeService.DeleteServerGroup(ctx, authToken, serverGroup.NodeGroupUUID)
 		if err != nil {
-			c.logger.Errorf("failed to delete server group, error: %v, clusterUUID: %s", err, clusterUUID)
+			c.logger.Errorf("Failed to delete server group, error: %v clusterUUID:%s ServerGroup: %s", err, clusterUUID, serverGroup.NodeGroupUUID)
 			err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to delete server group")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v", err)
+				c.logger.Errorf("Failed to create audit log, error: %v", err)
 			}
 		}
 		// Delete Worker Security Group
 		err = c.networkService.DeleteSecurityGroup(ctx, authToken, serverGroup.NodeGroupSecurityGroup)
 		if err != nil {
-			c.logger.Errorf("failed to delete security group, error: %v, clusterUUID: %s", err, clusterUUID)
+			c.logger.Errorf("Failed to delete security group, error: %v clusterUUID:%s SecurityGroup: %s", err, clusterUUID, serverGroup.NodeGroupSecurityGroup)
 			err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to delete security group")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v", err)
+				c.logger.Errorf("Failed to create audit log, error: %v", err)
 			}
 		}
 		ngModel := &model.NodeGroups{
@@ -1807,20 +1806,20 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		}
 		err = c.repository.NodeGroups().UpdateNodeGroups(ctx, ngModel)
 		if err != nil {
-			c.logger.Errorf("failed to update node groups, error: %v, clusterUUID: %s", err, clusterUUID)
+			c.logger.Errorf("Failed to update node groups, error: %v clusterUUID:%s NodeGroupUUID: %s", err, clusterUUID, serverGroup.NodeGroupUUID)
 			err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to update node groups")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v", err)
+				c.logger.Errorf("Failed to create audit log, error: %v", err)
 			}
 		}
 	}
 	// Delete Cluster Shared Security Group
 	err = c.networkService.DeleteSecurityGroup(ctx, authToken, cluster.ClusterSharedSecurityGroup)
 	if err != nil {
-		c.logger.Errorf("failed to delete security group, error: %v, clusterUUID: %s", err, clusterUUID)
+		c.logger.Errorf("Failed to delete security group, error: %v clusterUUID:%s SecurityGroup: %s", err, clusterUUID, cluster.ClusterSharedSecurityGroup)
 		err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to delete security group")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.Errorf("Failed to create audit log, error: %v", err)
 		}
 	}
 	clModel := &model.Cluster{
@@ -1830,25 +1829,19 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 
 	err = c.repository.Cluster().DeleteUpdateCluster(ctx, clModel, cluster.ClusterUUID)
 	if err != nil {
-		c.logger.Errorf("failed to delete cluster, error: %v, clusterUUID: %s", err, clusterUUID)
-		err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to delete cluster")
+		c.logger.Errorf("Failed to delete update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+		err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Failed to delete update cluster")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.Errorf("Failed to create audit log, error: %v", err)
 		}
-	}
-
-	clusterResp := resource.DestroyCluster{
-		ClusterID:         cluster.ClusterUUID,
-		ClusterDeleteDate: cluster.ClusterDeleteDate,
-		ClusterStatus:     DeletedClusterStatus,
 	}
 
 	err = c.CreateAuditLog(ctx, clusterUUID, cluster.ClusterProjectUUID, "Cluster Destroyed")
 	if err != nil {
-		c.logger.Errorf("failed to create audit log, error: %v", err)
+		c.logger.Errorf("Failed to create audit log, error: %v", err)
 	}
 
-	return 
+	return
 }
 
 func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error) {
