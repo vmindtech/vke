@@ -1475,6 +1475,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		FloatingIPUUID:             floatingIPUUID,
 		ClusterSharedSecurityGroup: ClusterSharedSecurityGroupUUID,
 		ClusterEndpoint:            addDNSResp.Result.Name,
+		ClusterCloudflareRecordID:  addDNSResp.Result.ID,
 	}
 
 	err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
