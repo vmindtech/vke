@@ -26,6 +26,7 @@ type Cluster struct {
 	FloatingIPUUID             string         `json:"floating_ip_uuid" gorm:"type:varchar(36)"`
 	ClusterCloudflareRecordID  string         `json:"cluster_cloudflare_record_id" gorm:"type:varchar(36)"`
 	ClusterSharedSecurityGroup string         `json:"cluster_shared_security_group" gorm:"type:varchar(50)"`
+	ApplicationCredentialID    string         `json:"application_credential_id" gorm:"type:varchar(36)"`
 }
 
 func (Cluster) TableName() string {

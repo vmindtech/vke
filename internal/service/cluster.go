@@ -100,6 +100,7 @@ const (
 	floatingIPPath         = "v2.0/floatingips"
 	listernersPath         = "v2/lbaas/listeners"
 	osInterfacePath        = "os-interface"
+	tokenPath              = "v3/auth/tokens"
 )
 
 const (
@@ -131,7 +132,15 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-
+	createApplicationCredentialReq, err := c.identityService.CreateApplicationCredential(ctx, clusterUUID, authToken)
+	if err != nil {
+		c.logger.Errorf("failed to create application credential, error: %v clusterUUID: %s", err, clusterUUID)
+		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
+		if err != nil {
+			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+		}
+		return
+	}
 	clusterModel := &model.Cluster{
 		ClusterUUID:                clusterUUID,
 		ClusterName:                req.ClusterName,
@@ -147,6 +156,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterAPIAccess:           req.ClusterAPIAccess,
 		FloatingIPUUID:             "",
 		ClusterSharedSecurityGroup: "",
+		ApplicationCredentialID:    createApplicationCredentialReq.Credential.ID,
 	}
 
 	err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create")
