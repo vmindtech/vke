@@ -339,10 +339,6 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 		cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
 		return []resource.Servers{}, err
 	}
-	// fmt.Println("ClusterUUID: ", ClusterUUID)
-	// fmt.Println("NodeGroupUUID: ", nodeGroupUUID)
-	// fmt.Println("authToken: ", authToken)
-
 	nodeGroup, err := cs.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupUUID)
 	if err != nil {
 		cs.logger.Errorf("failed to get node group, error: %v", err)

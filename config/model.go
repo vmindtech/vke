@@ -51,7 +51,9 @@ type OpenStackApiConfig struct {
 }
 
 type VkeAgentConfig struct {
-	VkeAgentVersion string
+	VkeAgentVersion          string
+	ClusterAutoscalerVersion string
+	CloudProviderVkeVersion  string
 }
 
 func (w WebConfig) IsProductionEnv() bool {

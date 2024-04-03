@@ -101,6 +101,7 @@ const (
 	listernersPath         = "v2/lbaas/listeners"
 	osInterfacePath        = "os-interface"
 	tokenPath              = "v3/auth/tokens"
+	vmindCloudAuthURL      = "https://ist-api.portvmind.com.tr:5000/v3/"
 )
 
 const (
@@ -436,10 +437,16 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		req.KubernetesVersion,
 		req.ClusterName,
 		clusterUUID,
+		req.ProjectID,
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		"",
+		vmindCloudAuthURL,
+		config.GlobalConfig.GetVkeAgentConfig().ClusterAutoscalerVersion,
+		config.GlobalConfig.GetVkeAgentConfig().CloudProviderVkeVersion,
+		createApplicationCredentialReq.Credential.ID,
+		createApplicationCredentialReq.Credential.Secret,
 	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v  clusterUUID:%s", err, clusterUUID)
@@ -1070,9 +1077,15 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		req.KubernetesVersion,
 		req.ClusterName,
 		clusterUUID,
+		"",
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
+		"",
+		"",
+		"",
+		"",
+		"",
 		"",
 	)
 	if err != nil {
@@ -1333,10 +1346,16 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		req.KubernetesVersion,
 		req.ClusterName,
 		clusterUUID,
+		"",
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		strings.Join(defaultWorkerLabels, ","),
+		"",
+		"",
+		"",
+		"",
+		"",
 	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
@@ -1736,7 +1755,6 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 			return resource.DestroyCluster{}, err
 		}
 		for _, member := range getServerGroupMembersListResp.Members {
-			fmt.Println(member)
 			getWorkerComputePortIdResp, err := c.networkService.GetComputeNetworkPorts(ctx, authToken, member)
 			if err != nil {
 				c.logger.Errorf("failed to get compute port id, error: %v", err)

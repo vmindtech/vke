@@ -14,7 +14,8 @@ type CreateApplicationCredentialResponse struct {
 }
 
 type Credential struct {
-	ID string `json:"id"`
+	ID     string `json:"id"`
+	Secret string `json:"secret"`
 }
 
 type GetTokenDetailsResponse struct {

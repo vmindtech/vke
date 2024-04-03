@@ -128,8 +128,6 @@ func (i *identityService) CreateApplicationCredential(ctx context.Context, clust
 	}
 
 	applicationCredentialPath := fmt.Sprintf("/v3/users/%s/application_credentials", getUserID)
-	fmt.Println(applicationCredentialPath)
-	fmt.Println(string(data))
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint, applicationCredentialPath), bytes.NewBuffer(data))
 	if err != nil {
 		i.logger.Errorf("failed to create request, error: %v", err)

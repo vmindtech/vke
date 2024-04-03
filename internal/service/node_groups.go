@@ -241,10 +241,16 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		cluster.ClusterVersion,
 		cluster.ClusterName,
 		cluster.ClusterUUID,
+		"",
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		strings.Join(nodeGroupLabelsArr, ","),
+		"",
+		"",
+		"",
+		"",
+		"",
 	)
 	if err != nil {
 		nodg.logger.Errorf("failed to generate user data from template, error: %v", err)
@@ -516,10 +522,16 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		cluster.ClusterVersion,
 		cluster.ClusterName,
 		clusterID,
+		"",
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		strings.Join(req.NodeGroupLabels, ","),
+		"",
+		"",
+		"",
+		"",
+		"",
 	)
 	if err != nil {
 		nodg.logger.Errorf("failed to generate user data from template, error: %v", err)
