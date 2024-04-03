@@ -143,10 +143,12 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 	if authToken == "" {
 		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
-
-	resp, err := a.appService.Cluster().DestroyCluster(ctx, authToken, clusterID)
-	if err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+	clusterUUID := make(chan string)
+	go a.appService.Cluster().DestroyCluster(ctx, authToken, clusterID, clusterUUID)
+	resp := &resource.DestroyCluster{
+		ClusterID:         <-clusterUUID,
+		ClusterDeleteDate: time.Now(),
+		ClusterStatus:     "DELETING",
 	}
 
 	return c.JSON(response.NewSuccessResponse(resp))
