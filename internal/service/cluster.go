@@ -1793,12 +1793,14 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 					c.logger.Errorf("Failed to create audit log, error: %v", err)
 				}
 			}
-			err = c.networkService.DeleteNetworkPort(ctx, authToken, getWorkerComputePortIdResp.Ports[0])
-			if err != nil {
-				c.logger.Errorf("Failed to delete network port, error: %v clusterUUID:%s PortID: %d", err, cluster.ClusterUUID, member)
-				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete network port")
+			if len(getWorkerComputePortIdResp.Ports) > 0 {
+				err = c.networkService.DeleteNetworkPort(ctx, authToken, getWorkerComputePortIdResp.Ports[0])
 				if err != nil {
-					c.logger.Errorf("Failed to create audit log, error: %v", err)
+					c.logger.Errorf("Failed to delete network port, error: %v clusterUUID:%s PortID: %d", err, cluster.ClusterUUID, member)
+					err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete network port")
+					if err != nil {
+						c.logger.Errorf("Failed to create audit log, error: %v", err)
+					}
 				}
 			}
 			err = c.computeService.DeleteCompute(ctx, authToken, member)
