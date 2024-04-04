@@ -146,7 +146,7 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 	clusterUUID := make(chan string)
 	go a.appService.Cluster().DestroyCluster(ctx, authToken, clusterID, clusterUUID)
 	resp := &resource.DestroyCluster{
-		ClusterID:         clusterID,
+		ClusterID:         <-clusterUUID,
 		ClusterDeleteDate: time.Now(),
 		ClusterStatus:     "DELETING",
 	}
