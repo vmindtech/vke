@@ -1802,7 +1802,14 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 						c.logger.Errorf("Failed to create audit log, error: %v", err)
 					}
 				}
+			} else {
+				c.logger.Errorf("Failed to get compute network ports, error: %v clusterUUID:%s PortID: %d", err, cluster.ClusterUUID, member)
+				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to get compute network ports")
+				if err != nil {
+					c.logger.Errorf("Failed to create audit log, error: %v", err)
+				}
 			}
+
 			err = c.computeService.DeleteCompute(ctx, authToken, member)
 			if err != nil {
 				c.logger.Errorf("Failed to delete compute, error: %v clusterUUID:%s ComputeID: %d", err, cluster.ClusterUUID, member)
