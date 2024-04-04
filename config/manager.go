@@ -166,6 +166,8 @@ func (c *configureManager) GetOpenStackApiConfig() OpenStackApiConfig {
 
 func (c *configureManager) GetVkeAgentConfig() VkeAgentConfig {
 	return VkeAgentConfig{
-		VkeAgentVersion: viper.GetString("VKE_AGENT_VERSION"),
+		VkeAgentVersion:          viper.GetString("VKE_AGENT_VERSION"),
+		ClusterAutoscalerVersion: viper.GetString("CLUSTER_AUTOSCALER_VERSION"),
+		CloudProviderVkeVersion:  viper.GetString("CLOUD_PROVIDER_VKE_VERSION"),
 	}
 }

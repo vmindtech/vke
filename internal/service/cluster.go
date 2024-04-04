@@ -100,6 +100,8 @@ const (
 	floatingIPPath         = "v2.0/floatingips"
 	listernersPath         = "v2/lbaas/listeners"
 	osInterfacePath        = "os-interface"
+	tokenPath              = "v3/auth/tokens"
+	vkeCloudAuthURL        = "https://ist-api.portvmind.com.tr:5000/v3/"
 )
 
 const (
@@ -131,7 +133,15 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-
+	createApplicationCredentialReq, err := c.identityService.CreateApplicationCredential(ctx, clusterUUID, authToken)
+	if err != nil {
+		c.logger.Errorf("failed to create application credential, error: %v clusterUUID: %s", err, clusterUUID)
+		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
+		if err != nil {
+			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+		}
+		return
+	}
 	clusterModel := &model.Cluster{
 		ClusterUUID:                clusterUUID,
 		ClusterName:                req.ClusterName,
@@ -147,6 +157,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterAPIAccess:           req.ClusterAPIAccess,
 		FloatingIPUUID:             "",
 		ClusterSharedSecurityGroup: "",
+		ApplicationCredentialID:    createApplicationCredentialReq.Credential.ID,
 	}
 
 	err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create")
@@ -426,10 +437,16 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		req.KubernetesVersion,
 		req.ClusterName,
 		clusterUUID,
+		req.ProjectID,
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		"",
+		vkeCloudAuthURL,
+		config.GlobalConfig.GetVkeAgentConfig().ClusterAutoscalerVersion,
+		config.GlobalConfig.GetVkeAgentConfig().CloudProviderVkeVersion,
+		createApplicationCredentialReq.Credential.ID,
+		createApplicationCredentialReq.Credential.Secret,
 	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v  clusterUUID:%s", err, clusterUUID)
@@ -1060,9 +1077,15 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		req.KubernetesVersion,
 		req.ClusterName,
 		clusterUUID,
+		"",
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
+		"",
+		"",
+		"",
+		"",
+		"",
 		"",
 	)
 	if err != nil {
@@ -1323,10 +1346,16 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		req.KubernetesVersion,
 		req.ClusterName,
 		clusterUUID,
+		"",
 		config.GlobalConfig.GetWebConfig().Endpoint,
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		strings.Join(defaultWorkerLabels, ","),
+		"",
+		"",
+		"",
+		"",
+		"",
 	)
 	if err != nil {
 		c.logger.Errorf("failed to generate user data from template, error: %v", err)
@@ -1446,6 +1475,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		FloatingIPUUID:             floatingIPUUID,
 		ClusterSharedSecurityGroup: ClusterSharedSecurityGroupUUID,
 		ClusterEndpoint:            addDNSResp.Result.Name,
+		ClusterCloudflareRecordID:  addDNSResp.Result.ID,
 	}
 
 	err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)

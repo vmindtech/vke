@@ -42,23 +42,25 @@ To get a local copy up and running, follow these simple steps.
 
    ```sh
         {
-            "APP_NAME": "vke",
-            "PORT": "8000",
-            "ENV": "development",
-            "VERSION": "0.1.0",
-            "MYSQL_URL": "",
-            "COMPUTE_ENDPOINT": "",
-            "NETWORK_ENDPOINT": "",
-            "LOAD_BALANCER_ENDPOINT": "",
-            "IDENTITY_ENDPOINT": "",
-            "CLOUDFLARE_AUTH_TOKEN": "",
-            "CLOUDFLARE_ZONE_ID": "",
-            "CLOUDFLARE_DOMAIN": "",
-            "PUBLIC_NETWORK_ID": "",
-            "IMAGE_REF": "",
-            "NOVA_MICRO_VERSION": "",
-            "ENDPOINT": "",
-            "VKE_AGENT_VERSION": ""
+          "APP_NAME" : "vke",
+          "PORT" : "80",
+          "ENV" : "development",
+          "VERSION" : "0.1.0",
+          "MYSQL_URL": "",
+          "COMPUTE_ENDPOINT": "",
+          "NETWORK_ENDPOINT": "",
+          "LOAD_BALANCER_ENDPOINT": "",
+          "IDENTITY_ENDPOINT": "",
+          "CLOUDFLARE_AUTH_TOKEN": "",
+          "CLOUDFLARE_ZONE_ID": "",
+          "CLOUDFLARE_DOMAIN": "",
+          "PUBLIC_NETWORK_ID": "",
+          "IMAGE_REF": "",
+          "NOVA_MICRO_VERSION": "2.88",
+          "ENDPOINT":  "",
+          "VKE_AGENT_VERSION": "",
+          "CLUSTER_AUTOSCALER_VERSION": "",
+          "CLOUD_PROVIDER_VKE_VERSION": ""
         }
    ```
     Set the environment variable for your application's environment using the following commands in the terminal:
