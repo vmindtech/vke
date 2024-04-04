@@ -1803,7 +1803,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 					}
 				}
 			} else {
-				c.logger.Errorf("Failed to get compute network ports, error: %v clusterUUID:%s PortID: %d", err, cluster.ClusterUUID, member)
+				c.logger.Errorf("Compute node port not found, error: %v clusterUUID:%s PortID: %d", err, cluster.ClusterUUID, member)
 				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to get compute network ports")
 				if err != nil {
 					c.logger.Errorf("Failed to create audit log, error: %v", err)
