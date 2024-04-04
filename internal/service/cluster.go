@@ -101,7 +101,7 @@ const (
 	listernersPath         = "v2/lbaas/listeners"
 	osInterfacePath        = "os-interface"
 	tokenPath              = "v3/auth/tokens"
-	vmindCloudAuthURL      = "https://ist-api.portvmind.com.tr:5000/v3/"
+	vkeCloudAuthURL        = "https://ist-api.portvmind.com.tr:5000/v3/"
 )
 
 const (
@@ -442,7 +442,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		"",
-		vmindCloudAuthURL,
+		vkeCloudAuthURL,
 		config.GlobalConfig.GetVkeAgentConfig().ClusterAutoscalerVersion,
 		config.GlobalConfig.GetVkeAgentConfig().CloudProviderVkeVersion,
 		createApplicationCredentialReq.Credential.ID,

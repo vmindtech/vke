@@ -11,7 +11,7 @@ import (
 	"gorm.io/datatypes"
 )
 
-func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serverAddress, kubeVersion, clusterName, clusterUUID, projectUUID, vkeAPIEndpoint, authToken, vkeAgentVersion, rke2NodeLabel, vmindCloudAuthURL, clusterAutoscalerVersion, cloudProviderVkeVersion, applicationCredentialID, applicationCredentialKey string) (string, error) {
+func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serverAddress, kubeVersion, clusterName, clusterUUID, projectUUID, vkeAPIEndpoint, authToken, vkeAgentVersion, rke2NodeLabel, vkeCloudAuthURL, clusterAutoscalerVersion, cloudProviderVkeVersion, applicationCredentialID, applicationCredentialKey string) (string, error) {
 	shFile := "scripts/rke2-init-sh.tpl"
 	t, err := template.ParseFiles(shFile)
 	if err != nil {
@@ -33,7 +33,7 @@ func GenerateUserDataFromTemplate(initiliazeFlag, rke2AgentType, rke2Token, serv
 		"authToken":                authToken,
 		"vkeAgentVersion":          vkeAgentVersion,
 		"rke2NodeLabel":            rke2NodeLabel,
-		"vmindCloudAuthURL":        vmindCloudAuthURL,
+		"vkeCloudAuthURL":          vkeCloudAuthURL,
 		"clusterAutoscalerVersion": clusterAutoscalerVersion,
 		"cloudProviderVkeVersion":  cloudProviderVkeVersion,
 		"applicationCredentialID":  applicationCredentialID,
