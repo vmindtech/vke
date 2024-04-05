@@ -170,7 +170,7 @@ func (i *identityService) DeleteApplicationCredential(ctx context.Context, authT
 		i.logger.Errorf("failed to get user id, error: %v", err)
 		return err
 	}
-	applicationCredentialPath := fmt.Sprintf("/v3/%s/application_credentials/%v", getUserID, applicationCredentialID)
+	applicationCredentialPath := fmt.Sprintf("/v3/users/%s/application_credentials/%v", getUserID, applicationCredentialID)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint, applicationCredentialPath), nil)
 	if err != nil {
 		i.logger.Errorf("failed to create request, error: %v", err)
