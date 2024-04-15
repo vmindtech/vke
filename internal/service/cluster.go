@@ -1859,6 +1859,17 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 			c.logger.Errorf("Failed to create audit log, error: %v", err)
 		}
 	}
+
+	// Delete Application Credentials
+	err = c.identityService.DeleteApplicationCredential(ctx, authToken, cluster.ApplicationCredentialID)
+	if err != nil {
+		c.logger.Errorf("Failed to delete application credentials, error: %v clusterUUID:%s", err, cluster.ClusterUUID)
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete application credentials")
+		if err != nil {
+			c.logger.Errorf("Failed to create audit log, error: %v", err)
+		}
+	}
+
 	clModel := &model.Cluster{
 		ClusterStatus:     DeletedClusterStatus,
 		ClusterDeleteDate: time.Now(),

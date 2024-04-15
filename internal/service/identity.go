@@ -19,6 +19,7 @@ type IIdentityService interface {
 	CheckAuthToken(ctx context.Context, authToken, projectUUID string) error
 	CreateApplicationCredential(ctx context.Context, clusterUUID, authToken string) (*resource.CreateApplicationCredentialResponse, error)
 	GetTokenDetail(ctx context.Context, authToken string) (string, error)
+	DeleteApplicationCredential(ctx context.Context, authToken, applicationCredentialID string) error
 }
 
 type identityService struct {
@@ -161,4 +162,32 @@ func (i *identityService) CreateApplicationCredential(ctx context.Context, clust
 	}
 	return &respDecoder, nil
 
+}
+
+func (i *identityService) DeleteApplicationCredential(ctx context.Context, authToken, applicationCredentialID string) error {
+	getUserID, err := i.GetTokenDetail(ctx, authToken)
+	if err != nil {
+		i.logger.Errorf("failed to get user id, error: %v", err)
+		return err
+	}
+	applicationCredentialPath := fmt.Sprintf("/v3/users/%s/application_credentials/%v", getUserID, applicationCredentialID)
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint, applicationCredentialPath), nil)
+	if err != nil {
+		i.logger.Errorf("failed to create request, error: %v", err)
+		return err
+	}
+
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		i.logger.Errorf("failed to send request, error: %v", err)
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("failed to delete application credential, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+	return nil
 }
