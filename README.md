@@ -31,6 +31,13 @@ To get a local copy up and running, follow these simple steps.
 
 ### Installation
 
+## Create Database
+
+    ```
+    mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/vke.sql 
+    ```
+
+## Configuring and Running the Application Locally
 1. Clone the repo
    ```sh
    git clone https://github.com/vmindtech/vke.git
@@ -74,13 +81,8 @@ To get a local copy up and running, follow these simple steps.
     export golang_env=production
     ```
     These commands will help you specify the runtime environment for your application.
-3. Create DATABASE
 
-    ```
-    mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/vke.sql 
-    ```
-
-4. Run the Application
+3. Run the Application
 
     To run the application using Air for automatic reloading during development, use the following command in the terminal:
 
