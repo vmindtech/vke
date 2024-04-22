@@ -26,18 +26,19 @@ To get a local copy up and running, follow these simple steps.
 
 ### Prerequisites
 
-- Go 1.21+
-- OpenStack account and credentials
+- Go 1.21+ installed on your system.
+- An active OpenStack account with valid credentials.
+- MySQL 8.0.36+ installed on your system and accessible.
 
 ### Installation
 
-## Create Database
+#### Create Database
 
     ```
     mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/vke.sql 
     ```
 
-## Configuring and Running the Application Locally
+#### Configuring and Running the Application Locally
 1. Clone the repo
    ```sh
    git clone https://github.com/vmindtech/vke.git
@@ -93,7 +94,7 @@ To get a local copy up and running, follow these simple steps.
     This command will start the application and automatically reload it whenever code changes are detected, making your development process faster and more efficient.
 
 
-## Running the Application with Docker
+#### Running the Application with Docker
 
 To run the application with Docker, follow these steps:
 
