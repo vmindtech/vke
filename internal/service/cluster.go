@@ -1175,8 +1175,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-
-	c.logger.Errorf("failed to check load balancer status, error: %v", err)
 	createMemberReq.Member.ProtocolPort = 9345
 	createMemberReq.Member.MonitorPort = 9345
 	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
@@ -1520,6 +1518,7 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 	}
 
 	clusterResp := resource.GetClusterResponse{
+		ClusterName:                cluster.ClusterName,
 		ClusterID:                  cluster.ClusterUUID,
 		ProjectID:                  cluster.ClusterProjectUUID,
 		KubernetesVersion:          cluster.ClusterVersion,
@@ -1623,6 +1622,7 @@ func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, 
 
 	for _, cluster := range clusters {
 		clustersResp = append(clustersResp, resource.GetClusterResponse{
+			ClusterName:                cluster.ClusterName,
 			ClusterID:                  cluster.ClusterUUID,
 			ProjectID:                  cluster.ClusterProjectUUID,
 			KubernetesVersion:          cluster.ClusterVersion,
