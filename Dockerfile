@@ -15,7 +15,7 @@ COPY --from=build-stage /app/vke-application /vke-application
 COPY --from=build-stage /app/locale /locale
 COPY --from=build-stage /app/scripts/rke2-init-sh.tpl  /scripts/rke2-init-sh.tpl
 
-EXPOSE 8080
+EXPOSE 80
 
 
 ENTRYPOINT ["/vke-application"]
