@@ -90,6 +90,44 @@ To get a local copy up and running, follow these simple steps.
 
     This command will start the application and automatically reload it whenever code changes are detected, making your development process faster and more efficient.
 
+
+## Running the Application with Docker
+
+To run the application with Docker, follow these steps:
+
+1. Build the Docker image or pull it from Docker Hub:
+    - To build the Docker image locally:
+        ```sh
+        docker build -t vmindtech/vke-app .
+        ```
+
+    - Alternatively, you can pull the ready-made image from Docker Hub:
+        ```sh
+        docker pull vmindtech/vke-app:tag
+        ```
+        Replace `tag` with the desired version tag, for example `1.0`.
+
+2. Run the Docker container:
+    ```sh
+    docker run -ti -v /opt/vke/config-production.json:/config-production.json -e golang_env='production' -p 8080:80 --name vke-app vmindtech/vke-app:tag
+    ```
+    Replace `tag` with the desired version tag, for example `1.0`.
+
+    This command mounts either the `config-production.json` or `config-development.json` file from your host machine into the container, sets the `golang_env` environment variable to 'production' or 'development' accordingly, and forwards requests from port `8080` on your host machine to port `80` inside the Docker container. You can replace `/opt/vke/config-production.json` or `/opt/vke/config-development.json` with the path to your actual configuration file and use any port you prefer.
+
+3. View the application in your browser:
+    Navigate to `http://localhost:8080` in your browser to view the application.
+
+4. Stopping and removing the container:
+    ```sh
+    docker stop vke-app
+    docker rm vke-app
+    ```
+
+    Use the above commands to stop and remove the container when you're done.
+
+Once you've successfully run the application with Docker, you can access it at `http://localhost:8080`.
+
 <!-- LICENSE -->
 ## License
 
