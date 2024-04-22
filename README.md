@@ -22,7 +22,7 @@
 
 ## Getting Started
 
-To get a local copy up and running, follow these simple steps.
+To run the application, follow these steps:
 
 ### Prerequisites
 
