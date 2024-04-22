@@ -101,7 +101,7 @@ To run the application with Docker, follow these steps:
         docker build -t vmindtech/vke-app .
         ```
 
-    - Alternatively, you can pull the ready-made image from [Docker Hub](https://hub.docker.com/r/vmindtech/vke-application):
+    - Alternatively, you can pull the ready-made image from Docker Hub:
         ```sh
         docker pull vmindtech/vke-application:tag
         ```
