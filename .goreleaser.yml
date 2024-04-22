@@ -3,11 +3,13 @@ before:
     - go mod download
     - go mod tidy
 builds:
-  - goos:
-      - linux
+  - id: vke-application
+    goos:
+       - linux
     goarch:
       - amd64
     main: ./cmd/api
+    binary: vke-application
 checksum:
   name_template: 'checksums.txt'
 changelog:
@@ -16,12 +18,12 @@ changelog:
     exclude:
       - '^docs:'
 archives:
-- id: vke-application-archive
-  name_template: |-
-    vke-application_{{.Tag}}_{{.Os}}_{{.Arch}}
-  builds:
-    - vke-application
-  files:
-    - locale
-    - scripts/rke2-init-sh.tpl
-    - README.md
+  - id: vke-application-archive
+    name_template: |-
+      vke-application_{{.Tag}}_{{.Os}}_{{.Arch}}
+    builds:
+      - vke-application
+    files:
+      - locale
+      - scripts/rke2-init-sh.tpl
+      - README.md
