@@ -22,15 +22,23 @@
 
 ## Getting Started
 
-To get a local copy up and running, follow these simple steps.
+To run the application, follow these steps:
 
 ### Prerequisites
 
-- Go 1.21+
-- OpenStack account and credentials
+- Go 1.21+ installed on your system.
+- An active OpenStack account with valid credentials.
+- MySQL 8.0.36+ installed on your system and accessible.
 
 ### Installation
 
+#### Create Database
+
+    ```
+    mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/vke.sql 
+    ```
+
+#### Configuring and Running the Application Locally
 1. Clone the repo
    ```sh
    git clone https://github.com/vmindtech/vke.git
@@ -74,13 +82,8 @@ To get a local copy up and running, follow these simple steps.
     export golang_env=production
     ```
     These commands will help you specify the runtime environment for your application.
-3. Create DATABASE
 
-    ```
-    mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/vke.sql 
-    ```
-
-4. Run the Application
+3. Run the Application
 
     To run the application using Air for automatic reloading during development, use the following command in the terminal:
 
@@ -89,6 +92,45 @@ To get a local copy up and running, follow these simple steps.
     ```
 
     This command will start the application and automatically reload it whenever code changes are detected, making your development process faster and more efficient.
+
+
+#### Running the Application with Docker
+
+To run the application with Docker, follow these steps:
+
+1. Build the Docker image or pull it from [Docker Hub](https://hub.docker.com/r/vmindtech/vke-application):
+    - To build the Docker image locally:
+        ```sh
+        docker build -t vmindtech/vke-app .
+        ```
+
+    - Alternatively, you can pull the ready-made image from Docker Hub:
+        ```sh
+        docker pull vmindtech/vke-application:tag
+        ```
+        Replace `tag` with the desired version tag, for example `1.0`.
+
+
+2. Run the Docker container:
+    ```sh
+    docker run -ti -v /opt/vke/config-production.json:/config-production.json -e golang_env='production' -p 8080:80 --name vke-application vmindtech/vke-application:tag
+    ```
+    Replace `tag` with the desired version tag, for example `1.0`.
+
+    This command mounts either the `config-production.json` or `config-development.json` file from your host machine into the container, sets the `golang_env` environment variable to 'production' or 'development' accordingly, and forwards requests from port `8080` on your host machine to port `80` inside the Docker container. You can replace `/opt/vke/config-production.json` or `/opt/vke/config-development.json` with the path to your actual configuration file and use any port you prefer.
+
+3. View the application in your browser:
+    Navigate to `http://localhost:8080` in your browser to view the application.
+
+4. Stopping and removing the container:
+    ```sh
+    docker stop vke-application
+    docker rm vke-application
+    ```
+
+    Use the above commands to stop and remove the container when you're done.
+
+Once you've successfully run the application with Docker, you can access it at `http://localhost:8080`.
 
 <!-- LICENSE -->
 ## License
