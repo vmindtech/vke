@@ -320,7 +320,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerStatus(ctx context.Context, aut
 	for {
 		if waitIterator < 16 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			fmt.Printf("Waiting for load balancer to be active, waited %v seconds\n", waitSeconds)
+			lbc.logger.Infof("Waiting for load balancer  id: %s to be ACTIVE, waited %v seconds", loadBalancerID, waitSeconds)
 			waitIterator++
 			waitSeconds = waitSeconds + 5
 		} else {
@@ -435,7 +435,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerOperationStatus(ctx context.Con
 	for {
 		if waitIterator < 16 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			fmt.Printf("Waiting for load balancer operation to be ONLINE, waited %v seconds\n", waitSeconds)
+			lbc.logger.Infof("Waiting for load balancer id: %s operation to be ONLINE, waited %v seconds", loadBalancerID, waitSeconds)
 			waitIterator++
 			waitSeconds = waitSeconds + 5
 		} else {
@@ -539,7 +539,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Conte
 	for {
 		if waitIterator < 8 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			fmt.Printf("Waiting for load balancer pool to be deleted, waited %v seconds\n", waitSeconds)
+			lbc.logger.Infof("Waiting for load balancer pool id: %s to be deleted, waited %v seconds", poolID, waitSeconds)
 			waitIterator++
 			waitSeconds = waitSeconds + 5
 			r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
@@ -656,7 +656,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.C
 	for {
 		if waitIterator < 8 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			fmt.Printf("Waiting for load balancer listener to be deleted, waited %v seconds\n", waitSeconds)
+			lbc.logger.Infof("Waiting for load balancer listener id: %s to be deleted, waited %v seconds", listenerID, waitSeconds)
 			waitIterator++
 			waitSeconds = waitSeconds + 5
 			r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
