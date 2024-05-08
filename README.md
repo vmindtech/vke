@@ -13,12 +13,13 @@
 <div align="center">
 
   <h3 align="center">vMind Kubernetes Engine for OpenStack</h3>
-
   <p align="center">
      A middleware service that orchestrates the end-to-end deployment of Kubernetes clusters on OpenStack infrastructure, leveraging RKE2 to provide a fully managed and ready-to-use Kubernetes cluster solution.
     <br />
   </p>
 </div>
+<br />
+<h3> ⚠️ IMPORTANT - This project is in beta phase and continues to be developed. ⚠️ </h4>
 
 ## Getting Started
 
