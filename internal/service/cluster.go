@@ -517,26 +517,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-
-	// temporary for ssh access
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "22"
-	createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "22"
-	createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createClusterSharedSecurityResp.SecurityGroup.ID
-	err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
-	if err != nil {
-		c.logger.Errorf("failed to create security group rule, error: %v clusterUUID:%s", err, clusterUUID)
-		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
-		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
-		}
-
-		clusterModel.ClusterStatus = ErrorClusterStatus
-		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
-		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
-		}
-		return
-	}
 	randSubnetId := GetRandomStringFromArray(req.SubnetIDs)
 	portRequest := &request.CreateNetworkPortRequest{
 		Port: request.Port{
