@@ -55,6 +55,7 @@ const (
 	ActiveClusterStatus   = "Active"
 	CreatingClusterStatus = "Creating"
 	UpdatingClusterStatus = "Updating"
+	DeletingClusterStatus = "Deleting"
 	DeletedClusterStatus  = "Deleted"
 	ErrorClusterStatus    = "Error"
 )
@@ -119,6 +120,27 @@ func (c *clusterService) CreateAuditLog(ctx context.Context, clusterUUID, projec
 	return c.repository.AuditLog().CreateAuditLog(ctx, auditLog)
 }
 
+func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string) error {
+	waitIterator := 0
+	waitSeconds := 10
+	for {
+		if waitIterator < 6 {
+			time.Sleep(time.Duration(waitSeconds) * time.Second)
+			c.logger.Infof("Waiting for Kubeconfig  ClusterUUID: %s to be ACTIVE, waited %v seconds", clusterUUID, waitSeconds)
+			waitIterator++
+		} else {
+			err := fmt.Errorf("Failed to send Kubeconfig for ClusterUUID: %s", clusterUUID)
+			return err
+		}
+		_, err := c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, clusterUUID)
+		if err != nil {
+			c.logger.Errorf("ClusterUUID: %s kubeconfig not send yet, error: %v", clusterUUID, err)
+		} else {
+			break
+		}
+	}
+	return nil
+}
 func (c *clusterService) CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest, clUUID chan string) {
 	clusterUUID := uuid.New().String()
 
@@ -1455,7 +1477,15 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterEndpoint:            addDNSResp.Result.Name,
 		ClusterCloudflareRecordID:  addDNSResp.Result.ID,
 	}
-
+	err = c.CheckKubeConfig(ctx, clusterUUID)
+	if err != nil {
+		clusterModel.ClusterStatus = ErrorClusterStatus
+		c.logger.Errorf("failed to check kube config, error: %v", err)
+		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
+		if err != nil {
+			c.logger.Errorf("failed to create audit log, error: %v", err)
+		}
+	}
 	err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 	if err != nil {
 		c.logger.Errorf("failed to update cluster, error: %v", err)
@@ -1649,6 +1679,19 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		c.logger.Errorf("Failed to create audit log, error: %v", err)
 	}
 
+	clModel := &model.Cluster{
+		ClusterStatus:     DeletingClusterStatus,
+		ClusterDeleteDate: time.Now(),
+	}
+
+	err = c.repository.Cluster().DeleteUpdateCluster(ctx, clModel, cluster.ClusterUUID)
+	if err != nil {
+		c.logger.Errorf("Failed to delete update cluster, error: %v clusterUUID:%s", err, cluster.ClusterUUID)
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete update cluster")
+		if err != nil {
+			c.logger.Errorf("Failed to create audit log, error: %v", err)
+		}
+	}
 	//Delete LoadBalancer Pool and Listener
 	getLoadBalancerPoolsResponse, err := c.loadbalancerService.GetLoadBalancerPools(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 	if err != nil {
@@ -1850,7 +1893,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		}
 	}
 
-	clModel := &model.Cluster{
+	clModel = &model.Cluster{
 		ClusterStatus:     DeletedClusterStatus,
 		ClusterDeleteDate: time.Now(),
 	}
