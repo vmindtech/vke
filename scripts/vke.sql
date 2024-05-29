@@ -47,7 +47,7 @@ CREATE TABLE `clusters` (
   `cluster_delete_date` datetime DEFAULT NULL,
   `cluster_update_date` datetime DEFAULT NULL,
   `cluster_version` varchar(30) DEFAULT NULL,
-  `cluster_status` enum('Active','Creating','Updating','Deleted','Error') DEFAULT NULL,
+  `cluster_status` enum('Active','Creating','Updating','Deleting','Deleted','Error') DEFAULT NULL,
   `cluster_project_uuid` varchar(255) DEFAULT NULL,
   `cluster_loadbalancer_uuid` varchar(255) DEFAULT NULL,
   `cluster_register_token` varchar(255) DEFAULT NULL,
