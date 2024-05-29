@@ -1485,7 +1485,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		if err != nil {
 			c.logger.Errorf("failed to create audit log, error: %v", err)
 		}
-		return
 	}
 	err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 	if err != nil {
