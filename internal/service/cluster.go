@@ -120,6 +120,27 @@ func (c *clusterService) CreateAuditLog(ctx context.Context, clusterUUID, projec
 	return c.repository.AuditLog().CreateAuditLog(ctx, auditLog)
 }
 
+func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string) error {
+	waitIterator := 0
+	waitSeconds := 10
+	for {
+		if waitIterator < 6 {
+			time.Sleep(time.Duration(waitSeconds) * time.Second)
+			c.logger.Infof("Waiting for Kubeconfig  ClusterUUID: %s to be ACTIVE, waited %v seconds", clusterUUID, waitSeconds)
+			waitIterator++
+		} else {
+			err := fmt.Errorf("Failed to send Kubeconfig for ClusterUUID: %s", clusterUUID)
+			return err
+		}
+		_, err := c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, clusterUUID)
+		if err != nil {
+			c.logger.Errorf("ClusterUUID: %s kubeconfig not send yet, error: %v", clusterUUID, err)
+		} else {
+			break
+		}
+	}
+	return nil
+}
 func (c *clusterService) CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest, clUUID chan string) {
 	clusterUUID := uuid.New().String()
 
@@ -1456,12 +1477,16 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterEndpoint:            addDNSResp.Result.Name,
 		ClusterCloudflareRecordID:  addDNSResp.Result.ID,
 	}
-	_, err = c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, clusterUUID)
+	err = c.CheckKubeConfig(ctx, clusterUUID)
 	if err != nil {
-		c.logger.Errorf("kubeconfig not send yet, error: %v", err)
 		clusterModel.ClusterStatus = ErrorClusterStatus
+		c.logger.Errorf("failed to check kube config, error: %v", err)
+		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
+		if err != nil {
+			c.logger.Errorf("failed to create audit log, error: %v", err)
+		}
+		return
 	}
-
 	err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 	if err != nil {
 		c.logger.Errorf("failed to update cluster, error: %v", err)
