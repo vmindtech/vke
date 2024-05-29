@@ -1442,7 +1442,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterUUID:                clusterUUID,
 		ClusterName:                req.ClusterName,
 		ClusterVersion:             req.KubernetesVersion,
-		ClusterStatus:              CreatingClusterStatus,
+		ClusterStatus:              ActiveClusterStatus,
 		ClusterProjectUUID:         req.ProjectID,
 		ClusterLoadbalancerUUID:    lbResp.LoadBalancer.ID,
 		ClusterRegisterToken:       rke2Token,
@@ -1454,6 +1454,11 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterSharedSecurityGroup: ClusterSharedSecurityGroupUUID,
 		ClusterEndpoint:            addDNSResp.Result.Name,
 		ClusterCloudflareRecordID:  addDNSResp.Result.ID,
+	}
+	_, err = c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, clusterUUID)
+	if err != nil {
+		c.logger.Errorf("kubeconfig not send yet, error: %v", err)
+		clusterModel.ClusterStatus = CreatingClusterStatus
 	}
 
 	err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
