@@ -55,6 +55,7 @@ const (
 	ActiveClusterStatus   = "Active"
 	CreatingClusterStatus = "Creating"
 	UpdatingClusterStatus = "Updating"
+	DeletingClusterStatus = "Deleting"
 	DeletedClusterStatus  = "Deleted"
 	ErrorClusterStatus    = "Error"
 )
@@ -1654,6 +1655,19 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		c.logger.Errorf("Failed to create audit log, error: %v", err)
 	}
 
+	clModel := &model.Cluster{
+		ClusterStatus:     DeletingClusterStatus,
+		ClusterDeleteDate: time.Now(),
+	}
+
+	err = c.repository.Cluster().DeleteUpdateCluster(ctx, clModel, cluster.ClusterUUID)
+	if err != nil {
+		c.logger.Errorf("Failed to delete update cluster, error: %v clusterUUID:%s", err, cluster.ClusterUUID)
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete update cluster")
+		if err != nil {
+			c.logger.Errorf("Failed to create audit log, error: %v", err)
+		}
+	}
 	//Delete LoadBalancer Pool and Listener
 	getLoadBalancerPoolsResponse, err := c.loadbalancerService.GetLoadBalancerPools(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 	if err != nil {
@@ -1855,7 +1869,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		}
 	}
 
-	clModel := &model.Cluster{
+	clModel = &model.Cluster{
 		ClusterStatus:     DeletedClusterStatus,
 		ClusterDeleteDate: time.Now(),
 	}
