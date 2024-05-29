@@ -1442,7 +1442,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterUUID:                clusterUUID,
 		ClusterName:                req.ClusterName,
 		ClusterVersion:             req.KubernetesVersion,
-		ClusterStatus:              ActiveClusterStatus,
+		ClusterStatus:              CreatingClusterStatus,
 		ClusterProjectUUID:         req.ProjectID,
 		ClusterLoadbalancerUUID:    lbResp.LoadBalancer.ID,
 		ClusterRegisterToken:       rke2Token,
@@ -1952,6 +1952,14 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 	if err != nil {
 		c.logger.Errorf("failed to create kube config, error: %v", err)
 		return resource.CreateKubeconfigResponse{}, err
+	}
+	clusterModel := &model.Cluster{
+		ClusterUUID:   req.ClusterID,
+		ClusterStatus: ActiveClusterStatus,
+	}
+	err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
+	if err != nil {
+		c.logger.Errorf("Kubeconfig push step failed to update cluster, error: %v clusterUUID:%s", err, req.ClusterID)
 	}
 
 	return resource.CreateKubeconfigResponse{
