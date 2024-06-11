@@ -19,7 +19,6 @@
   </p>
 </div>
 <br />
-<h3> ⚠️ IMPORTANT - This project is in beta phase and continues to be developed. ⚠️ </h4>
 
 ## Getting Started
 
