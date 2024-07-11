@@ -424,7 +424,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	workerNodeGroupModel := &model.NodeGroups{
 		ClusterUUID:            clusterUUID,
 		NodeGroupUUID:          workerServerGroupResp.ServerGroup.ID,
-		NodeGroupName:          clusterModel.ClusterName + "default-wg",
+		NodeGroupName:          clusterModel.ClusterName + "-default-wg",
 		NodeGroupMinSize:       req.WorkerNodeGroupMinSize,
 		NodeGroupMaxSize:       req.WorkerNodeGroupMaxSize,
 		NodeDiskSize:           req.WorkerDiskSizeGB,
