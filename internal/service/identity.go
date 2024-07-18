@@ -112,8 +112,8 @@ func (i *identityService) CreateApplicationCredential(ctx context.Context, clust
 			Secret:      GenerateSecret,
 			Description: "Application Credential for VKE cluster",
 			Roles: []map[string]string{
-				{"name": "user"},
-				{"name": "load-balancer_admin"},
+				{"name": config.GlobalConfig.GetOpenstackRolesConfig().OpenstackLoadbalancerRole},
+				{"name": config.GlobalConfig.GetOpenstackRolesConfig().OpenstackMemberOrUserRole},
 			},
 		},
 	}

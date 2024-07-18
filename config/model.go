@@ -56,6 +56,11 @@ type VkeAgentConfig struct {
 	CloudProviderVkeVersion  string
 }
 
+type OpenStackRolesConfig struct {
+	OpenstackLoadbalancerRole string
+	OpenstackMemberOrUserRole string
+}
+
 func (w WebConfig) IsProductionEnv() bool {
 	return w.Env == productionEnv
 }

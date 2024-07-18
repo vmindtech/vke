@@ -23,18 +23,20 @@ type IConfigureManager interface {
 	GetEndpointsConfig() APIEndpointsConfig
 	GetOpenStackApiConfig() OpenStackApiConfig
 	GetVkeAgentConfig() VkeAgentConfig
+	GetOpenstackRolesConfig() OpenStackRolesConfig
 }
 
 type configureManager struct {
-	Web                WebConfig
-	Mysql              MysqlDBConfig
-	APIEndpoints       APIEndpointsConfig
-	ImageRef           ImageRef
-	PublicNetworkID    PublicNetworkID
-	Cloudflare         CloudflareConfig
-	Language           LanguageConfig
-	OpenStackApiConfig OpenStackApiConfig
-	VkeAgentConfig     VkeAgentConfig
+	Web                  WebConfig
+	Mysql                MysqlDBConfig
+	APIEndpoints         APIEndpointsConfig
+	ImageRef             ImageRef
+	PublicNetworkID      PublicNetworkID
+	Cloudflare           CloudflareConfig
+	Language             LanguageConfig
+	OpenStackApiConfig   OpenStackApiConfig
+	VkeAgentConfig       VkeAgentConfig
+	OpenStackRolesConfig OpenStackRolesConfig
 }
 
 func NewConfigureManager() IConfigureManager {
@@ -45,15 +47,16 @@ func NewConfigureManager() IConfigureManager {
 	_ = viper.ReadInConfig()
 
 	GlobalConfig = &configureManager{
-		Web:                loadWebConfig(),
-		Language:           loadLanguageConfig(),
-		Mysql:              loadMysqlDBConfig(),
-		Cloudflare:         loadCloudflareConfig(),
-		ImageRef:           loadImageRefConfig(),
-		PublicNetworkID:    loadPublicNetworkIDConfig(),
-		APIEndpoints:       loadAPIEndpointsConfig(),
-		OpenStackApiConfig: loadOpenStackApiConfig(),
-		VkeAgentConfig:     loadVkeAgentConfig(),
+		Web:                  loadWebConfig(),
+		Language:             loadLanguageConfig(),
+		Mysql:                loadMysqlDBConfig(),
+		Cloudflare:           loadCloudflareConfig(),
+		ImageRef:             loadImageRefConfig(),
+		PublicNetworkID:      loadPublicNetworkIDConfig(),
+		APIEndpoints:         loadAPIEndpointsConfig(),
+		OpenStackApiConfig:   loadOpenStackApiConfig(),
+		VkeAgentConfig:       loadVkeAgentConfig(),
+		OpenStackRolesConfig: loadOpenstackRolesConfig(),
 	}
 
 	return GlobalConfig
@@ -125,6 +128,13 @@ func loadVkeAgentConfig() VkeAgentConfig {
 	}
 }
 
+func loadOpenstackRolesConfig() OpenStackRolesConfig {
+	return OpenStackRolesConfig{
+		OpenstackLoadbalancerRole: viper.GetString("OPENSTACK_LOADBALANCER_ADMIN_ROLE"),
+		OpenstackMemberOrUserRole: viper.GetString("OPENSTACK_USER_OR_MEMBER_ROLE"),
+	}
+}
+
 func (c *configureManager) GetWebConfig() WebConfig {
 	return c.Web
 }
@@ -169,5 +179,12 @@ func (c *configureManager) GetVkeAgentConfig() VkeAgentConfig {
 		VkeAgentVersion:          viper.GetString("VKE_AGENT_VERSION"),
 		ClusterAutoscalerVersion: viper.GetString("CLUSTER_AUTOSCALER_VERSION"),
 		CloudProviderVkeVersion:  viper.GetString("CLOUD_PROVIDER_VKE_VERSION"),
+	}
+}
+
+func (c *configureManager) GetOpenstackRolesConfig() OpenStackRolesConfig {
+	return OpenStackRolesConfig{
+		OpenstackLoadbalancerRole: viper.GetString("OPENSTACK_LOADBALANCER_ADMIN_ROLE"),
+		OpenstackMemberOrUserRole: viper.GetString("OPENSTACK_USER_OR_MEMBER_ROLE"),
 	}
 }

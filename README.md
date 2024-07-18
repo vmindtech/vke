@@ -69,6 +69,8 @@ To run the application, follow these steps:
           "VKE_AGENT_VERSION": "1.0.0",
           "CLUSTER_AUTOSCALER_VERSION": "0.73",
           "CLOUD_PROVIDER_VKE_VERSION": "2.29.2"
+          "OPENSTACK_LOADBALANCER_ADMIN_ROLE": "load-balancer_admin"
+          "OPENSTACK_USER_OR_MEMBER_ROLE": "member"
         }
    ```
     Set the environment variable for your application's environment using the following commands in the terminal:
