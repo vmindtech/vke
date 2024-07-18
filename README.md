@@ -68,8 +68,8 @@ To run the application, follow these steps:
           "ENDPOINT":  "YOUR_VKE_API_PUBLIC_ADDRESS exp: http://vmind.com.tr/api/v1",
           "VKE_AGENT_VERSION": "1.0.0",
           "CLUSTER_AUTOSCALER_VERSION": "0.73",
-          "CLOUD_PROVIDER_VKE_VERSION": "2.29.2"
-          "OPENSTACK_LOADBALANCER_ADMIN_ROLE": "load-balancer_admin"
+          "CLOUD_PROVIDER_VKE_VERSION": "2.29.2",
+          "OPENSTACK_LOADBALANCER_ADMIN_ROLE": "load-balancer_admin",
           "OPENSTACK_USER_OR_MEMBER_ROLE": "member"
         }
    ```
