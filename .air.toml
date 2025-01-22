@@ -7,7 +7,7 @@ cmd = "go mod download && go build -o ./.tmp/app/bin ./cmd/api"
 bin = ".tmp/app"
 
 # Customize binary.
-full_bin = "VAULT_ENV=Development ./.tmp/app/bin"
+full_bin = "golang_env=development ./.tmp/app/bin"
 
 # This log file places in your tmp_dir.
 log = "air_errors.log"

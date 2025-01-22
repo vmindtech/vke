@@ -15,6 +15,7 @@ import (
 	"github.com/vmindtech/vke/internal/dto/request"
 	"github.com/vmindtech/vke/internal/dto/resource"
 	"github.com/vmindtech/vke/internal/service"
+	"github.com/vmindtech/vke/pkg/utils"
 )
 
 type IAppHandler interface {
@@ -47,12 +48,19 @@ func NewAppHandler(as service.IAppService) IAppHandler {
 }
 
 func (a *appHandler) App(c *fiber.Ctx) error {
-	return c.JSON(response.NewSuccessResponse(&resource.AppResource{
+	err := c.JSON(response.NewSuccessResponse(&resource.AppResource{
 		App:     config.GlobalConfig.GetWebConfig().AppName,
 		Env:     config.GlobalConfig.GetWebConfig().Env,
 		Time:    time.Now(),
 		Version: config.GlobalConfig.GetWebConfig().Version,
 	}))
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToGetAppMsg, "", "", ""))
+	}
+
+	return nil
 }
 
 func (a *appHandler) ClusterInfo(c *fiber.Ctx) error {
@@ -72,7 +80,8 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, "", "", req.ProjectID))
 	}
 
 	clusterUUID := make(chan string)
@@ -96,13 +105,15 @@ func (a *appHandler) GetCluster(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
 	}
 
 	if strings.ToLower(details) == "true" {
 		resp, err := a.appService.Cluster().GetClusterDetails(ctx, authToken, clusterID)
 		if err != nil {
-			return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(
+				response.NewErrorResponseWithDetails(err, utils.FailedToGetClusterDetailsMsg, clusterID, "", ""))
 		}
 
 		return c.JSON(response.NewSuccessResponse(resp))
@@ -110,7 +121,8 @@ func (a *appHandler) GetCluster(c *fiber.Ctx) error {
 
 	resp, err := a.appService.Cluster().GetCluster(ctx, authToken, clusterID)
 	if err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToGetClusterMsg, clusterID, "", ""))
 	}
 
 	return c.JSON(response.NewSuccessResponse(resp))
@@ -123,12 +135,14 @@ func (a *appHandler) GetClustersByProjectId(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, "", "", projectID))
 	}
 
 	resp, err := a.appService.Cluster().GetClustersByProjectId(ctx, authToken, projectID)
 	if err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(response.NewErrorResponse(ctx, err))
+		return c.Status(fiber.StatusNotFound).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToGetClusterListMsg, "", "", projectID))
 	}
 
 	return c.JSON(response.NewSuccessResponse(resp))
@@ -141,7 +155,8 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
 	}
 	clusterUUID := make(chan string)
 	go a.appService.Cluster().DestroyCluster(ctx, authToken, clusterID, clusterUUID)
@@ -161,17 +176,19 @@ func (a *appHandler) GetKubeConfig(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
 	}
 
 	resp, err := a.appService.Cluster().GetKubeConfig(ctx, authToken, clusterID)
 	if err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToGetKubeconfigMsg, clusterID, "", ""))
 	}
 
 	decodedKubeConfig, err := base64.StdEncoding.DecodeString(resp.KubeConfig)
 	if err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToDecodeKubeconfigMsg, clusterID, "", ""))
 	}
 
 	c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", resp.ClusterUUID))
@@ -183,19 +200,22 @@ func (a *appHandler) GetKubeConfig(c *fiber.Ctx) error {
 func (a *appHandler) CreateKubeconfig(c *fiber.Ctx) error {
 	var req request.CreateKubeconfigRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.BodyParserMsg, "", "", ""))
 	}
 
 	ctx := context.Background()
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, "", "", req.ClusterID))
 	}
 
 	resp, err := a.appService.Cluster().CreateKubeConfig(ctx, authToken, req)
 	if err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToGetKubeconfigMsg, req.ClusterID, "", ""))
 	}
 
 	return c.JSON(response.NewSuccessResponse(resp))
@@ -209,12 +229,14 @@ func (a *appHandler) AddNode(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, cluster_id, nodegroup_id, ""))
 	}
 
 	resp, err := a.appService.NodeGroups().AddNode(ctx, authToken, cluster_id, nodegroup_id)
 	if err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToAddNodeMsg, cluster_id, nodegroup_id, ""))
 	}
 
 	return c.JSON(response.NewSuccessResponse(resp))
@@ -227,12 +249,14 @@ func (a *appHandler) GetNodes(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, "", nodeGroupUUID, ""))
 	}
 
 	resp, err := a.appService.Compute().GetInstances(ctx, authToken, nodeGroupUUID)
 	if err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToGetInstancesMsg, "", nodeGroupUUID, ""))
 	}
 
 	return c.JSON(resp)
@@ -246,12 +270,14 @@ func (a *appHandler) GetNodeGroups(c *fiber.Ctx) error {
 
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, nodeGroupID, ""))
 	}
 
 	resp, err := a.appService.NodeGroups().GetNodeGroups(ctx, authToken, clusterID, nodeGroupID)
 	if err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToGetNodeGroupsMsg, clusterID, nodeGroupID, ""))
 	}
 
 	return c.JSON(resp)
@@ -261,11 +287,13 @@ func (a *appHandler) GetClusterFlavor(c *fiber.Ctx) error {
 	ctx := context.Background()
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
 	}
 	resp, err := a.appService.Compute().GetClusterFlavor(ctx, authToken, clusterID)
 	if err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToGetClusterFlavorMsg, clusterID, "", ""))
 	}
 	return c.JSON(resp)
 }
@@ -279,7 +307,8 @@ func (a *appHandler) UpdateNodeGroups(c *fiber.Ctx) error {
 	ctx := context.Background()
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, nodeGroupID, ""))
 	}
 	resp, _ := a.appService.NodeGroups().UpdateNodeGroups(ctx, authToken, clusterID, nodeGroupID, req)
 	return c.JSON(resp)
@@ -291,7 +320,8 @@ func (a *appHandler) DeleteNode(c *fiber.Ctx) error {
 	ctx := context.Background()
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, nodeGroupID, instanceName))
 	}
 	resp, _ := a.appService.NodeGroups().DeleteNode(ctx, authToken, clusterID, nodeGroupID, instanceName)
 	return c.JSON(resp)
@@ -300,12 +330,14 @@ func (a *appHandler) CreateNodeGroup(c *fiber.Ctx) error {
 	clusterID := c.Params("cluster_id")
 	var req request.CreateNodeGroupRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.BodyParserMsg, clusterID, "", ""))
 	}
 	ctx := context.Background()
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
 	}
 	resp, _ := a.appService.NodeGroups().CreateNodeGroup(ctx, authToken, clusterID, req)
 	return c.JSON(resp)
@@ -317,11 +349,13 @@ func (a *appHandler) DeleteNodeGroup(c *fiber.Ctx) error {
 	ctx := context.Background()
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
-		return c.Status(401).JSON(response.NewErrorResponse(ctx, fiber.ErrUnauthorized))
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, nodeGroupID, ""))
 	}
 	err := a.appService.NodeGroups().DeleteNodeGroup(ctx, authToken, clusterID, nodeGroupID)
 	if err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewErrorResponse(ctx, err))
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToDeleteNodeGroupMsg, clusterID, nodeGroupID, ""))
 	}
 	return c.JSON(err)
 }

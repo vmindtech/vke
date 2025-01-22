@@ -12,6 +12,19 @@ const (
 	ValidationMsg   = "The given data was invalid."
 	UnauthorizedMsg = "Authentication failed."
 	BodyParserMsg   = "The given values could not be parsed."
+
+	// App Errors
+	FailedToGetAppMsg            = "failed to get app information."
+	FailedToGetClusterDetailsMsg = "failed to get cluster details."
+	FailedToGetClusterMsg        = "failed to get cluster information."
+	FailedToGetClusterListMsg    = "failed to get cluster list."
+	FailedToGetKubeconfigMsg     = "failed to get kubeconfig."
+	FailedToDecodeKubeconfigMsg  = "failed to decode kubeconfig."
+	FailedToAddNodeMsg           = "failed to add node."
+	FailedToGetInstancesMsg      = "failed to get instances."
+	FailedToGetNodeGroupsMsg     = "failed to get node groups."
+	FailedToGetClusterFlavorMsg  = "failed to get cluster flavor."
+	FailedToDeleteNodeGroupMsg   = "failed to delete node group."
 )
 
 type ErrorBag struct {
