@@ -51,7 +51,9 @@ func NewLoadbalancerService(logger *logrus.Logger) ILoadbalancerService {
 func (lbc *loadbalancerService) GetAmphoraesVrrpIp(authToken, loadBalancerID string) (resource.GetAmphoraesVrrpIpResponse, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/?loadbalancer_id=%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, amphoraePath, loadBalancerID), nil)
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": loadBalancerID,
+		}).WithError(err).Error("failed to create request")
 		return resource.GetAmphoraesVrrpIpResponse{}, err
 	}
 	r.Header.Set("Content-Type", "application/json")
@@ -59,7 +61,9 @@ func (lbc *loadbalancerService) GetAmphoraesVrrpIp(authToken, loadBalancerID str
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": loadBalancerID,
+		}).WithError(err).Error("failed to send request")
 		return resource.GetAmphoraesVrrpIpResponse{}, err
 	}
 	defer resp.Body.Close()
@@ -67,11 +71,15 @@ func (lbc *loadbalancerService) GetAmphoraesVrrpIp(authToken, loadBalancerID str
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		lbc.logger.Errorf("failed to decode response, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": loadBalancerID,
+		}).WithError(err).Error("failed to decode response")
 		return resource.GetAmphoraesVrrpIpResponse{}, err
 	}
 	if respDecoder.Amphorae == nil {
-		lbc.logger.Errorf("Amphorae is nil")
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": loadBalancerID,
+		}).Error("Amphorae is nil")
 		return resource.GetAmphoraesVrrpIpResponse{}, fmt.Errorf("Amphorae is nil")
 	}
 	return respDecoder, nil
@@ -81,7 +89,9 @@ func (lbc *loadbalancerService) GetAmphoraesVrrpIp(authToken, loadBalancerID str
 func (lbc *loadbalancerService) ListLoadBalancer(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": loadBalancerID,
+		}).WithError(err).Error("failed to create request")
 		return resource.ListLoadBalancerResponse{}, err
 	}
 	r.Header.Add("X-Auth-Token", authToken)
@@ -90,13 +100,17 @@ func (lbc *loadbalancerService) ListLoadBalancer(ctx context.Context, authToken,
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": loadBalancerID,
+		}).WithError(err).Error("failed to send request")
 		return resource.ListLoadBalancerResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		lbc.logger.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": loadBalancerID,
+		}).WithError(err).Error("failed to list load balancer")
 		return resource.ListLoadBalancerResponse{}, fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
@@ -104,7 +118,9 @@ func (lbc *loadbalancerService) ListLoadBalancer(ctx context.Context, authToken,
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		lbc.logger.Errorf("failed to decode response, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": loadBalancerID,
+		}).WithError(err).Error("failed to decode response")
 		return resource.ListLoadBalancerResponse{}, err
 	}
 
@@ -114,12 +130,16 @@ func (lbc *loadbalancerService) ListLoadBalancer(ctx context.Context, authToken,
 func (lbc *loadbalancerService) CreateLoadBalancer(ctx context.Context, authToken string, req request.CreateLoadBalancerRequest) (resource.CreateLoadBalancerResponse, error) {
 	data, err := json.Marshal(req)
 	if err != nil {
-		lbc.logger.Errorf("failed to marshal request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerName": req.LoadBalancer.Name,
+		}).WithError(err).Error("failed to marshal request")
 		return resource.CreateLoadBalancerResponse{}, err
 	}
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath), bytes.NewBuffer(data))
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerName": req.LoadBalancer.Name,
+		}).WithError(err).Error("failed to create request")
 		return resource.CreateLoadBalancerResponse{}, err
 	}
 	r.Header.Add("X-Auth-Token", authToken)
@@ -128,13 +148,19 @@ func (lbc *loadbalancerService) CreateLoadBalancer(ctx context.Context, authToke
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerName": req.LoadBalancer.Name,
+		}).WithError(err).Error("failed to send request")
 		return resource.CreateLoadBalancerResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		lbc.logger.Errorf("failed to create load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerName": req.LoadBalancer.Name,
+			"statusCode":       resp.StatusCode,
+			"status":           resp.Status,
+		}).Error("failed to create load balancer")
 		return resource.CreateLoadBalancerResponse{}, fmt.Errorf("failed to create load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
@@ -142,7 +168,9 @@ func (lbc *loadbalancerService) CreateLoadBalancer(ctx context.Context, authToke
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		lbc.logger.Errorf("failed to decode response, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerName": req.LoadBalancer.Name,
+		}).WithError(err).Error("failed to decode response")
 		return resource.CreateLoadBalancerResponse{}, err
 	}
 
@@ -152,13 +180,17 @@ func (lbc *loadbalancerService) CreateLoadBalancer(ctx context.Context, authToke
 func (lbc *loadbalancerService) CreateListener(ctx context.Context, authToken string, req request.CreateListenerRequest) (resource.CreateListenerResponse, error) {
 	data, err := json.Marshal(req)
 	if err != nil {
-		lbc.logger.Errorf("failed to marshal request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": req.Listener.LoadbalancerID,
+		}).WithError(err).Error("failed to marshal request")
 		return resource.CreateListenerResponse{}, err
 	}
 
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath), bytes.NewBuffer(data))
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": req.Listener.LoadbalancerID,
+		}).WithError(err).Error("failed to create request")
 		return resource.CreateListenerResponse{}, err
 	}
 
@@ -168,14 +200,20 @@ func (lbc *loadbalancerService) CreateListener(ctx context.Context, authToken st
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": req.Listener.LoadbalancerID,
+		}).WithError(err).Error("failed to send request")
 		return resource.CreateListenerResponse{}, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		lbc.logger.Errorf("failed to create listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": req.Listener.LoadbalancerID,
+			"statusCode":     resp.StatusCode,
+			"status":         resp.Status,
+		}).Error("failed to create listener")
 		return resource.CreateListenerResponse{}, fmt.Errorf("failed to create listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
@@ -183,7 +221,9 @@ func (lbc *loadbalancerService) CreateListener(ctx context.Context, authToken st
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		lbc.logger.Errorf("failed to decode response, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": req.Listener.LoadbalancerID,
+		}).WithError(err).Error("failed to decode response")
 		return resource.CreateListenerResponse{}, err
 	}
 
@@ -193,13 +233,17 @@ func (lbc *loadbalancerService) CreateListener(ctx context.Context, authToken st
 func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string, req request.CreatePoolRequest) (resource.CreatePoolResponse, error) {
 	data, err := json.Marshal(req)
 	if err != nil {
-		lbc.logger.Errorf("failed to marshal request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"listenerID": req.Pool.ListenerID,
+		}).WithError(err).Error("failed to marshal request")
 		return resource.CreatePoolResponse{}, err
 	}
 
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath), bytes.NewBuffer(data))
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"listenerID": req.Pool.ListenerID,
+		}).WithError(err).Error("failed to create request")
 		return resource.CreatePoolResponse{}, err
 	}
 
@@ -209,14 +253,20 @@ func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"listenerID": req.Pool.ListenerID,
+		}).WithError(err).Error("failed to send request")
 		return resource.CreatePoolResponse{}, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		lbc.logger.Errorf("failed to create pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		lbc.logger.WithFields(logrus.Fields{
+			"listenerID": req.Pool.ListenerID,
+			"statusCode": resp.StatusCode,
+			"status":     resp.Status,
+		}).Error("failed to create pool")
 		b, err := httputil.DumpResponse(resp, true)
 		if err != nil {
 			log.Fatalln(err)
@@ -229,7 +279,9 @@ func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		lbc.logger.Errorf("failed to decode response, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"listenerID": req.Pool.ListenerID,
+		}).WithError(err).Error("failed to decode response")
 		return resource.CreatePoolResponse{}, err
 	}
 
@@ -239,13 +291,17 @@ func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string
 func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poolID string, req request.AddMemberRequest) error {
 	data, err := json.Marshal(req)
 	if err != nil {
-		lbc.logger.Errorf("failed to marshal request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": poolID,
+		}).WithError(err).Error("failed to marshal request")
 		return err
 	}
 
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/%s/members", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, createMemberPath, poolID), bytes.NewBuffer(data))
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": poolID,
+		}).WithError(err).Error("failed to create request")
 		return err
 	}
 
@@ -255,7 +311,9 @@ func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poo
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": poolID,
+		}).WithError(err).Error("failed to send request")
 		return err
 	}
 
@@ -266,7 +324,13 @@ func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poo
 		if err != nil {
 			log.Fatalln(err)
 		}
-		lbc.logger.Errorf("failed to create member, status code: %v, error msg: %v", resp.StatusCode, string(b))
+		// lbc.logger.Errorf("failed to create member, status code: %v, error msg: %v", resp.StatusCode, string(b))
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID":     poolID,
+			"statusCode": resp.StatusCode,
+			"status":     resp.Status,
+			"error":      string(b),
+		}).Error("failed to create member")
 		return fmt.Errorf("failed to create member, status code: %v, error msg: %v", resp.StatusCode, string(b))
 	}
 
@@ -274,7 +338,9 @@ func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poo
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		lbc.logger.Errorf("failed to decode response, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": poolID,
+		}).WithError(err).Error("failed to decode response")
 		return err
 	}
 
@@ -284,7 +350,9 @@ func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poo
 func (lbc *loadbalancerService) ListListener(ctx context.Context, authToken, listenerID string) (resource.ListListenerResponse, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"listenerID": listenerID,
+		}).WithError(err).Error("failed to create request")
 		return resource.ListListenerResponse{}, err
 	}
 	r.Header.Add("X-Auth-Token", authToken)
@@ -293,13 +361,19 @@ func (lbc *loadbalancerService) ListListener(ctx context.Context, authToken, lis
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"listenerID": listenerID,
+		}).WithError(err).Error("failed to send request")
 		return resource.ListListenerResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		lbc.logger.Errorf("failed to list listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		lbc.logger.WithFields(logrus.Fields{
+			"listenerID": listenerID,
+			"statusCode": resp.StatusCode,
+			"status":     resp.Status,
+		}).Error("failed to list listener")
 		return resource.ListListenerResponse{}, fmt.Errorf("failed to list listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
@@ -307,7 +381,9 @@ func (lbc *loadbalancerService) ListListener(ctx context.Context, authToken, lis
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		lbc.logger.Errorf("failed to decode response, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"listenerID": listenerID,
+		}).WithError(err).Error("failed to decode response")
 		return resource.ListListenerResponse{}, err
 	}
 
@@ -320,7 +396,10 @@ func (lbc *loadbalancerService) CheckLoadBalancerStatus(ctx context.Context, aut
 	for {
 		if waitIterator < 16 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			lbc.logger.Infof("Waiting for load balancer  id: %s to be ACTIVE, waited %v seconds", loadBalancerID, waitSeconds)
+			lbc.logger.WithFields(logrus.Fields{
+				"loadBalancerID": loadBalancerID,
+				"waitedSeconds":  waitSeconds,
+			}).Info("Waiting for load balancer to be ACTIVE")
 			waitIterator++
 			waitSeconds = waitSeconds + 5
 		} else {
@@ -329,7 +408,9 @@ func (lbc *loadbalancerService) CheckLoadBalancerStatus(ctx context.Context, aut
 		}
 		listLBResp, err := lbc.ListLoadBalancer(ctx, authToken, loadBalancerID)
 		if err != nil {
-			lbc.logger.Errorf("failed to list load balancer, error: %v", err)
+			lbc.logger.WithFields(logrus.Fields{
+				"loadBalancerID": loadBalancerID,
+			}).WithError(err).Error("failed to list load balancer")
 			return resource.ListLoadBalancerResponse{}, err
 		}
 		if listLBResp.LoadBalancer.ProvisioningStatus == LoadBalancerStatusError {
@@ -346,12 +427,16 @@ func (lbc *loadbalancerService) CheckLoadBalancerStatus(ctx context.Context, aut
 func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorHTTPRequest) error {
 	data, err := json.Marshal(req)
 	if err != nil {
-		lbc.logger.Errorf("failed to marshal request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": req.HealthMonitor.PoolID,
+		}).WithError(err).Error("failed to marshal request")
 		return err
 	}
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, healthMonitorPath), bytes.NewBuffer(data))
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": req.HealthMonitor.PoolID,
+		}).WithError(err).Error("failed to create request")
 		return err
 	}
 	r.Header.Add("X-Auth-Token", authToken)
@@ -360,7 +445,9 @@ func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, aut
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": req.HealthMonitor.PoolID,
+		}).WithError(err).Error("failed to send request")
 		return err
 	}
 	defer resp.Body.Close()
@@ -371,7 +458,12 @@ func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, aut
 			log.Fatalln(err)
 		}
 
-		lbc.logger.Errorf("failed to create health monitor, status code: %v, error msg: %v", resp.StatusCode, string(b))
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID":     req.HealthMonitor.PoolID,
+			"statusCode": resp.StatusCode,
+			"status":     resp.Status,
+			"error":      string(b),
+		}).Error("failed to create health monitor")
 		return fmt.Errorf("failed to create health monitor, status code: %v, error msg: %v", resp.StatusCode, string(b))
 	}
 
@@ -379,7 +471,9 @@ func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, aut
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		lbc.logger.Errorf("failed to decode response, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": req.HealthMonitor.PoolID,
+		}).WithError(err).Error("failed to decode response")
 		return err
 	}
 
@@ -389,12 +483,16 @@ func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, aut
 func (lbc *loadbalancerService) CreateHealthTCPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorTCPRequest) error {
 	data, err := json.Marshal(req)
 	if err != nil {
-		lbc.logger.Errorf("failed to marshal request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": req.HealthMonitor.PoolID,
+		}).WithError(err).Error("failed to marshal request")
 		return err
 	}
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, healthMonitorPath), bytes.NewBuffer(data))
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": req.HealthMonitor.PoolID,
+		}).WithError(err).Error("failed to create request")
 		return err
 	}
 	r.Header.Add("X-Auth-Token", authToken)
@@ -403,7 +501,9 @@ func (lbc *loadbalancerService) CreateHealthTCPMonitor(ctx context.Context, auth
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": req.HealthMonitor.PoolID,
+		}).WithError(err).Error("failed to send request")
 		return err
 	}
 	defer resp.Body.Close()
@@ -414,7 +514,12 @@ func (lbc *loadbalancerService) CreateHealthTCPMonitor(ctx context.Context, auth
 			log.Fatalln(err)
 		}
 
-		lbc.logger.Errorf("failed to create health monitor, status code: %v, error msg: %v", resp.StatusCode, string(b))
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID":     req.HealthMonitor.PoolID,
+			"statusCode": resp.StatusCode,
+			"status":     resp.Status,
+			"error":      string(b),
+		}).Error("failed to create health monitor")
 		return fmt.Errorf("failed to create health monitor, status code: %v, error msg: %v", resp.StatusCode, string(b))
 	}
 
@@ -422,7 +527,9 @@ func (lbc *loadbalancerService) CreateHealthTCPMonitor(ctx context.Context, auth
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		lbc.logger.Errorf("failed to decode response, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"poolID": req.HealthMonitor.PoolID,
+		}).WithError(err).Error("failed to decode response")
 		return err
 	}
 
@@ -435,7 +542,10 @@ func (lbc *loadbalancerService) CheckLoadBalancerOperationStatus(ctx context.Con
 	for {
 		if waitIterator < 16 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			lbc.logger.Infof("Waiting for load balancer id: %s operation to be ONLINE, waited %v seconds", loadBalancerID, waitSeconds)
+			lbc.logger.WithFields(logrus.Fields{
+				"loadBalancerID": loadBalancerID,
+				"waitedSeconds":  waitSeconds,
+			}).Info("Waiting for load balancer operation to be ONLINE")
 			waitIterator++
 			waitSeconds = waitSeconds + 5
 		} else {
@@ -443,7 +553,9 @@ func (lbc *loadbalancerService) CheckLoadBalancerOperationStatus(ctx context.Con
 		}
 		listLBResp, err := lbc.ListLoadBalancer(ctx, authToken, loadBalancerID)
 		if err != nil {
-			lbc.logger.Errorf("failed to list load balancer, error: %v", err)
+			lbc.logger.WithFields(logrus.Fields{
+				"loadBalancerID": loadBalancerID,
+			}).WithError(err).Error("failed to list load balancer")
 			return resource.ListLoadBalancerResponse{}, err
 		}
 		if listLBResp.LoadBalancer.OperatingStatus == "ONLINE" {
@@ -456,7 +568,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerOperationStatus(ctx context.Con
 func (lbc *loadbalancerService) GetLoadBalancerPools(ctx context.Context, authToken, loadBalancerID string) (resource.GetLoadBalancerPoolsResponse, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to create request")
 		return resource.GetLoadBalancerPoolsResponse{}, err
 	}
 
@@ -465,25 +577,28 @@ func (lbc *loadbalancerService) GetLoadBalancerPools(ctx context.Context, authTo
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to send request")
 		return resource.GetLoadBalancerPoolsResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		lbc.logger.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		lbc.logger.WithFields(logrus.Fields{
+			"statusCode": resp.StatusCode,
+			"status":     resp.Status,
+		}).Error("failed to list load balancer")
 		return resource.GetLoadBalancerPoolsResponse{}, fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		lbc.logger.Errorf("failed to read response body, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to read response body")
 		return resource.GetLoadBalancerPoolsResponse{}, err
 	}
 	var respdata map[string]map[string]interface{}
 	err = json.Unmarshal([]byte(body), &respdata)
 	if err != nil {
-		lbc.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to unmarshal response body")
 		return resource.GetLoadBalancerPoolsResponse{}, err
 	}
 
@@ -497,11 +612,15 @@ func (lbc *loadbalancerService) GetLoadBalancerPools(ctx context.Context, authTo
 			if id, exists := poolMap["id"].(string); exists {
 				respPools.Pools = append(respPools.Pools, id)
 			} else {
-				lbc.logger.Errorf("failed to get pool id")
+				lbc.logger.WithFields(logrus.Fields{
+					"loadBalancerID": loadBalancerID,
+				}).WithError(err).Error("failed to get pool id")
 				return resource.GetLoadBalancerPoolsResponse{}, fmt.Errorf("failed to get pool id")
 			}
 		} else {
-			lbc.logger.Errorf("failed to get pool id")
+			lbc.logger.WithFields(logrus.Fields{
+				"loadBalancerID": loadBalancerID,
+			}).WithError(err).Error("failed to get pool id")
 			return resource.GetLoadBalancerPoolsResponse{}, fmt.Errorf("failed to get pool id")
 		}
 	}
@@ -512,7 +631,7 @@ func (lbc *loadbalancerService) GetLoadBalancerPools(ctx context.Context, authTo
 func (lbc *loadbalancerService) DeleteLoadbalancerPools(ctx context.Context, authToken, poolID string) error {
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to create request")
 		return err
 	}
 
@@ -521,13 +640,16 @@ func (lbc *loadbalancerService) DeleteLoadbalancerPools(ctx context.Context, aut
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to send request")
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		lbc.logger.Errorf("failed to delete load balancer pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		lbc.logger.WithFields(logrus.Fields{
+			"statusCode": resp.StatusCode,
+			"status":     resp.Status,
+		}).Error("failed to delete load balancer pool")
 		return fmt.Errorf("failed to delete load balancer pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 	return nil
@@ -539,12 +661,17 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Conte
 	for {
 		if waitIterator < 8 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			lbc.logger.Infof("Waiting for load balancer pool id: %s to be deleted, waited %v seconds", poolID, waitSeconds)
+			lbc.logger.WithFields(logrus.Fields{
+				"poolID":        poolID,
+				"waitedSeconds": waitSeconds,
+			}).Info("Waiting for load balancer pool to be deleted")
 			waitIterator++
 			waitSeconds = waitSeconds + 5
 			r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
 			if err != nil {
-				lbc.logger.Errorf("failed to create request, error: %v", err)
+				lbc.logger.WithFields(logrus.Fields{
+					"poolID": poolID,
+				}).WithError(err).Error("failed to create request")
 				return err
 			}
 
@@ -553,7 +680,9 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Conte
 			client := &http.Client{}
 			resp, err := client.Do(r)
 			if err != nil {
-				lbc.logger.Errorf("failed to send request, error: %v", err)
+				lbc.logger.WithFields(logrus.Fields{
+					"poolID": poolID,
+				}).WithError(err).Error("failed to send request")
 				return err
 			}
 			defer resp.Body.Close()
@@ -572,7 +701,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Conte
 func (lbc *loadbalancerService) GetLoadBalancerListeners(ctx context.Context, authToken, loadBalancerID string) (resource.GetLoadBalancerListenersResponse, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to create request")
 		return resource.GetLoadBalancerListenersResponse{}, err
 	}
 
@@ -581,25 +710,28 @@ func (lbc *loadbalancerService) GetLoadBalancerListeners(ctx context.Context, au
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to send request")
 		return resource.GetLoadBalancerListenersResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		lbc.logger.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		lbc.logger.WithFields(logrus.Fields{
+			"statusCode": resp.StatusCode,
+			"status":     resp.Status,
+		}).Error("failed to list load balancer")
 		return resource.GetLoadBalancerListenersResponse{}, fmt.Errorf("failed to list load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		lbc.logger.Errorf("failed to read response body, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to read response body")
 		return resource.GetLoadBalancerListenersResponse{}, err
 	}
 	var respdata map[string]map[string]interface{}
 	err = json.Unmarshal([]byte(body), &respdata)
 	if err != nil {
-		lbc.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to unmarshal response body")
 		return resource.GetLoadBalancerListenersResponse{}, err
 	}
 
@@ -614,11 +746,11 @@ func (lbc *loadbalancerService) GetLoadBalancerListeners(ctx context.Context, au
 			if id, exists := listenerMap["id"].(string); exists {
 				respListeners.Listeners = append(respListeners.Listeners, id)
 			} else {
-				lbc.logger.Errorf("failed to get listener id")
+				lbc.logger.WithError(err).Error("failed to get listener id")
 				return resource.GetLoadBalancerListenersResponse{}, fmt.Errorf("failed to get listener id")
 			}
 		} else {
-			lbc.logger.Errorf("failed to get listener id")
+			lbc.logger.WithError(err).Error("failed to get listener id")
 			return resource.GetLoadBalancerListenersResponse{}, fmt.Errorf("failed to get listener id")
 		}
 	}
@@ -629,7 +761,7 @@ func (lbc *loadbalancerService) GetLoadBalancerListeners(ctx context.Context, au
 func (lbc *loadbalancerService) DeleteLoadbalancerListeners(ctx context.Context, authToken, listenerID string) error {
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to create request")
 		return err
 	}
 
@@ -638,13 +770,16 @@ func (lbc *loadbalancerService) DeleteLoadbalancerListeners(ctx context.Context,
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithError(err).Error("failed to send request")
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		lbc.logger.Errorf("failed to delete load balancer listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		lbc.logger.WithFields(logrus.Fields{
+			"statusCode": resp.StatusCode,
+			"status":     resp.Status,
+		}).Error("failed to delete load balancer listener")
 		return fmt.Errorf("failed to delete load balancer listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 	return nil
@@ -656,12 +791,15 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.C
 	for {
 		if waitIterator < 8 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			lbc.logger.Infof("Waiting for load balancer listener id: %s to be deleted, waited %v seconds", listenerID, waitSeconds)
+			lbc.logger.WithFields(logrus.Fields{
+				"listenerID":    listenerID,
+				"waitedSeconds": waitSeconds,
+			}).Info("Waiting for load balancer listener to be deleted")
 			waitIterator++
 			waitSeconds = waitSeconds + 5
 			r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
 			if err != nil {
-				lbc.logger.Errorf("failed to create request, error: %v", err)
+				lbc.logger.WithError(err).Error("failed to create request")
 				return err
 			}
 
@@ -670,7 +808,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.C
 			client := &http.Client{}
 			resp, err := client.Do(r)
 			if err != nil {
-				lbc.logger.Errorf("failed to send request, error: %v", err)
+				lbc.logger.WithError(err).Error("failed to send request")
 				return err
 			}
 			defer resp.Body.Close()
@@ -690,7 +828,9 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.C
 func (lbc *loadbalancerService) DeleteLoadbalancer(ctx context.Context, authToken, loadBalancerID string) error {
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
 	if err != nil {
-		lbc.logger.Errorf("failed to create request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": loadBalancerID,
+		}).WithError(err).Error("failed to create request")
 		return err
 	}
 
@@ -699,14 +839,20 @@ func (lbc *loadbalancerService) DeleteLoadbalancer(ctx context.Context, authToke
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		lbc.logger.Errorf("failed to send request, error: %v", err)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": loadBalancerID,
+		}).WithError(err).Error("failed to send request")
 		return err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		lbc.logger.Errorf("failed to delete load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		lbc.logger.WithFields(logrus.Fields{
+			"loadBalancerID": loadBalancerID,
+			"statusCode":     resp.StatusCode,
+			"status":         resp.Status,
+		}).Error("failed to delete load balancer")
 		return fmt.Errorf("failed to delete load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 

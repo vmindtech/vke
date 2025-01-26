@@ -40,13 +40,19 @@ func (cf *cloudflareService) AddDNSRecordToCloudflare(ctx context.Context, loadB
 	}
 	data, err := json.Marshal(addDNSRecordCFRequest)
 	if err != nil {
-		cf.logger.Errorf("failed to marshal request, error: %v", err)
+		cf.logger.WithError(err).WithFields(logrus.Fields{
+			"loadBalancerSubdomainHash": loadBalancerSubdomainHash,
+			"clusterName":               clusterName,
+		}).Error("failed to marshal request")
 		return resource.AddDNSRecordResponse{}, err
 	}
 
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/dns_records", cloudflareEndpoint, config.GlobalConfig.GetCloudflareConfig().ZoneID), bytes.NewBuffer(data))
 	if err != nil {
-		cf.logger.Errorf("failed to create request, error: %v", err)
+		cf.logger.WithError(err).WithFields(logrus.Fields{
+			"loadBalancerSubdomainHash": loadBalancerSubdomainHash,
+			"clusterName":               clusterName,
+		}).Error("failed to create request")
 		return resource.AddDNSRecordResponse{}, err
 	}
 
@@ -56,13 +62,20 @@ func (cf *cloudflareService) AddDNSRecordToCloudflare(ctx context.Context, loadB
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		cf.logger.Errorf("failed to send request, error: %v", err)
+		cf.logger.WithError(err).WithFields(logrus.Fields{
+			"loadBalancerSubdomainHash": loadBalancerSubdomainHash,
+			"clusterName":               clusterName,
+		}).Error("failed to send request")
+
 		return resource.AddDNSRecordResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		cf.logger.Errorf("failed to add dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		cf.logger.WithFields(logrus.Fields{
+			"loadBalancerSubdomainHash": loadBalancerSubdomainHash,
+			"clusterName":               clusterName,
+		}).Errorf("failed to add dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 		return resource.AddDNSRecordResponse{}, fmt.Errorf("failed to add dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
@@ -70,7 +83,10 @@ func (cf *cloudflareService) AddDNSRecordToCloudflare(ctx context.Context, loadB
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		cf.logger.Errorf("failed to decode response, error: %v", err)
+		cf.logger.WithError(err).WithFields(logrus.Fields{
+			"loadBalancerSubdomainHash": loadBalancerSubdomainHash,
+			"clusterName":               clusterName,
+		}).Error("failed to decode response")
 		return resource.AddDNSRecordResponse{}, err
 	}
 
@@ -80,7 +96,7 @@ func (cf *cloudflareService) AddDNSRecordToCloudflare(ctx context.Context, loadB
 func (cf *cloudflareService) DeleteDNSRecordFromCloudflare(ctx context.Context, dnsRecordID string) error {
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/dns_records/%s", cloudflareEndpoint, config.GlobalConfig.GetCloudflareConfig().ZoneID, dnsRecordID), nil)
 	if err != nil {
-		cf.logger.Errorf("failed to create request, error: %v", err)
+		cf.logger.WithError(err).WithField("dnsRecordID", dnsRecordID).Error("failed to create request")
 		return err
 	}
 
@@ -90,13 +106,13 @@ func (cf *cloudflareService) DeleteDNSRecordFromCloudflare(ctx context.Context, 
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		cf.logger.Errorf("failed to send request, error: %v", err)
+		cf.logger.WithError(err).WithField("dnsRecordID", dnsRecordID).Error("failed to send request")
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		cf.logger.Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		cf.logger.WithField("dnsRecordID", dnsRecordID).Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 		return fmt.Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
