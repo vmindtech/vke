@@ -47,24 +47,28 @@ func NewNodeGroupsService(logger *logrus.Logger, repository repository.IReposito
 func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string) ([]resource.NodeGroup, error) {
 	clusterProjectUUID, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get cluster project uuid by cluster uuid %s, err: %v", clusterID, err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterID,
+		}).WithError(err).Error("failed to get cluster by uuid")
 		return nil, err
 	}
 	err = nodg.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to check auth token, err: %v", err)
+		nodg.logger.WithError(err).Error("failed to check auth token")
 		return nil, err
 	}
 
 	if nodeGroupID != "" {
 		nodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupID)
 		if err != nil {
-			nodg.logger.Errorf("failed to get node group by uuid %s, err: %v", nodeGroupID, err)
+			nodg.logger.WithFields(logrus.Fields{
+				"nodeGroupID": nodeGroupID,
+			}).WithError(err).Error("failed to get node group by uuid")
 			return nil, err
 		}
 		count, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID, clusterProjectUUID.ClusterProjectUUID)
 		if err != nil {
-			nodg.logger.Errorf("failed to check current node size, err: %v", err)
+			nodg.logger.WithError(err).Error("failed to check current node size")
 			return nil, err
 		}
 
@@ -85,14 +89,16 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 	} else {
 		nodeGroups, err := nodg.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterID, "")
 		if err != nil {
-			nodg.logger.Errorf("failed to get node groups by cluster uuid %s, err: %v", clusterID, err)
+			nodg.logger.WithFields(logrus.Fields{
+				"clusterID": clusterID,
+			}).WithError(err).Error("failed to get node groups by cluster uuid")
 			return nil, err
 		}
 		var resp []resource.NodeGroup
 		for _, nodeGroup := range nodeGroups {
 			count, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID, clusterProjectUUID.ClusterProjectUUID)
 			if err != nil {
-				nodg.logger.Errorf("failed to check current node size, err: %v", err)
+				nodg.logger.WithError(err).Error("failed to check current node size")
 				return nil, err
 			}
 
@@ -116,7 +122,9 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 func (nodg *nodeGroupsService) GetNodeGroupsByClusterUUID(ctx context.Context, clusterUUID string) ([]resource.NodeGroup, error) {
 	nodeGroups, err := nodg.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterUUID, "")
 	if err != nil {
-		nodg.logger.Errorf("failed to get node groups by cluster uuid %s, err: %v", clusterUUID, err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).WithError(err).Error("failed to get node groups by cluster uuid")
 		return nil, err
 	}
 
@@ -143,64 +151,70 @@ func (nodg *nodeGroupsService) GetNodeGroupsByClusterUUID(ctx context.Context, c
 
 func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, clusterUUID, nodeGroupUUD string) (resource.AddNodeResponse, error) {
 	if authToken == "" {
-		nodg.logger.Errorf("failed to get cluster")
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterUUID,
+		}).Error("failed to get cluster")
 		return resource.AddNodeResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	cluster, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get cluster, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to get cluster")
 		return resource.AddNodeResponse{}, err
 	}
 
 	if cluster == nil {
-		nodg.logger.Errorf("failed to get cluster")
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterUUID,
+		}).Error("failed to get cluster")
 		return resource.AddNodeResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	if cluster.ClusterProjectUUID == "" {
-		nodg.logger.Errorf("failed to get cluster")
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterUUID,
+		}).Error("failed to get cluster")
 		return resource.AddNodeResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	err = nodg.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to check auth token, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to check auth token")
 		return resource.AddNodeResponse{}, err
 	}
 
 	nodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupUUD)
 	if err != nil {
-		nodg.logger.Errorf("failed to get node group, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to get node group by uuid")
 		return resource.AddNodeResponse{}, err
 	}
 
 	if nodeGroup.NodeGroupsStatus != NodeGroupActiveStatus {
-		nodg.logger.Errorf("failed to get node groups")
+		nodg.logger.Error("failed to get node groups")
 		return resource.AddNodeResponse{}, fmt.Errorf("failed to get node groups")
 	}
 
 	currentCount, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID, cluster.ClusterProjectUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get count of server from server group, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to get count of server from server group")
 		return resource.AddNodeResponse{}, err
 	}
 
 	if currentCount >= nodeGroup.NodeGroupMaxSize {
-		nodg.logger.Errorf("failed to add node, node group max size reached")
+		nodg.logger.Error("failed to add node, node group max size reached")
 		return resource.AddNodeResponse{}, fmt.Errorf("failed to add node, node group max size reached")
 	}
 
 	subnetIDs := []string{}
 	err = json.Unmarshal(cluster.ClusterSubnets, &subnetIDs)
 	if err != nil {
-		nodg.logger.Errorf("failed to unmarshal cluster subnets, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to unmarshal cluster subnets")
 		return resource.AddNodeResponse{}, err
 	}
 
 	networkIDResp, err := nodg.networkService.GetNetworkID(ctx, authToken, subnetIDs[0])
 	if err != nil {
-		nodg.logger.Errorf("failed to get network id, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to get networkId")
 		return resource.AddNodeResponse{}, err
 	}
 
@@ -222,7 +236,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 
 	portResp, err := nodg.networkService.CreateNetworkPort(ctx, authToken, createPortRequest)
 	if err != nil {
-		nodg.logger.Errorf("failed to create port, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to create network port")
 		return resource.AddNodeResponse{}, err
 	}
 
@@ -230,7 +244,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 	if nodeGroup.NodeGroupLabels != nil {
 		err = json.Unmarshal(nodeGroup.NodeGroupLabels, &nodeGroupLabelsArr)
 		if err != nil {
-			nodg.logger.Errorf("failed to unmarshal node group labels, error: %v", err)
+			nodg.logger.WithError(err).Error("failed to unmarshal node group labels")
 			return resource.AddNodeResponse{}, err
 		}
 	}
@@ -253,18 +267,18 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		"",
 	)
 	if err != nil {
-		nodg.logger.Errorf("failed to generate user data from template, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to generate user data from template")
 		return resource.AddNodeResponse{}, err
 	}
 
 	sharedSecurityGroup, err := nodg.networkService.GetSecurityGroupByID(ctx, authToken, cluster.ClusterSharedSecurityGroup)
 	if err != nil {
-		nodg.logger.Errorf("failed to get sharedSecurityGroup, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to get sharedSecurityGroup")
 		return resource.AddNodeResponse{}, err
 	}
 	nodeSecurityGroup, err := nodg.networkService.GetSecurityGroupByID(ctx, authToken, nodeGroup.NodeGroupSecurityGroup)
 	if err != nil {
-		nodg.logger.Errorf("failed to get nodeSecurityGroup, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to get nodeSecurityGroup")
 		return resource.AddNodeResponse{}, err
 	}
 
@@ -301,7 +315,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 
 	serverResp, err := nodg.computeService.CreateCompute(ctx, authToken, createServerRequest)
 	if err != nil {
-		nodg.logger.Errorf("failed to create compute, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to create compute")
 		return resource.AddNodeResponse{}, err
 	}
 
@@ -312,7 +326,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		CreateDate:  time.Now(),
 	})
 	if err != nil {
-		nodg.logger.Errorf("failed to create audit log, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to create audit log")
 		return resource.AddNodeResponse{}, err
 	}
 	err = nodg.repository.NodeGroups().UpdateNodeGroups(ctx, &model.NodeGroups{
@@ -320,7 +334,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		NodeGroupUUID:       nodeGroup.NodeGroupUUID,
 	})
 	if err != nil {
-		nodg.logger.Errorf("failed to update node groups, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to update node group")
 		return resource.AddNodeResponse{}, err
 	}
 
@@ -334,71 +348,89 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 }
 func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string, clusterUUID string, nodeGroupID string, instanceName string) (resource.DeleteNodeResponse, error) {
 	if authToken == "" {
-		nodg.logger.Errorf("failed to get cluster")
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterUUID,
+		}).Error("failed to get cluster")
 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	cluster, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get cluster, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to get cluster")
 		return resource.DeleteNodeResponse{}, err
 	}
 	if cluster == nil {
-		nodg.logger.Errorf("failed to get cluster")
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterUUID,
+		}).Error("failed to get cluster")
 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get cluster")
 	}
 	if cluster.ClusterProjectUUID == "" {
-		nodg.logger.Errorf("failed to get cluster")
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterUUID,
+		}).Error("failed to get cluster")
 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	err = nodg.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to check auth token, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to check auth token")
 		return resource.DeleteNodeResponse{}, err
 	}
 
 	ng, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get count of server from server group, error: %v", err)
+		nodg.logger.WithError(err).Error("failed to get node group")
 		return resource.DeleteNodeResponse{}, err
 	}
 	if ng == nil {
-		nodg.logger.Errorf("failed to get node group. Because node group is nil.")
+		nodg.logger.Error("failed to get node group")
 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get node group")
 	}
 
 	compute, err := nodg.computeService.GetInstances(ctx, authToken, ng.NodeGroupUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get instances, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"nodeGroupUUID": ng.NodeGroupUUID,
+		}).WithError(err).Error("failed to get instances")
 		return resource.DeleteNodeResponse{}, err
 
 	}
 	computeCount, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, authToken, ng.NodeGroupUUID, cluster.ClusterProjectUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get count of server from server group, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"nodeGroupUUID": ng.NodeGroupUUID,
+		}).WithError(err).Error("failed to get count of server from server group")
 		return resource.DeleteNodeResponse{}, err
 	}
 	if computeCount <= ng.NodeGroupMinSize {
-		nodg.logger.Errorf("failed to delete node, node group min size reached")
+		nodg.logger.WithFields(logrus.Fields{
+			"nodeGroupUUID": ng.NodeGroupUUID,
+		}).WithError(err).Error("failed to delete node, node group min size reached")
 		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to delete node, node group min size reached")
 	}
 	for _, server := range compute {
 		if server.InstanceName == instanceName {
 			getPortIDs, err := nodg.networkService.GetComputeNetworkPorts(ctx, authToken, server.InstanceUUID)
 			if err != nil {
-				nodg.logger.Errorf("failed to get compute network ports, error: %v", err)
+				nodg.logger.WithFields(logrus.Fields{
+					"instanceUUID": server.InstanceUUID,
+				}).WithError(err).Error("failed to get compute network ports")
 				return resource.DeleteNodeResponse{}, err
 			}
 			err = nodg.computeService.DeleteCompute(ctx, authToken, server.InstanceUUID)
 			if err != nil {
-				nodg.logger.Errorf("failed to delete compute, error: %v", err)
+				nodg.logger.WithFields(logrus.Fields{
+					"instanceUUID": server.InstanceUUID,
+				}).WithError(err).Error("failed to delete compute")
 				return resource.DeleteNodeResponse{}, err
 			}
 			for _, portID := range getPortIDs.Ports {
 				err = nodg.networkService.DeleteNetworkPort(ctx, authToken, portID)
 				if err != nil {
-					nodg.logger.Errorf("failed to delete network port, error: %v", err)
+					nodg.logger.WithFields(logrus.Fields{
+						"portID": portID,
+					}).WithError(err).Error("failed to delete network port")
 					return resource.DeleteNodeResponse{}, err
 				}
 			}
@@ -412,7 +444,9 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 		CreateDate:  time.Now(),
 	})
 	if err != nil {
-		nodg.logger.Errorf("failed to create audit log, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).WithError(err).Error("failed to create audit log")
 		return resource.DeleteNodeResponse{}, err
 	}
 	return resource.DeleteNodeResponse{
@@ -425,17 +459,23 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string, req request.UpdateNodeGroupRequest) (resource.UpdateNodeGroupResponse, error) {
 	clusterProjectUUID, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get cluster project uuid by cluster uuid %s, err: %v", clusterID, err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterID,
+		}).WithError(err).Error("failed to get cluster by uuid")
 		return resource.UpdateNodeGroupResponse{}, err
 	}
 	getCurrentStateOfNodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get node group by uuid %s, err: %v", nodeGroupID, err)
+		nodg.logger.WithFields(logrus.Fields{
+			"nodeGroupID": nodeGroupID,
+		}).WithError(err).Error("failed to get node group by uuid")
 		return resource.UpdateNodeGroupResponse{}, err
 	}
 	err = nodg.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to check auth token, err: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterProjectUUID": clusterProjectUUID.ClusterProjectUUID,
+		}).WithError(err).Error("failed to check auth token")
 		return resource.UpdateNodeGroupResponse{}, err
 	}
 
@@ -445,7 +485,9 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 		NodeGroupMaxSize: int(*req.MaxNodes),
 	})
 	if err != nil {
-		nodg.logger.Errorf("failed to update node group by uuid %s, err: %v", nodeGroupID, err)
+		nodg.logger.WithFields(logrus.Fields{
+			"nodeGroupID": nodeGroupID,
+		}).WithError(err).Error("failed to update node group")
 		return resource.UpdateNodeGroupResponse{}, err
 	}
 	response := resource.UpdateNodeGroupResponse{
@@ -463,29 +505,39 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 	}
 	cluster, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get cluster, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterID,
+		}).WithError(err).Error("failed to get cluster by uuid")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
 	if cluster == nil {
-		nodg.logger.Errorf("failed to get cluster")
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterID,
+		}).Error("failed to get cluster")
 		return resource.CreateNodeGroupResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	if cluster.ClusterProjectUUID == "" {
-		nodg.logger.Errorf("failed to get cluster")
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterID,
+		}).Error("failed to get cluster")
 		return resource.CreateNodeGroupResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	err = nodg.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to check auth token, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterProjectUUID": cluster.ClusterProjectUUID,
+		}).WithError(err).Error("failed to check auth token")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
 	nodeGroupLabelsJSON, err := json.Marshal(req.NodeGroupLabels)
 	if err != nil {
-		nodg.logger.Errorf("failed to marshal node group labels, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"nodeGroupLabels": req.NodeGroupLabels,
+		}).WithError(err).Error("failed to marshal node group labels")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
@@ -498,7 +550,10 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 
 	serverGroupResp, err := nodg.computeService.CreateServerGroup(ctx, authToken, createServerGroupReq)
 	if err != nil {
-		nodg.logger.Errorf("failed to create server group, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterName":   cluster.ClusterName,
+			"nodeGroupName": req.NodeGroupName,
+		}).WithError(err).Error("failed to create server group")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
@@ -511,7 +566,10 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 
 	securityGroupResp, err := nodg.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
 	if err != nil {
-		nodg.logger.Errorf("failed to create security group, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterName":   cluster.ClusterName,
+			"nodeGroupName": req.NodeGroupName,
+		}).WithError(err).Error("failed to create security group")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
@@ -534,14 +592,20 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		"",
 	)
 	if err != nil {
-		nodg.logger.Errorf("failed to generate user data from template, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterName":   cluster.ClusterName,
+			"nodeGroupName": req.NodeGroupName,
+		}).WithError(err).Error("failed to generate user data from template")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
 	//Get Cluster Shared Security Group
 	getClusterSharedSecurityGroup, err := nodg.networkService.GetSecurityGroupByID(ctx, authToken, cluster.ClusterSharedSecurityGroup)
 	if err != nil {
-		nodg.logger.Errorf("failed to get security group, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterName":   cluster.ClusterName,
+			"nodeGroupName": req.NodeGroupName,
+		}).WithError(err).Error("failed to get cluster shared security group")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
@@ -576,13 +640,17 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 	subnetIDSArr := []string{}
 	err = json.Unmarshal(cluster.ClusterSubnets, &subnetIDSArr)
 	if err != nil {
-		nodg.logger.Errorf("failed to unmarshal cluster subnets, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterName": cluster.ClusterName,
+		}).WithError(err).Error("failed to unmarshal cluster subnets")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
 	getNetworkIdResp, err := nodg.networkService.GetNetworkID(ctx, authToken, subnetIDSArr[0])
 	if err != nil {
-		nodg.logger.Errorf("failed to get networkId, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterName": cluster.ClusterName,
+		}).WithError(err).Error("failed to get network id")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
@@ -603,7 +671,10 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		}
 		portResp, err := nodg.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
 		if err != nil {
-			nodg.logger.Errorf("failed to create network port, error: %v", err)
+			nodg.logger.WithFields(logrus.Fields{
+				"clusterName":   cluster.ClusterName,
+				"nodeGroupName": req.NodeGroupName,
+			}).WithError(err).Error("failed to create network port")
 			return resource.CreateNodeGroupResponse{}, err
 		}
 		WorkerRequest.Server.Networks = []request.Networks{
@@ -634,7 +705,10 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 	})
 
 	if err != nil {
-		nodg.logger.Errorf("failed to create node group, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterName":   cluster.ClusterName,
+			"nodeGroupName": req.NodeGroupName,
+		}).WithError(err).Error("failed to create node group")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
@@ -646,7 +720,10 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 	})
 
 	if err != nil {
-		nodg.logger.Errorf("failed to create audit log, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterName":   cluster.ClusterName,
+			"nodeGroupName": req.NodeGroupName,
+		}).WithError(err).Error("failed to create audit log")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
@@ -659,55 +736,73 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 func (nodg *nodeGroupsService) DeleteNodeGroup(ctx context.Context, authToken, clusterID, nodeGroupID string) error {
 	cluster, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get cluster, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterID,
+		}).Error("failed to get cluster")
 		return err
 	}
 	if cluster.ClusterProjectUUID == "" {
-		nodg.logger.Errorf("failed to get cluster")
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterID": clusterID,
+		}).Error("failed to get cluster")
 		return fmt.Errorf("failed to get cluster")
 	}
 	err = nodg.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to check auth token, error: %v", err)
+		nodg.logger.Error("failed to check auth token")
 		return err
 	}
 	nodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get node group, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"nodeGroupID": nodeGroupID,
+		}).WithError(err).Error("failed to get node group")
 		return err
 	}
 	computes, err := nodg.computeService.GetInstances(ctx, authToken, nodeGroup.NodeGroupUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to get instances, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"nodeGroupUUID": nodeGroup.NodeGroupUUID,
+		}).WithError(err).Error("failed to get instances")
 		return err
 	}
 	for _, server := range computes {
 		getNetworkPortID, err := nodg.networkService.GetComputeNetworkPorts(ctx, authToken, server.InstanceUUID)
 		if err != nil {
-			nodg.logger.Errorf("failed to get compute network ports, error: %v", err)
+			nodg.logger.WithFields(logrus.Fields{
+				"instanceUUID": server.InstanceUUID,
+			}).WithError(err).Error("failed to get compute network ports")
 			return err
 		}
 		for _, portID := range getNetworkPortID.Ports {
 			err := nodg.networkService.DeleteNetworkPort(ctx, authToken, portID)
 			if err != nil {
-				nodg.logger.Errorf("failed to delete network port, error: %v", err)
+				nodg.logger.WithFields(logrus.Fields{
+					"portID": portID,
+				}).WithError(err).Error("failed to delete network port")
 				return err
 			}
 		}
 		err = nodg.computeService.DeleteCompute(ctx, authToken, server.InstanceUUID)
 		if err != nil {
-			nodg.logger.Errorf("failed to delete compute, error: %v", err)
+			nodg.logger.WithFields(logrus.Fields{
+				"instanceUUID": server.InstanceUUID,
+			}).WithError(err).Error("failed to delete compute")
 			return err
 		}
 	}
 	err = nodg.computeService.DeleteServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID)
 	if err != nil {
-		nodg.logger.Errorf("failed to delete server group, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"nodeGroupUUID": nodeGroup.NodeGroupUUID,
+		}).WithError(err).Error("failed to delete server group")
 		return err
 	}
 	err = nodg.networkService.DeleteSecurityGroup(ctx, authToken, nodeGroup.NodeGroupSecurityGroup)
 	if err != nil {
-		nodg.logger.Errorf("failed to delete security group, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"nodeGroupSecurityGroup": nodeGroup.NodeGroupSecurityGroup,
+		}).WithError(err).Error("failed to delete security group")
 		return err
 	}
 
@@ -718,7 +813,9 @@ func (nodg *nodeGroupsService) DeleteNodeGroup(ctx context.Context, authToken, c
 		NodeGroupUpdateDate: time.Now(),
 	})
 	if err != nil {
-		nodg.logger.Errorf("failed to update node group, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"nodeGroupID": nodeGroupID,
+		}).WithError(err).Error("failed to update node group")
 		return err
 	}
 
@@ -729,7 +826,9 @@ func (nodg *nodeGroupsService) DeleteNodeGroup(ctx context.Context, authToken, c
 		CreateDate:  time.Now(),
 	})
 	if err != nil {
-		nodg.logger.Errorf("failed to create audit log, error: %v", err)
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).WithError(err).Error("failed to create audit log")
 		return err
 	}
 

@@ -35,7 +35,7 @@ func NewIdentityService(logger *logrus.Logger) IIdentityService {
 func (i *identityService) CheckAuthToken(ctx context.Context, authToken, projectUUID string) error {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint, projectPath, projectUUID), nil)
 	if err != nil {
-		i.logger.Errorf("failed to create request, error: %v", err)
+		i.logger.WithError(err).Error("failed to create request")
 		return err
 	}
 	r.Header.Add("X-Auth-Token", authToken)
@@ -43,7 +43,7 @@ func (i *identityService) CheckAuthToken(ctx context.Context, authToken, project
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		i.logger.Errorf("failed to send request, error: %v", err)
+		i.logger.WithError(err).Error("failed to send request")
 		return err
 	}
 	defer resp.Body.Close()
@@ -59,12 +59,12 @@ func (i *identityService) CheckAuthToken(ctx context.Context, authToken, project
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		i.logger.Errorf("failed to decode response, error: %v", err)
+		i.logger.WithError(err).Error("failed to decode response")
 		return err
 	}
 
 	if respDecoder.Project.ID != projectUUID {
-		i.logger.Errorf("failed to check auth token, project id mismatch")
+		i.logger.Error("failed to check auth token, project id mismatch")
 		return fmt.Errorf("failed to check auth token, project id mismatch")
 	}
 
@@ -73,7 +73,7 @@ func (i *identityService) CheckAuthToken(ctx context.Context, authToken, project
 func (i *identityService) GetTokenDetail(ctx context.Context, authToken string) (string, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint, tokenPath), nil)
 	if err != nil {
-		i.logger.Errorf("failed to create request, error: %v", err)
+		i.logger.WithError(err).Error("failed to create request")
 		return "", err
 	}
 	r.Header.Add("X-Auth-Token", authToken)
@@ -82,7 +82,7 @@ func (i *identityService) GetTokenDetail(ctx context.Context, authToken string) 
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		i.logger.Errorf("failed to send request, error: %v", err)
+		i.logger.WithError(err).Error("failed to send request")
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -98,7 +98,7 @@ func (i *identityService) GetTokenDetail(ctx context.Context, authToken string) 
 
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		i.logger.Errorf("failed to decode response, error: %v", err)
+		i.logger.WithError(err).Error("failed to decode response")
 		return "", err
 	}
 	return respDecoder.Token.User.ID, nil
@@ -119,19 +119,19 @@ func (i *identityService) CreateApplicationCredential(ctx context.Context, clust
 	}
 	data, err := json.Marshal(createApplicationCredentialReq)
 	if err != nil {
-		i.logger.Errorf("failed to marshal request, error: %v", err)
+		i.logger.WithError(err).Error("failed to marshal request")
 		return nil, err
 	}
 	getUserID, err := i.GetTokenDetail(ctx, authToken)
 	if err != nil {
-		i.logger.Errorf("failed to get user id, error: %v", err)
+		i.logger.WithError(err).Error("failed to get user id")
 		return nil, err
 	}
 
 	applicationCredentialPath := fmt.Sprintf("/v3/users/%s/application_credentials", getUserID)
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint, applicationCredentialPath), bytes.NewBuffer(data))
 	if err != nil {
-		i.logger.Errorf("failed to create request, error: %v", err)
+		i.logger.WithError(err).Error("failed to create request")
 		return nil, err
 	}
 
@@ -141,7 +141,7 @@ func (i *identityService) CreateApplicationCredential(ctx context.Context, clust
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		i.logger.Errorf("failed to send request, error: %v", err)
+		i.logger.WithError(err).Error("failed to send request")
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -151,13 +151,13 @@ func (i *identityService) CreateApplicationCredential(ctx context.Context, clust
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		i.logger.Errorf("failed to read response body, error: %v", err)
+		i.logger.WithError(err).Error("failed to read response body")
 		return nil, err
 	}
 	var respDecoder resource.CreateApplicationCredentialResponse
 	err = json.Unmarshal([]byte(body), &respDecoder)
 	if err != nil {
-		i.logger.Errorf("failed to decode response, error: %v", err)
+		i.logger.WithError(err).Error("failed to decode response")
 		return nil, err
 	}
 	return &respDecoder, nil
@@ -167,13 +167,13 @@ func (i *identityService) CreateApplicationCredential(ctx context.Context, clust
 func (i *identityService) DeleteApplicationCredential(ctx context.Context, authToken, applicationCredentialID string) error {
 	getUserID, err := i.GetTokenDetail(ctx, authToken)
 	if err != nil {
-		i.logger.Errorf("failed to get user id, error: %v", err)
+		i.logger.WithError(err).Error("failed to get user id")
 		return err
 	}
 	applicationCredentialPath := fmt.Sprintf("/v3/users/%s/application_credentials/%v", getUserID, applicationCredentialID)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint, applicationCredentialPath), nil)
 	if err != nil {
-		i.logger.Errorf("failed to create request, error: %v", err)
+		i.logger.WithError(err).Error("failed to create request")
 		return err
 	}
 
@@ -182,7 +182,7 @@ func (i *identityService) DeleteApplicationCredential(ctx context.Context, authT
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		i.logger.Errorf("failed to send request, error: %v", err)
+		i.logger.WithError(err).Error("failed to send request")
 		return err
 	}
 	defer resp.Body.Close()

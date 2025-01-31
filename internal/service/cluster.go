@@ -126,15 +126,20 @@ func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string
 	for {
 		if waitIterator < 6 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			c.logger.Infof("Waiting for Kubeconfig  ClusterUUID: %s to be ACTIVE, waited %v seconds", clusterUUID, waitSeconds)
+			c.logger.WithFields(logrus.Fields{
+				"ClusterUUID": clusterUUID,
+				"Waited":      waitSeconds,
+			}).Info("Waiting for Kubeconfig to be ACTIVE")
 			waitIterator++
 		} else {
-			err := fmt.Errorf("Failed to send Kubeconfig for ClusterUUID: %s", clusterUUID)
+			err := fmt.Errorf("failed to send kubeconfig for ClusterUUID: %s", clusterUUID)
 			return err
 		}
 		_, err := c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, clusterUUID)
 		if err != nil {
-			c.logger.Errorf("ClusterUUID: %s kubeconfig not send yet, error: %v", clusterUUID, err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"ClusterUUID": clusterUUID,
+			}).Error("failed to get kubeconfig")
 		} else {
 			break
 		}
@@ -148,19 +153,27 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	subnetIdsJSON, err := json.Marshal(req.SubnetIDs)
 	if err != nil {
-		c.logger.Errorf("failed to marshal subnet ids, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to marshal subnet ids")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 		return
 	}
 	createApplicationCredentialReq, err := c.identityService.CreateApplicationCredential(ctx, clusterUUID, authToken)
 	if err != nil {
-		c.logger.Errorf("failed to create application credential, error: %v clusterUUID: %s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create application credential")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 		return
 	}
@@ -184,16 +197,23 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create")
 	if err != nil {
-		c.logger.Errorf("failed to create audit log, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create audit log")
 		return
 	}
 
 	err = c.repository.Cluster().CreateCluster(ctx, clusterModel)
 	if err != nil {
-		c.logger.Errorf("failed to create cluster, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create cluster")
+
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 		return
 	}
@@ -211,48 +231,66 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	lbResp, err := c.loadbalancerService.CreateLoadBalancer(ctx, authToken, *createLBReq)
 	if err != nil {
-		c.logger.Errorf("failed to create load balancer, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create load balancer")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
 
 	listLBResp, err := c.loadbalancerService.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
 	if err != nil {
-		c.logger.Errorf("failed to list load balancer, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to list load balancer")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -267,16 +305,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		createFloatingIPResponse, err := c.networkService.CreateFloatingIP(ctx, authToken, *createFloatingIPreq)
 		if err != nil {
-			c.logger.Errorf("failed to create floating ip, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create floating ip")
 			err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to create audit log")
 			}
 
 			clusterModel.ClusterStatus = ErrorClusterStatus
 			err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 			if err != nil {
-				c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to update cluster")
 			}
 			return
 		}
@@ -294,16 +338,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	// create security group for master
 	createMasterSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
 	if err != nil {
-		c.logger.Errorf("failed to create security group, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create security group")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -313,16 +363,23 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	createWorkerSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
 	if err != nil {
-		c.logger.Errorf("failed to create security group, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create security group")
+
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -332,16 +389,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	createClusterSharedSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
 	if err != nil {
-		c.logger.Errorf("failed to create security group, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create security group")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -359,16 +422,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	masterServerGroupResp, err := c.computeService.CreateServerGroup(ctx, authToken, *createServerGroupReq)
 	if err != nil {
-		c.logger.Errorf("failed to create server group, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create server group")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -390,16 +459,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	err = c.repository.NodeGroups().CreateNodeGroups(ctx, masterNodeGroupModel)
 	if err != nil {
-		c.logger.Errorf("failed to create node groups, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create node groups")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -407,16 +482,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createServerGroupReq.ServerGroup.Name = fmt.Sprintf("%v-default-worker-server-group", req.ClusterName)
 	workerServerGroupResp, err := c.computeService.CreateServerGroup(ctx, authToken, *createServerGroupReq)
 	if err != nil {
-		c.logger.Errorf("failed to create server group, error: %v clusterUUID:%s", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create server group")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -438,16 +519,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	err = c.repository.NodeGroups().CreateNodeGroups(ctx, workerNodeGroupModel)
 	if err != nil {
-		c.logger.Errorf("failed to create node groups, error: %v, clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create node groups")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -471,32 +558,44 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		createApplicationCredentialReq.Credential.Secret,
 	)
 	if err != nil {
-		c.logger.Errorf("failed to generate user data from template, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to generate user data from template")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
 
 	getNetworkIdResp, err := c.networkService.GetNetworkID(ctx, authToken, req.SubnetIDs[0])
 	if err != nil {
-		c.logger.Errorf("failed to get networkId, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to get networkId")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -526,16 +625,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
 	if err != nil {
-		c.logger.Errorf("failed to create security group rule, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create security group rule")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -557,16 +662,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	portRequest.Port.SecurityGroups = []string{createMasterSecurityResp.SecurityGroup.ID, createClusterSharedSecurityResp.SecurityGroup.ID}
 	portResp, err := c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
 	if err != nil {
-		c.logger.Errorf("failed to create network port, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create network port")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -606,16 +717,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	_, err = c.computeService.CreateCompute(ctx, authToken, *masterRequest)
 	if err != nil {
-		c.logger.Errorf("failed to create compute, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create compute")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -623,16 +740,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	for _, subnetID := range req.SubnetIDs {
 		subnetDetails, err := c.networkService.GetSubnetByID(ctx, authToken, subnetID)
 		if err != nil {
-			c.logger.Errorf("failed to get subnet details, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to get subnet details")
 			err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to create audit log")
 			}
 
 			clusterModel.ClusterStatus = ErrorClusterStatus
 			err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 			if err != nil {
-				c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to update cluster")
 			}
 			return
 		}
@@ -644,16 +767,23 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 		if err != nil {
-			c.logger.Errorf("failed to create security group rule, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create security group rule")
+
 			err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to create audit log")
 			}
 
 			clusterModel.ClusterStatus = ErrorClusterStatus
 			err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 			if err != nil {
-				c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to update cluster")
 			}
 			return
 		}
@@ -662,16 +792,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "9345"
 		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 		if err != nil {
-			c.logger.Errorf("failed to create security group rule, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create security group rule")
 			err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to create audit log")
 			}
 
 			clusterModel.ClusterStatus = ErrorClusterStatus
 			err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 			if err != nil {
-				c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to update cluster")
 			}
 			return
 		}
@@ -683,16 +819,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createClusterSharedSecurityResp.SecurityGroup.ID
 		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
 		if err != nil {
-			c.logger.Errorf("failed to create security group rule, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create security group rule")
 			err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to create audit log")
 			}
 
 			clusterModel.ClusterStatus = ErrorClusterStatus
 			err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 			if err != nil {
-				c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to update cluster")
 			}
 			return
 		}
@@ -702,16 +844,23 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	addDNSResp, err := c.cloudflareService.AddDNSRecordToCloudflare(ctx, loadbalancerIP, clusterSubdomainHash, req.ClusterName)
 	if err != nil {
-		c.logger.Errorf("failed to add dns record to cloudflare, error: %v clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to add dns record to cloudflare")
+
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -719,16 +868,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -746,16 +901,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	apiListenerResp, err := c.loadbalancerService.CreateListener(ctx, authToken, *createListenerReq)
 	if err != nil {
-		c.logger.Errorf("failed to create listener, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create listener")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -766,32 +927,44 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
 
 	registerListenerResp, err := c.loadbalancerService.CreateListener(ctx, authToken, *createListenerReq)
 	if err != nil {
-		c.logger.Errorf("failed to create listener, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create listener")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -799,16 +972,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -818,13 +997,17 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -839,32 +1022,44 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	apiPoolResp, err := c.loadbalancerService.CreatePool(ctx, authToken, *createPoolReq)
 	if err != nil {
-		c.logger.Errorf("failed to create pool, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create pool")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -881,16 +1076,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		},
 	})
 	if err != nil {
-		c.logger.Errorf("failed to create health monitor, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create health monitor")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -899,47 +1100,65 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
 	registerPoolResp, err := c.loadbalancerService.CreatePool(ctx, authToken, *createPoolReq)
 	if err != nil {
-		c.logger.Errorf("failed to create pool, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create pool")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -961,16 +1180,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		},
 	})
 	if err != nil {
-		c.logger.Errorf("failed to create health monitor, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create health monitor")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -989,32 +1214,44 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
 
 	err = c.loadbalancerService.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
-		c.logger.Errorf("failed to create member, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create member")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1024,32 +1261,44 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
 
 	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
-		c.logger.Errorf("failed to create member, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create member")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1057,16 +1306,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	portRequest.Port.Name = fmt.Sprintf("%v-master-2-port", req.ClusterName)
 	portResp, err = c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
 	if err != nil {
-		c.logger.Errorf("failed to create network port, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create network port")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1091,16 +1346,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		"",
 	)
 	if err != nil {
-		c.logger.Errorf("failed to generate user data from template, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to generate user data from template")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1110,32 +1371,44 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
 
 	_, err = c.computeService.CreateCompute(ctx, authToken, *masterRequest)
 	if err != nil {
-		c.logger.Errorf("failed to create compute, error: %v  clusterUUID:%s", err, clusterUUID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create compute")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v  clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v clusterUUID:%s", err, clusterUUID)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1147,16 +1420,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.MonitorPort = 6443
 	err = c.loadbalancerService.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
-		c.logger.Errorf("failed to create member, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create member")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1164,16 +1443,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1181,16 +1466,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.MonitorPort = 9345
 	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
-		c.logger.Errorf("failed to create member, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create member")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1198,16 +1489,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	portRequest.Port.Name = fmt.Sprintf("%v-master-3-port", req.ClusterName)
 	portResp, err = c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
 	if err != nil {
-		c.logger.Errorf("failed to create network port, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create network port")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1216,16 +1513,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	_, err = c.computeService.CreateCompute(ctx, authToken, *masterRequest)
 	if err != nil {
-		c.logger.Errorf("failed to create compute, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create compute")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1235,16 +1538,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	err = c.repository.NodeGroups().UpdateNodeGroups(ctx, masterNodeGroupModel)
 	if err != nil {
-		c.logger.Errorf("failed to update node groups, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to update node groups")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1252,16 +1561,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1273,16 +1588,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.MonitorPort = 6443
 	err = c.loadbalancerService.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
-		c.logger.Errorf("failed to create member, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create member")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1290,16 +1611,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
 	if err != nil {
-		c.logger.Errorf("failed to check load balancer status, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check load balancer status")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1308,16 +1635,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.MonitorPort = 9345
 	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
-		c.logger.Errorf("failed to create member, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create member")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1326,16 +1659,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	defaultWorkerLabels := []string{"type=default-worker"}
 	nodeGroupLabelsJSON, err := json.Marshal(defaultWorkerLabels)
 	if err != nil {
-		c.logger.Errorf("failed to marshal default worker labels, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to marshal default worker labels")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1358,16 +1697,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		"",
 	)
 	if err != nil {
-		c.logger.Errorf("failed to generate user data from template, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to generate user data from template")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1407,16 +1752,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		portRequest.Port.SecurityGroups = []string{createWorkerSecurityResp.SecurityGroup.ID, createClusterSharedSecurityResp.SecurityGroup.ID}
 		portResp, err = c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
 		if err != nil {
-			c.logger.Errorf("failed to create network port, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create network port")
 			err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to create audit log")
 			}
 
 			clusterModel.ClusterStatus = ErrorClusterStatus
 			err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 			if err != nil {
-				c.logger.Errorf("failed to update cluster, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to update cluster")
 			}
 			return
 		}
@@ -1425,16 +1776,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 		_, err = c.computeService.CreateCompute(ctx, authToken, *WorkerRequest)
 		if err != nil {
-			c.logger.Errorf("failed to create compute, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create compute")
 			err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 			if err != nil {
-				c.logger.Errorf("failed to create audit log, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to create audit log")
 			}
 
 			clusterModel.ClusterStatus = ErrorClusterStatus
 			err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 			if err != nil {
-				c.logger.Errorf("failed to update cluster, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to update cluster")
 			}
 			return
 		}
@@ -1446,16 +1803,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	err = c.repository.NodeGroups().UpdateNodeGroups(ctx, workerNodeGroupModel)
 	if err != nil {
-		c.logger.Errorf("failed to update node groups, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to update node groups")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
 		err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 		if err != nil {
-			c.logger.Errorf("failed to update cluster, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to update cluster")
 		}
 		return
 	}
@@ -1480,50 +1843,67 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	err = c.CheckKubeConfig(ctx, clusterUUID)
 	if err != nil {
 		clusterModel.ClusterStatus = ErrorClusterStatus
-		c.logger.Errorf("failed to check kube config, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to check kube config")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 	}
 	err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
 	if err != nil {
-		c.logger.Errorf("failed to update cluster, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to update cluster")
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
-			c.logger.Errorf("failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create audit log")
 		}
 		return
 	}
 
 	err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Created")
 	if err != nil {
-		c.logger.Errorf("failed to create audit log, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterUUID,
+		}).Error("failed to create audit log")
 		return
 	}
-	return
 }
 
 func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error) {
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
-		c.logger.Errorf("failed to get cluster, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
 		return resource.GetClusterResponse{}, err
 	}
 
 	if cluster == nil {
-		c.logger.Errorf("failed to get cluster")
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
 		return resource.GetClusterResponse{}, nil
 	}
 
 	if cluster.ClusterProjectUUID == "" {
-		c.logger.Errorf("failed to get cluster")
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
 		return resource.GetClusterResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
-		c.logger.Errorf("failed to check auth token, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to check auth token")
 		return resource.GetClusterResponse{}, err
 	}
 
@@ -1543,23 +1923,30 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 func (c *clusterService) GetClusterDetails(ctx context.Context, authToken, clusterID string) (resource.GetClusterDetailsResponse, error) {
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
-		c.logger.Errorf("failed to get cluster, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID}).Error("failed to get cluster")
 		return resource.GetClusterDetailsResponse{}, err
 	}
 
 	if cluster == nil {
-		c.logger.Errorf("failed to get cluster")
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
 		return resource.GetClusterDetailsResponse{}, nil
 	}
 
 	if cluster.ClusterProjectUUID == "" {
-		c.logger.Errorf("failed to get cluster")
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
 		return resource.GetClusterDetailsResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
-		c.logger.Errorf("failed to check auth token, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to check auth token")
 		return resource.GetClusterDetailsResponse{}, err
 	}
 
@@ -1567,7 +1954,9 @@ func (c *clusterService) GetClusterDetails(ctx context.Context, authToken, clust
 
 	err = json.Unmarshal(cluster.ClusterSubnets, &clusterSubnetsArr)
 	if err != nil {
-		c.logger.Errorf("failed to unmarshal cluster subnets, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to unmarshal cluster subnets")
 		return resource.GetClusterDetailsResponse{}, err
 	}
 
@@ -1585,12 +1974,16 @@ func (c *clusterService) GetClusterDetails(ctx context.Context, authToken, clust
 
 	nodeGroups, err := c.nodeGroupsService.GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID)
 	if err != nil {
-		c.logger.Errorf("failed to get node groups, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get node groups")
 		return resource.GetClusterDetailsResponse{}, err
 	}
 
 	if nodeGroups == nil {
-		c.logger.Errorf("failed to get node groups")
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get node groups")
 
 		getClusterDetailsResp.ClusterMasterServerGroup = resource.NodeGroup{}
 		getClusterDetailsResp.ClusterWorkerServerGroups = []resource.NodeGroup{}
@@ -1613,18 +2006,24 @@ func (c *clusterService) GetClusterDetails(ctx context.Context, authToken, clust
 func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, projectID string) ([]resource.GetClusterResponse, error) {
 	clusters, err := c.repository.Cluster().GetClustersByProjectId(ctx, projectID)
 	if err != nil {
-		c.logger.Errorf("failed to get cluster, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"projectID": projectID,
+		}).Error("failed to get cluster")
 		return []resource.GetClusterResponse{}, err
 	}
 
 	if clusters == nil {
-		c.logger.Errorf("failed to get cluster")
+		c.logger.WithFields(logrus.Fields{
+			"projectID": projectID,
+		}).Error("failed to get cluster")
 		return []resource.GetClusterResponse{}, nil
 	}
 
 	err = c.identityService.CheckAuthToken(ctx, authToken, projectID)
 	if err != nil {
-		c.logger.Errorf("failed to check auth token, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"projectID": projectID,
+		}).Error("failed to check auth token")
 		return []resource.GetClusterResponse{}, err
 	}
 
@@ -1654,29 +2053,39 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
-		c.logger.Errorf("Failed to get cluster, error: %v clusterId: %s", err, clusterID)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
 		return
 	}
 
 	if cluster == nil {
-		c.logger.Errorf("Failed to get cluster, clusterId: %s", clusterID)
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
 		return
 	}
 
 	if cluster.ClusterProjectUUID == "" {
-		c.logger.Errorf("Failed to get cluster, clusterId: %s", clusterID)
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
 		return
 	}
 
 	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
-		c.logger.Errorf("Failed to check auth token, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to check auth token")
 		return
 	}
 
 	err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Cluster Destroying")
 	if err != nil {
-		c.logger.Errorf("Failed to create audit log, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to create audit log")
 	}
 
 	clModel := &model.Cluster{
@@ -1686,63 +2095,90 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 
 	err = c.repository.Cluster().DeleteUpdateCluster(ctx, clModel, cluster.ClusterUUID)
 	if err != nil {
-		c.logger.Errorf("Failed to delete update cluster, error: %v clusterUUID:%s", err, cluster.ClusterUUID)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete update cluster")
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to delete update cluster")
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete update cluster")
 		if err != nil {
-			c.logger.Errorf("Failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to create audit log")
 		}
 	}
 	//Delete LoadBalancer Pool and Listener
 	getLoadBalancerPoolsResponse, err := c.loadbalancerService.GetLoadBalancerPools(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 	if err != nil {
-		c.logger.Errorf("Failed to get load balancer pools, error: %v clusterUUID: %s", err, cluster.ClusterUUID)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to get load balancer pools")
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to get load balancer pools")
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get load balancer pools")
 		if err != nil {
-			c.logger.Errorf("Failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to create audit log")
 		}
 	}
 
 	for _, member := range getLoadBalancerPoolsResponse.Pools {
 		err = c.loadbalancerService.DeleteLoadbalancerPools(ctx, authToken, member)
 		if err != nil {
-			c.logger.Errorf("Failed to delete load balancer pools, error: %v clusterUUID:%s Pool: %d", err, cluster.ClusterUUID, member)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete load balancer pools")
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+				"pool":        member,
+			}).Error("failed to delete load balancer pools")
+			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete load balancer pools")
 			if err != nil {
-				c.logger.Errorf("Failed to create audit log, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Error("failed to create audit log")
 			}
 		}
 		err = c.loadbalancerService.CheckLoadBalancerDeletingPools(ctx, authToken, member)
 		if err != nil {
-			c.logger.Errorf("Failed to check load balancer deleting pools, error: %v clusterUUID:%s Pool: %d", err, cluster.ClusterUUID, member)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to check load balancer deleting pools")
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+				"pool":        member,
+			}).Error("failed to check load balancer deleting pools")
+
+			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to check load balancer deleting pools")
 			if err != nil {
-				c.logger.Errorf("Failed to create audit log, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Error("failed to create audit log")
 			}
 		}
 	}
 	getLoadBalancerListenersResponse, err := c.loadbalancerService.GetLoadBalancerListeners(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 	if err != nil {
-		c.logger.Errorf("Failed to get load balancer listeners, error: %v clusterUUID: %s", err, cluster.ClusterUUID)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to get load balancer listeners")
+		c.logger.Errorf("failed to get loadbalancer listeners, error: %v clusterUUID: %s", err, cluster.ClusterUUID)
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get loadbalancer listeners")
 		if err != nil {
-			c.logger.Errorf("Failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to create audit log")
 		}
 	}
 	for _, member := range getLoadBalancerListenersResponse.Listeners {
 		err = c.loadbalancerService.DeleteLoadbalancerListeners(ctx, authToken, member)
 		if err != nil {
-			c.logger.Errorf("Failed to delete load balancer listeners, error: %v clusterUUID:%s Listener: %d", err, cluster.ClusterUUID, member)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete load balancer listeners")
+			c.logger.Errorf("failed to delete loadbalancer listeners, error: %v clusterUUID:%s Listener: %v", err, cluster.ClusterUUID, member)
+			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete loadbalancer listeners")
 			if err != nil {
-				c.logger.Errorf("Failed to create audit log, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Error("failed to create audit log")
 			}
 		}
 		err = c.loadbalancerService.CheckLoadBalancerDeletingListeners(ctx, authToken, member)
 		if err != nil {
-			c.logger.Errorf("Failed to check load balancer deleting listeners, error: %v clusterUUID:%s Listener: %d", err, cluster.ClusterUUID, member)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to check load balancer deleting listeners")
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to check loadbalancer deleting listeners")
+			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to check loadbalancer deleting listeners")
 			if err != nil {
-				c.logger.Errorf("Failed to create audit log, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Error("failed to create audit log")
 			}
 		}
 	}
@@ -1750,20 +2186,28 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 	//Delete LoadBalancer
 	err = c.loadbalancerService.DeleteLoadbalancer(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 	if err != nil {
-		c.logger.Errorf("Failed to delete load balancer, error: %v clusterUUID:%s", err, cluster.ClusterUUID)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete load balancer")
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to delete load balancer")
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete load balancer")
 		if err != nil {
-			c.logger.Errorf("Failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to create audit log")
 		}
 	}
 
 	//Delete DNS Record
 	err = c.cloudflareService.DeleteDNSRecordFromCloudflare(ctx, cluster.ClusterCloudflareRecordID)
 	if err != nil {
-		c.logger.Errorf("Failed to delete dns record, error: %v clusterUUID:%s", err, cluster.ClusterUUID)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete dns record")
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to delete dns record")
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete dns record")
 		if err != nil {
-			c.logger.Errorf("Failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to create audit log")
 		}
 	}
 
@@ -1771,19 +2215,27 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 	if cluster.ClusterAPIAccess == "public" {
 		deleteFloatingIPResp := c.networkService.DeleteFloatingIP(ctx, authToken, cluster.FloatingIPUUID)
 		if deleteFloatingIPResp != nil {
-			c.logger.Errorf("Failed to delete floating ip, error: %v clusterUUID:%s", deleteFloatingIPResp, cluster.ClusterUUID)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete floating ip")
+			c.logger.WithError(deleteFloatingIPResp).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to delete floating ip")
+			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete floating ip")
 			if err != nil {
-				c.logger.Errorf("Failed to create audit log, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Error("failed to create audit log")
 			}
 		}
 	}
 	nodeGroupsOfCluster, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "")
 	if err != nil {
-		c.logger.Errorf("Failed to get node groups, error: %v clusterUUID: %s", err, cluster.ClusterUUID)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to get node groups")
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to get node groups")
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get node groups")
 		if err != nil {
-			c.logger.Errorf("Failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to create audit log")
 		}
 	}
 	// Delete Worker Server Group Members ports and compute and server groups
@@ -1792,71 +2244,103 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		clusterWorkerServerGroupsUUIDString = append(clusterWorkerServerGroupsUUIDString, nodeGroup.NodeGroupUUID)
 	}
 	if err != nil {
-		c.logger.Errorf("Failed to unmarshal cluster worker server groups uuid, error: %v", err)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to unmarshal cluster worker server groups uuid")
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to unmarshal cluster worker server groups uuid")
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to unmarshal cluster worker server groups uuid")
 		if err != nil {
-			c.logger.Errorf("Failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to create audit log")
 		}
 	}
 	for _, serverGroup := range nodeGroupsOfCluster {
 		getServerGroupMembersListResp, err := c.computeService.GetServerGroupMemberList(ctx, authToken, serverGroup.NodeGroupUUID)
 		if err != nil {
-			c.logger.Errorf("Failed to get server group members list, error: %v clusterUUID:%s", err, cluster.ClusterUUID)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to get server group members list")
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to get server group members list")
+			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get server group members list")
 			if err != nil {
-				c.logger.Errorf("Failed to create audit log, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Error("failed to create audit log")
 			}
 		}
 		for _, member := range getServerGroupMembersListResp.Members {
 			getWorkerComputePortIdResp, err := c.networkService.GetComputeNetworkPorts(ctx, authToken, member)
 			if err != nil {
-				c.logger.Errorf("Failed to get compute network ports, error: %v clusterUUID:%s PortID: %d", err, cluster.ClusterUUID, member)
-				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to get compute network ports")
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Error("failed to get compute network ports")
+				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get compute network ports")
 				if err != nil {
-					c.logger.Errorf("Failed to create audit log, error: %v", err)
+					c.logger.WithError(err).WithFields(logrus.Fields{
+						"clusterUUID": cluster.ClusterUUID,
+					}).Error("failed to create audit log")
 				}
 			}
 			if len(getWorkerComputePortIdResp.Ports) > 0 {
 				err = c.networkService.DeleteNetworkPort(ctx, authToken, getWorkerComputePortIdResp.Ports[0])
 				if err != nil {
-					c.logger.Errorf("Failed to delete network port, error: %v clusterUUID:%s PortID: %d", err, cluster.ClusterUUID, member)
-					err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete network port")
+					c.logger.WithError(err).WithFields(logrus.Fields{
+						"clusterUUID": cluster.ClusterUUID,
+					}).Error("failed to delete network port")
+					err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete network port")
 					if err != nil {
-						c.logger.Errorf("Failed to create audit log, error: %v", err)
+						c.logger.WithError(err).WithFields(logrus.Fields{
+							"clusterUUID": cluster.ClusterUUID,
+						}).Error("failed to create audit log")
 					}
 				}
 			} else {
-				c.logger.Errorf("Compute node port not found, error: %v clusterUUID:%s PortID: %d", err, cluster.ClusterUUID, member)
-				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to get compute network ports")
+				c.logger.WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Errorf("compute node port not found, error: %v clusterUUID:%s PortID: %v", err, cluster.ClusterUUID, member)
+				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get compute network ports")
 				if err != nil {
-					c.logger.Errorf("Failed to create audit log, error: %v", err)
+					c.logger.WithFields(logrus.Fields{
+						"clusterUUID": cluster.ClusterUUID,
+					}).Error("failed to create audit log")
 				}
 			}
 
 			err = c.computeService.DeleteCompute(ctx, authToken, member)
 			if err != nil {
-				c.logger.Errorf("Failed to delete compute, error: %v clusterUUID:%s ComputeID: %d", err, cluster.ClusterUUID, member)
-				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete compute")
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Errorf("failed to delete compute, error: %v clusterUUID:%s ComputeID: %v", err, cluster.ClusterUUID, member)
+				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete compute")
 				if err != nil {
-					c.logger.Errorf("Failed to create audit log, error: %v", err)
+					c.logger.WithError(err).WithFields(logrus.Fields{
+						"clusterUUID": cluster.ClusterUUID,
+					}).Error("failed to create audit log")
 				}
 			}
 		}
 		err = c.computeService.DeleteServerGroup(ctx, authToken, serverGroup.NodeGroupUUID)
 		if err != nil {
-			c.logger.Errorf("Failed to delete server group, error: %v clusterUUID:%s ServerGroup: %s", err, cluster.ClusterUUID, serverGroup.NodeGroupUUID)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete server group")
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Errorf("failed to delete server group, error: %v clusterUUID:%s ServerGroup: %s", err, cluster.ClusterUUID, serverGroup.NodeGroupUUID)
+			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete server group")
 			if err != nil {
-				c.logger.Errorf("Failed to create audit log, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Error("failed to create audit log")
 			}
 		}
 		// Delete Worker Security Group
 		err = c.networkService.DeleteSecurityGroup(ctx, authToken, serverGroup.NodeGroupSecurityGroup)
 		if err != nil {
-			c.logger.Errorf("Failed to delete security group, error: %v clusterUUID:%s SecurityGroup: %s", err, cluster.ClusterUUID, serverGroup.NodeGroupSecurityGroup)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete security group")
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Errorf("failed to delete security group, error: %v clusterUUID:%s SecurityGroup: %s", err, cluster.ClusterUUID, serverGroup.NodeGroupSecurityGroup)
+			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete security group")
 			if err != nil {
-				c.logger.Errorf("Failed to create audit log, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Error("failed to create audit log")
 			}
 		}
 		ngModel := &model.NodeGroups{
@@ -1866,30 +2350,42 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 		}
 		err = c.repository.NodeGroups().UpdateNodeGroups(ctx, ngModel)
 		if err != nil {
-			c.logger.Errorf("Failed to update node groups, error: %v clusterUUID:%s NodeGroupUUID: %s", err, cluster.ClusterUUID, serverGroup.NodeGroupUUID)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to update node groups")
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Errorf("failed to update node groups, error: %v clusterUUID:%s NodeGroupUUID: %s", err, cluster.ClusterUUID, serverGroup.NodeGroupUUID)
+			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to update node groups")
 			if err != nil {
-				c.logger.Errorf("Failed to create audit log, error: %v", err)
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Error("failed to create audit log")
 			}
 		}
 	}
 	// Delete Cluster Shared Security Group
 	err = c.networkService.DeleteSecurityGroup(ctx, authToken, cluster.ClusterSharedSecurityGroup)
 	if err != nil {
-		c.logger.Errorf("Failed to delete security group, error: %v clusterUUID:%s SecurityGroup: %s", err, cluster.ClusterUUID, cluster.ClusterSharedSecurityGroup)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete security group")
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Errorf("failed to delete security group, error: %v clusterUUID:%s SecurityGroup: %s", err, cluster.ClusterUUID, cluster.ClusterSharedSecurityGroup)
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete security group")
 		if err != nil {
-			c.logger.Errorf("Failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to create audit log")
 		}
 	}
 
 	// Delete Application Credentials
 	err = c.identityService.DeleteApplicationCredential(ctx, authToken, cluster.ApplicationCredentialID)
 	if err != nil {
-		c.logger.Errorf("Failed to delete application credentials, error: %v clusterUUID:%s", err, cluster.ClusterUUID)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete application credentials")
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to delete application credentials")
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete application credentials")
 		if err != nil {
-			c.logger.Errorf("Failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to create audit log")
 		}
 	}
 
@@ -1900,47 +2396,61 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterI
 
 	err = c.repository.Cluster().DeleteUpdateCluster(ctx, clModel, cluster.ClusterUUID)
 	if err != nil {
-		c.logger.Errorf("Failed to delete update cluster, error: %v clusterUUID:%s", err, cluster.ClusterUUID)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Failed to delete update cluster")
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to delete update cluster")
+		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete update cluster")
 		if err != nil {
-			c.logger.Errorf("Failed to create audit log, error: %v", err)
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to create audit log")
 		}
 	}
 
 	err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Cluster Destroyed")
 	if err != nil {
-		c.logger.Errorf("Failed to create audit log, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to create audit log")
 	}
-
-	return
 }
 
 func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error) {
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
-		c.logger.Errorf("failed to get cluster, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
 		return resource.GetKubeConfigResponse{}, err
 	}
 
 	if cluster == nil {
-		c.logger.Errorf("failed to get cluster")
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
 		return resource.GetKubeConfigResponse{}, err
 	}
 
 	if cluster.ClusterProjectUUID == "" {
-		c.logger.Errorf("failed to get cluster")
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
 		return resource.GetKubeConfigResponse{}, err
 	}
 
 	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
-		c.logger.Errorf("failed to check auth token, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to check auth token")
 		return resource.GetKubeConfigResponse{}, err
 	}
 
 	kubeConfig, err := c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, cluster.ClusterUUID)
 	if err != nil {
-		c.logger.Errorf("failed to get kube config, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get kube config")
 		return resource.GetKubeConfigResponse{}, err
 	}
 
@@ -1954,29 +2464,39 @@ func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID
 
 func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error) {
 	if req.ClusterID == "" {
-		c.logger.Errorf("failed to get cluster")
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": req.ClusterID,
+		}).Error("failed to get cluster")
 		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, req.ClusterID)
 	if err != nil {
-		c.logger.Errorf("failed to get cluster, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": req.ClusterID,
+		}).Error("failed to get cluster")
 		return resource.CreateKubeconfigResponse{}, err
 	}
 
 	if cluster == nil {
-		c.logger.Errorf("failed to get cluster")
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": req.ClusterID,
+		}).Error("failed to get cluster")
 		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	if cluster.ClusterProjectUUID == "" {
-		c.logger.Errorf("failed to get cluster")
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": req.ClusterID,
+		}).Error("failed to get cluster")
 		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
 	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
-		c.logger.Errorf("failed to check auth token, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": req.ClusterID,
+		}).Error("failed to check auth token")
 		return resource.CreateKubeconfigResponse{}, err
 	}
 
@@ -1987,13 +2507,17 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 	}
 
 	if !IsValidBase64(req.KubeConfig) {
-		c.logger.Errorf("failed to create kube config, invalid kube config")
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": req.ClusterID,
+		}).Error("failed to create kube config, invalid kube config")
 		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to create kube config, invalid kube config")
 	}
 
 	err = c.repository.Kubeconfig().CreateKubeconfig(ctx, kubeConfig)
 	if err != nil {
-		c.logger.Errorf("failed to create kube config, error: %v", err)
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": req.ClusterID,
+		}).Error("failed to create kube config")
 		return resource.CreateKubeconfigResponse{}, err
 	}
 

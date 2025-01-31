@@ -65,7 +65,11 @@ func (cs *computeService) CreateCompute(ctx context.Context, authToken string, r
 		if err != nil {
 			log.Fatalln(err)
 		}
-		cs.logger.Errorf("failed to create compute, status code: %v, error msg: %v full: %v", resp.StatusCode, resp.Status, string(b))
+		cs.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+			"full":        string(b),
+		}).Error("failed to create compute")
 
 		return resource.CreateComputeResponse{}, fmt.Errorf("failed to create compute, status code: %v, error msg: %v", resp.StatusCode, string(b))
 	}
@@ -83,13 +87,13 @@ func (cs *computeService) CreateCompute(ctx context.Context, authToken string, r
 func (cs *computeService) CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.ServerGroupResponse, error) {
 	data, err := json.Marshal(req)
 	if err != nil {
-		cs.logger.Errorf("failed to marshal request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to marshal request")
 		return resource.ServerGroupResponse{}, err
 	}
 
 	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath), bytes.NewBuffer(data))
 	if err != nil {
-		cs.logger.Errorf("failed to create request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to create request")
 		return resource.ServerGroupResponse{}, err
 	}
 
@@ -100,21 +104,24 @@ func (cs *computeService) CreateServerGroup(ctx context.Context, authToken strin
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		cs.logger.Errorf("failed to send request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to send request")
 		return resource.ServerGroupResponse{}, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		cs.logger.Errorf("failed to create server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		cs.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+		}).Error("failed to create server group")
 		return resource.ServerGroupResponse{}, fmt.Errorf("failed to create server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
 	var respDecoder resource.ServerGroupResponse
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
-		cs.logger.Errorf("failed to decode response, error: %v", err)
+		cs.logger.WithError(err).Error("failed to decode response")
 		return resource.ServerGroupResponse{}, err
 	}
 	return respDecoder, nil
@@ -123,7 +130,7 @@ func (cs *computeService) CreateServerGroup(ctx context.Context, authToken strin
 func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clusterServerGroupUUID string) error {
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, clusterServerGroupUUID), nil)
 	if err != nil {
-		cs.logger.Errorf("failed to create request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to create request")
 		return err
 	}
 
@@ -132,14 +139,17 @@ func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clus
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		cs.logger.Errorf("failed to send request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to send request")
 		return err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		cs.logger.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		cs.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+		}).Error("failed to delete server group")
 		return fmt.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 	return nil
@@ -148,7 +158,7 @@ func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clus
 func (cs *computeService) DeletePort(ctx context.Context, authToken, portID string) error {
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort, portID), nil)
 	if err != nil {
-		cs.logger.Errorf("failed to create request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to create request")
 		return err
 	}
 
@@ -157,14 +167,17 @@ func (cs *computeService) DeletePort(ctx context.Context, authToken, portID stri
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		cs.logger.Errorf("failed to send request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to send request")
 		return err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		cs.logger.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		cs.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+		}).Error("failed to delete port")
 		return fmt.Errorf("failed to delete port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 	return nil
@@ -172,7 +185,7 @@ func (cs *computeService) DeletePort(ctx context.Context, authToken, portID stri
 func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToken, ServerGroupID string) (resource.GetServerGroupMemberListResponse, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, ServerGroupID), nil)
 	if err != nil {
-		cs.logger.Errorf("failed to create request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to create request")
 		return resource.GetServerGroupMemberListResponse{}, err
 	}
 
@@ -182,27 +195,30 @@ func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToke
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		cs.logger.Errorf("failed to send request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to send request")
 		return resource.GetServerGroupMemberListResponse{}, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		cs.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+		}).Error("failed to list server group")
 		return resource.GetServerGroupMemberListResponse{}, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cs.logger.Errorf("failed to read response body, error: %v", err)
+		cs.logger.WithError(err).Error("failed to read response body")
 		return resource.GetServerGroupMemberListResponse{}, err
 	}
 	var respData map[string]map[string]interface{}
 	err = json.Unmarshal([]byte(body), &respData)
 
 	if err != nil {
-		cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		cs.logger.WithError(err).Error("failed to unmarshal response body")
 		return resource.GetServerGroupMemberListResponse{}, err
 	}
 
@@ -223,7 +239,7 @@ func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToke
 func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID string) error {
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, serverID), nil)
 	if err != nil {
-		cs.logger.Errorf("failed to create request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to create request")
 		return err
 	}
 
@@ -233,14 +249,17 @@ func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		cs.logger.Errorf("failed to send request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to send request")
 		return err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		cs.logger.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		cs.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+		}).Error("failed to delete compute")
 		return fmt.Errorf("failed to delete compute, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
@@ -254,7 +273,7 @@ func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, a
 	}
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, serverGroupID), nil)
 	if err != nil {
-		cs.logger.Errorf("failed to create request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to create request")
 		return 0, err
 	}
 
@@ -264,26 +283,29 @@ func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, a
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		cs.logger.Errorf("failed to send request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to send request")
 		return 0, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		cs.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+		}).Error("failed to list server group")
 		return 0, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cs.logger.Errorf("failed to read response body, error: %v", err)
+		cs.logger.WithError(err).Error("failed to read response body")
 		return 0, err
 	}
 	var respData resource.ServerGroupResponse
 	err = json.Unmarshal([]byte(body), &respData)
 	if err != nil {
-		cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		cs.logger.WithError(err).Error("failed to unmarshal response body")
 		return 0, err
 	}
 
@@ -301,13 +323,13 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 
 	err = cs.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
-		cs.logger.Errorf("failed to check auth token, error: %v", err)
+		cs.logger.WithError(err).Error("failed to check auth token")
 		return []resource.Servers{}, err
 	}
 
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, nodeGroupUUID), nil)
 	if err != nil {
-		cs.logger.Errorf("failed to create request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to create request")
 		return []resource.Servers{}, err
 	}
 
@@ -317,36 +339,39 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		cs.logger.Errorf("failed to send request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to send request")
 		return []resource.Servers{}, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		cs.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+		}).Error("failed to list server group")
 		return []resource.Servers{}, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cs.logger.Errorf("failed to read response body, error: %v", err)
+		cs.logger.WithError(err).Error("failed to read response body")
 		return []resource.Servers{}, err
 	}
 	var data resource.ServerGroupResponse
 	err = json.Unmarshal([]byte(body), &data)
 	if err != nil {
-		cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		cs.logger.WithError(err).Error("failed to unmarshal response body")
 		return []resource.Servers{}, err
 	}
 	nodeGroup, err := cs.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupUUID)
 	if err != nil {
-		cs.logger.Errorf("failed to get node group, error: %v", err)
+		cs.logger.WithError(err).Error("failed to get node group")
 		return []resource.Servers{}, err
 	}
 	count, err := cs.GetCountOfServerFromServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
-		cs.logger.Errorf("failed to check current node size, err: %v", err)
+		cs.logger.WithError(err).Error("failed to check current node size")
 		return []resource.Servers{}, err
 	}
 
@@ -382,7 +407,7 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 
 		}
 		if err != nil {
-			cs.logger.Errorf("failed to get instance detail, error: %v", err)
+			cs.logger.WithError(err).Error("failed to get instance detail")
 			return []resource.Servers{}, err
 		}
 	}
@@ -392,7 +417,7 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, instanceUUID string) (resource.OpenstacServersResponse, error) {
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instanceUUID), nil)
 	if err != nil {
-		cs.logger.Errorf("failed to create request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to create request")
 		return resource.OpenstacServersResponse{}, err
 	}
 	r.Header.Add("X-Auth-Token", authToken)
@@ -400,23 +425,26 @@ func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, ins
 	client := &http.Client{}
 	resp, err := client.Do(r)
 	if err != nil {
-		cs.logger.Errorf("failed to send request, error: %v", err)
+		cs.logger.WithError(err).Error("failed to send request")
 		return resource.OpenstacServersResponse{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		cs.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+		}).Error("failed to list server group")
 		return resource.OpenstacServersResponse{}, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		cs.logger.Errorf("failed to read response body, error: %v", err)
+		cs.logger.WithError(err).Error("failed to read response body")
 		return resource.OpenstacServersResponse{}, err
 	}
 	var respData resource.OpenstacServersResponse
 	err = json.Unmarshal([]byte(body), &respData)
 	if err != nil {
-		cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+		cs.logger.WithError(err).Error("failed to unmarshal response body")
 		return resource.OpenstacServersResponse{}, err
 	}
 	return respData, nil
@@ -425,17 +453,21 @@ func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, ins
 func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string, clusterUUID string) ([]resource.Flavor, error) {
 	clusterProjectUUID, err := cs.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
 	if err != nil {
-		cs.logger.Errorf("failed to get cluster project uuid by cluster uuid %s, err: %v", clusterUUID, err)
+		cs.logger.WithFields(logrus.Fields{
+			"cluster_uuid": clusterUUID,
+		}).WithError(err).Error("failed to get cluster by uuid")
 		return nil, err
 	}
 	err = cs.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
-		cs.logger.Errorf("failed to check auth token, err: %v", err)
+		cs.logger.WithError(err).Error("failed to check auth token")
 		return nil, err
 	}
 	getNodeGroups, err := cs.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterUUID, "")
 	if err != nil {
-		cs.logger.Errorf("failed to get node groups by cluster uuid %s, err: %v", clusterUUID, err)
+		cs.logger.WithFields(logrus.Fields{
+			"cluster_uuid": clusterUUID,
+		}).WithError(err).Error("failed to get node groups by cluster uuid")
 		return nil, err
 	}
 	var getFlavorsCluster []resource.Flavor
@@ -443,7 +475,7 @@ func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string
 
 		r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, flavorPath, nodeGroup.NodeFlavorUUID), nil)
 		if err != nil {
-			cs.logger.Errorf("failed to create request, error: %v", err)
+			cs.logger.WithError(err).Error("failed to create request")
 			return nil, err
 		}
 		r.Header.Add("X-Auth-Token", authToken)
@@ -451,23 +483,26 @@ func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string
 		client := &http.Client{}
 		resp, err := client.Do(r)
 		if err != nil {
-			cs.logger.Errorf("failed to send request, error: %v", err)
+			cs.logger.WithError(err).Error("failed to send request")
 			return nil, err
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			cs.logger.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+			cs.logger.WithFields(logrus.Fields{
+				"status_code": resp.StatusCode,
+				"error_msg":   resp.Status,
+			}).Error("failed to list server group")
 			return nil, fmt.Errorf("failed to list server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 		}
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			cs.logger.Errorf("failed to read response body, error: %v", err)
+			cs.logger.WithError(err).Error("failed to read response body")
 			return nil, err
 		}
 		var respData resource.OpenstackFlavorResponse
 		err = json.Unmarshal([]byte(body), &respData)
 		if err != nil {
-			cs.logger.Errorf("failed to unmarshal response body, error: %v", err)
+			cs.logger.WithError(err).Error("failed to unmarshal response body")
 			return nil, err
 		}
 		getFlavorsCluster = append(getFlavorsCluster, resource.Flavor{

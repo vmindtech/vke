@@ -2,6 +2,7 @@ package response
 
 import (
 	"context"
+	"time"
 
 	"github.com/vmindtech/vke/pkg/utils"
 )
@@ -12,8 +13,12 @@ type ErrorAttribute struct {
 }
 
 type ErrorSchema struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code          string    `json:"code"`
+	Message       string    `json:"message"`
+	Date          time.Time `json:"date"`
+	ClusterUUID   string    `json:"cluster_uuid"`
+	NodeGroupUUID string    `json:"node_group_uuid"`
+	ProjectUUID   string    `json:"project_uuid"`
 }
 
 type HTTPSuccessResponse struct {
@@ -33,6 +38,24 @@ func NewSuccessResponse(data interface{}) HTTPSuccessResponse {
 	return HTTPSuccessResponse{
 		Data: data,
 	}
+}
+
+func NewErrorResponseWithDetails(err error, msg, clusterUUID, nodeGroupUUID, projectUUID string) HTTPErrorResponse {
+	schema := ErrorSchema{
+		Code:          utils.UnexpectedErrCode,
+		Message:       utils.UnexpectedMsg,
+		Date:          time.Now(),
+		ClusterUUID:   clusterUUID,
+		NodeGroupUUID: nodeGroupUUID,
+		ProjectUUID:   projectUUID,
+	}
+
+	if errorBag, ok := err.(utils.ErrorBag); ok {
+		schema.Code = errorBag.GetCode()
+		schema.Message = msg
+	}
+
+	return HTTPErrorResponse{Error: schema}
 }
 
 func NewErrorResponse(ctx context.Context, err error, msg ...string) HTTPErrorResponse {
