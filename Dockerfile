@@ -3,6 +3,7 @@ FROM golang:1.22-bullseye AS build-stage
 WORKDIR /app
 
 COPY . ./
+RUN go mod download
 
 RUN go build -o vke-application ./cmd/api
 
