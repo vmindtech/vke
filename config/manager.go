@@ -118,13 +118,15 @@ func loadAPIEndpointsConfig() APIEndpointsConfig {
 
 func loadOpenStackApiConfig() OpenStackApiConfig {
 	return OpenStackApiConfig{
-		NovaMicroVersion: viper.GetString("NOVA_MICRO_VERSION"),
+		NovaMicroVersion:     viper.GetString("NOVA_MICRO_VERSION"),
+		LoadbalancerProvider: viper.GetString("LOADBALANCER_PROVIDER"),
 	}
 }
 
 func loadVkeAgentConfig() VkeAgentConfig {
 	return VkeAgentConfig{
-		VkeAgentVersion: viper.GetString("VKE_AGENT_VERSION"),
+		VkeAgentVersion:     viper.GetString("VKE_AGENT_VERSION"),
+		ClusterAgentVersion: viper.GetString("CLUSTER_AGENT_VERSION"),
 	}
 }
 
