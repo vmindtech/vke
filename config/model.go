@@ -47,11 +47,13 @@ type PublicNetworkID struct {
 }
 
 type OpenStackApiConfig struct {
-	NovaMicroVersion string
+	NovaMicroVersion     string
+	LoadbalancerProvider string
 }
 
 type VkeAgentConfig struct {
 	VkeAgentVersion          string
+	ClusterAgentVersion      string
 	ClusterAutoscalerVersion string
 	CloudProviderVkeVersion  string
 }

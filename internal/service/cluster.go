@@ -225,7 +225,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Description:  fmt.Sprintf("%v-lb", req.ClusterName),
 			AdminStateUp: true,
 			VIPSubnetID:  req.SubnetIDs[0],
-			Provider:     "ovn", //ToDo: get from config
+			Provider:     config.GlobalConfig.GetOpenStackApiConfig().LoadbalancerProvider,
 		},
 	}
 
@@ -556,6 +556,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		config.GlobalConfig.GetVkeAgentConfig().CloudProviderVkeVersion,
 		createApplicationCredentialReq.Credential.ID,
 		createApplicationCredentialReq.Credential.Secret,
+		config.GlobalConfig.GetVkeAgentConfig().ClusterAgentVersion,
 	)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1361,6 +1362,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		"",
 		"",
 		"",
+		"",
 	)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1703,6 +1705,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		strings.Join(defaultWorkerLabels, ","),
+		"",
 		"",
 		"",
 		"",

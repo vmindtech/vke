@@ -265,6 +265,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		"",
 		"",
 		"",
+		"",
 	)
 	if err != nil {
 		nodg.logger.WithError(err).Error("failed to generate user data from template")
@@ -585,6 +586,7 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		strings.Join(req.NodeGroupLabels, ","),
+		"",
 		"",
 		"",
 		"",
