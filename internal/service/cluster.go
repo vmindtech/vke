@@ -177,21 +177,22 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 	clusterModel := &model.Cluster{
-		ClusterUUID:                clusterUUID,
-		ClusterName:                req.ClusterName,
-		ClusterCreateDate:          time.Now(),
-		ClusterVersion:             req.KubernetesVersion,
-		ClusterStatus:              CreatingClusterStatus,
-		ClusterProjectUUID:         req.ProjectID,
-		ClusterLoadbalancerUUID:    "",
-		ClusterRegisterToken:       "",
-		ClusterAgentToken:          "",
-		ClusterSubnets:             subnetIdsJSON,
-		ClusterNodeKeypairName:     req.NodeKeyPairName,
-		ClusterAPIAccess:           req.ClusterAPIAccess,
-		FloatingIPUUID:             "",
-		ClusterSharedSecurityGroup: "",
-		ApplicationCredentialID:    createApplicationCredentialReq.Credential.ID,
+		ClusterUUID:                  clusterUUID,
+		ClusterName:                  req.ClusterName,
+		ClusterCreateDate:            time.Now(),
+		ClusterVersion:               req.KubernetesVersion,
+		ClusterStatus:                CreatingClusterStatus,
+		ClusterProjectUUID:           req.ProjectID,
+		ClusterLoadbalancerUUID:      "",
+		ClusterRegisterToken:         "",
+		ClusterAgentToken:            "",
+		ClusterSubnets:               subnetIdsJSON,
+		ClusterNodeKeypairName:       req.NodeKeyPairName,
+		ClusterAPIAccess:             req.ClusterAPIAccess,
+		FloatingIPUUID:               "",
+		ClusterSharedSecurityGroup:   "",
+		ApplicationCredentialID:      createApplicationCredentialReq.Credential.ID,
+		ClusterCertificateExpireDate: time.Now().AddDate(0, 0, 365),
 	}
 
 	err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create")
@@ -1974,15 +1975,16 @@ func (c *clusterService) GetClusterDetails(ctx context.Context, authToken, clust
 	}
 
 	getClusterDetailsResp := resource.GetClusterDetailsResponse{
-		ClusterUUID:             cluster.ClusterUUID,
-		ClusterName:             cluster.ClusterName,
-		ClusterVersion:          cluster.ClusterVersion,
-		ClusterStatus:           cluster.ClusterStatus,
-		ClusterProjectUUID:      cluster.ClusterProjectUUID,
-		ClusterLoadbalancerUUID: cluster.ClusterLoadbalancerUUID,
-		ClusterSubnets:          clusterSubnetsArr,
-		ClusterEndpoint:         cluster.ClusterEndpoint,
-		ClusterAPIAccess:        cluster.ClusterAPIAccess,
+		ClusterUUID:                  cluster.ClusterUUID,
+		ClusterName:                  cluster.ClusterName,
+		ClusterVersion:               cluster.ClusterVersion,
+		ClusterStatus:                cluster.ClusterStatus,
+		ClusterProjectUUID:           cluster.ClusterProjectUUID,
+		ClusterLoadbalancerUUID:      cluster.ClusterLoadbalancerUUID,
+		ClusterSubnets:               clusterSubnetsArr,
+		ClusterEndpoint:              cluster.ClusterEndpoint,
+		ClusterAPIAccess:             cluster.ClusterAPIAccess,
+		ClusterCertificateExpireDate: cluster.ClusterCertificateExpireDate,
 	}
 
 	nodeGroups, err := c.nodeGroupsService.GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID)
