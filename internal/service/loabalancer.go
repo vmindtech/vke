@@ -392,7 +392,7 @@ func (lbc *loadbalancerService) ListListener(ctx context.Context, authToken, lis
 
 func (lbc *loadbalancerService) CheckLoadBalancerStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error) {
 	waitIterator := 0
-	waitSeconds := 10
+	waitSeconds := 1
 	for {
 		if waitIterator < 16 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)

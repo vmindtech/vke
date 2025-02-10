@@ -102,7 +102,6 @@ const (
 	listernersPath         = "v2/lbaas/listeners"
 	osInterfacePath        = "os-interface"
 	tokenPath              = "v3/auth/tokens"
-	vkeCloudAuthURL        = "https://ist-api.portvmind.com.tr:5000/v3/"
 )
 
 const (
@@ -226,6 +225,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Description:  fmt.Sprintf("%v-lb", req.ClusterName),
 			AdminStateUp: true,
 			VIPSubnetID:  req.SubnetIDs[0],
+			Provider:     "ovn", //ToDo: get from config
 		},
 	}
 
@@ -551,7 +551,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		"",
-		vkeCloudAuthURL,
+		fmt.Sprintf("%s/v3/", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint),
 		config.GlobalConfig.GetVkeAgentConfig().ClusterAutoscalerVersion,
 		config.GlobalConfig.GetVkeAgentConfig().CloudProviderVkeVersion,
 		createApplicationCredentialReq.Credential.ID,
@@ -611,6 +611,31 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			SecurityGroupID: createMasterSecurityResp.SecurityGroup.ID,
 			RemoteIPPrefix:  "0.0.0.0/0",
 		},
+	}
+
+	for _, allowedCIDR := range req.AllowedCIDRS {
+		createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = allowedCIDR
+		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		if err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create security group rule")
+			err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
+			if err != nil {
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to create audit log")
+			}
+
+			clusterModel.ClusterStatus = ErrorClusterStatus
+			err = c.repository.Cluster().UpdateCluster(ctx, clusterModel)
+			if err != nil {
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to update cluster")
+			}
+			return
+		}
 	}
 
 	//for any access between cluster nodes
@@ -895,7 +920,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Protocol:       "TCP",
 			ProtocolPort:   6443,
 			LoadbalancerID: lbResp.LoadBalancer.ID,
-			AllowedCIDRS:   []string(req.AllowedCIDRS),
 		},
 	}
 
@@ -1013,11 +1037,11 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	createPoolReq := &request.CreatePoolRequest{
 		Pool: request.Pool{
-			LBAlgorithm:  "ROUND_ROBIN",
 			Protocol:     "TCP",
 			AdminStateUp: true,
 			ListenerID:   apiListenerResp.Listener.ID,
 			Name:         fmt.Sprintf("%v-api-pool", req.ClusterName),
+			LBAlgorithm:  "SOURCE_IP_PORT",
 		},
 	}
 	apiPoolResp, err := c.loadbalancerService.CreatePool(ctx, authToken, *createPoolReq)
@@ -1170,13 +1194,8 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			MaxRetries:     "10",
 			Delay:          "30",
 			TimeOut:        "10",
-			Type:           "HTTPS",
-			HTTPMethod:     "GET",
+			Type:           "TCP",
 			MaxRetriesDown: 3,
-			UrlPath:        "/",
-			ExpectedCodes:  "404",
-			HttpVersion:    1.1,
-			DomainName:     fmt.Sprintf("%s.%s", clusterSubdomainHash, config.GlobalConfig.GetCloudflareConfig().Domain),
 		},
 	})
 	if err != nil {
@@ -1207,7 +1226,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			SubnetID:     randSubnetId,
 			Address:      portResp.Port.FixedIps[0].IpAddress,
 			ProtocolPort: 6443,
-			MonitorPort:  6443,
 			Backup:       false,
 		},
 	}
@@ -1256,7 +1274,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 	createMemberReq.Member.ProtocolPort = 9345
-	createMemberReq.Member.MonitorPort = 9345
 
 	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
 
@@ -1417,7 +1434,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.Name = fmt.Sprintf("%v-master-2", req.ClusterName)
 	createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
 	createMemberReq.Member.ProtocolPort = 6443
-	createMemberReq.Member.MonitorPort = 6443
 	err = c.loadbalancerService.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1463,7 +1479,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 	createMemberReq.Member.ProtocolPort = 9345
-	createMemberReq.Member.MonitorPort = 9345
 	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1585,7 +1600,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.Name = fmt.Sprintf("%v-master-3", req.ClusterName)
 	createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
 	createMemberReq.Member.ProtocolPort = 6443
-	createMemberReq.Member.MonitorPort = 6443
 	err = c.loadbalancerService.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1632,7 +1646,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	createMemberReq.Member.ProtocolPort = 9345
-	createMemberReq.Member.MonitorPort = 9345
 	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
