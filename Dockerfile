@@ -1,4 +1,4 @@
-FROM golang:1.22-bullseye AS build-stage
+FROM golang:1.23-bullseye AS build-stage
 
 WORKDIR /app
 
