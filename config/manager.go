@@ -172,7 +172,8 @@ func (c *configureManager) GetEndpointsConfig() APIEndpointsConfig {
 
 func (c *configureManager) GetOpenStackApiConfig() OpenStackApiConfig {
 	return OpenStackApiConfig{
-		NovaMicroVersion: viper.GetString("NOVA_MICRO_VERSION"),
+		NovaMicroVersion:     viper.GetString("NOVA_MICRO_VERSION"),
+		LoadbalancerProvider: viper.GetString("LOADBALANCER_PROVIDER"),
 	}
 }
 
