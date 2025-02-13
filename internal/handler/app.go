@@ -27,6 +27,7 @@ type IAppHandler interface {
 	DestroyCluster(c *fiber.Ctx) error
 	GetKubeConfig(c *fiber.Ctx) error
 	CreateKubeconfig(c *fiber.Ctx) error
+	UpdateKubeconfig(c *fiber.Ctx) error
 	AddNode(c *fiber.Ctx) error
 	GetNodes(c *fiber.Ctx) error
 	GetNodeGroups(c *fiber.Ctx) error
@@ -358,4 +359,21 @@ func (a *appHandler) DeleteNodeGroup(c *fiber.Ctx) error {
 			response.NewErrorResponseWithDetails(err, utils.FailedToDeleteNodeGroupMsg, clusterID, nodeGroupID, ""))
 	}
 	return c.JSON(err)
+}
+
+func (a *appHandler) UpdateKubeconfig(c *fiber.Ctx) error {
+	clusterID := c.Params("cluster_id")
+	var req request.UpdateKubeconfigRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.BodyParserMsg, clusterID, "", ""))
+	}
+	ctx := context.Background()
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
+	}
+	resp, _ := a.appService.Cluster().UpdateKubeConfig(ctx, authToken, clusterID, req)
+	return c.JSON(response.NewSuccessResponse(resp))
 }

@@ -19,3 +19,7 @@ type CreateKubeconfigRequest struct {
 	ClusterID  string `json:"clusterId"`
 	KubeConfig string `json:"kubeconfig"`
 }
+
+type UpdateKubeconfigRequest struct {
+	KubeConfig string `json:"kubeconfig"`
+}

@@ -24,6 +24,7 @@ type IClusterService interface {
 	DestroyCluster(ctx context.Context, authToken, clusterID string, clUUID chan string)
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
 	CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error)
+	UpdateKubeConfig(ctx context.Context, authToken string, clusterID string, req request.UpdateKubeconfigRequest) (resource.UpdateKubeconfigResponse, error)
 	CreateAuditLog(ctx context.Context, clusterUUID, projectUUID, event string) error
 }
 
@@ -2541,5 +2542,56 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 
 	return resource.CreateKubeconfigResponse{
 		ClusterUUID: kubeConfig.ClusterUUID,
+	}, nil
+}
+
+func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string, clusterID string, req request.UpdateKubeconfigRequest) (resource.UpdateKubeconfigResponse, error) {
+	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
+	if err != nil {
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
+		return resource.UpdateKubeconfigResponse{}, err
+	}
+
+	if cluster == nil {
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
+		return resource.UpdateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	if cluster.ClusterProjectUUID == "" {
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
+		return resource.UpdateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	if err != nil {
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to check auth token")
+		return resource.UpdateKubeconfigResponse{}, err
+	}
+
+	if !IsValidBase64(req.KubeConfig) {
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to update kube config, invalid kube config")
+		return resource.UpdateKubeconfigResponse{}, fmt.Errorf("failed to update kube config, invalid kube config")
+	}
+
+	err = c.repository.Kubeconfig().UpdateKubeconfig(ctx, cluster.ClusterUUID, req.KubeConfig)
+	if err != nil {
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to update kube config")
+		return resource.UpdateKubeconfigResponse{}, err
+	}
+
+	return resource.UpdateKubeconfigResponse{
+		ClusterUUID: cluster.ClusterUUID,
 	}, nil
 }
