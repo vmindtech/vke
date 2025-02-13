@@ -52,3 +52,7 @@ type GetKubeConfigResponse struct {
 type CreateKubeconfigResponse struct {
 	ClusterUUID string `json:"cluster_uuid"`
 }
+
+type UpdateKubeconfigResponse struct {
+	ClusterUUID string `json:"cluster_uuid"`
+}
