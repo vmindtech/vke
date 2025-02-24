@@ -16,6 +16,7 @@ import (
 type ICloudflareService interface {
 	AddDNSRecordToCloudflare(ctx context.Context, loadBalancerIP, loadBalancerSubdomainHash, clusterName string) (resource.AddDNSRecordResponse, error)
 	DeleteDNSRecordFromCloudflare(ctx context.Context, dnsRecordID string) error
+	DeleteDNSRecord(ctx context.Context, recordID string) error
 }
 
 type cloudflareService struct {
@@ -113,6 +114,32 @@ func (cf *cloudflareService) DeleteDNSRecordFromCloudflare(ctx context.Context, 
 
 	if resp.StatusCode != http.StatusOK {
 		cf.logger.WithField("dnsRecordID", dnsRecordID).Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		return fmt.Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	return nil
+}
+
+func (cf *cloudflareService) DeleteDNSRecord(ctx context.Context, recordID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/dns_records/%s", cloudflareEndpoint, config.GlobalConfig.GetCloudflareConfig().ZoneID, recordID), nil)
+	if err != nil {
+		cf.logger.WithError(err).WithField("recordID", recordID).Error("failed to create request")
+		return err
+	}
+
+	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		cf.logger.WithError(err).WithField("recordID", recordID).Error("failed to send request")
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		cf.logger.WithField("recordID", recordID).Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 		return fmt.Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 

@@ -15,6 +15,7 @@ import (
 	"github.com/vmindtech/vke/config"
 	"github.com/vmindtech/vke/internal/dto/request"
 	"github.com/vmindtech/vke/internal/dto/resource"
+	"github.com/vmindtech/vke/pkg/constants"
 )
 
 type ILoadbalancerService interface {
@@ -49,7 +50,7 @@ func NewLoadbalancerService(logger *logrus.Logger) ILoadbalancerService {
 }
 
 func (lbc *loadbalancerService) GetAmphoraesVrrpIp(authToken, loadBalancerID string) (resource.GetAmphoraesVrrpIpResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/?loadbalancer_id=%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, amphoraePath, loadBalancerID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/?loadbalancer_id=%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.AmphoraePath, loadBalancerID), nil)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"loadBalancerID": loadBalancerID,
@@ -87,7 +88,7 @@ func (lbc *loadbalancerService) GetAmphoraesVrrpIp(authToken, loadBalancerID str
 }
 
 func (lbc *loadbalancerService) ListLoadBalancer(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.LoadBalancerPath, loadBalancerID), nil)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"loadBalancerID": loadBalancerID,
@@ -135,7 +136,7 @@ func (lbc *loadbalancerService) CreateLoadBalancer(ctx context.Context, authToke
 		}).WithError(err).Error("failed to marshal request")
 		return resource.CreateLoadBalancerResponse{}, err
 	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.LoadBalancerPath), bytes.NewBuffer(data))
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"loadBalancerName": req.LoadBalancer.Name,
@@ -186,7 +187,7 @@ func (lbc *loadbalancerService) CreateListener(ctx context.Context, authToken st
 		return resource.CreateListenerResponse{}, err
 	}
 
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.ListenersPath), bytes.NewBuffer(data))
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"loadBalancerID": req.Listener.LoadbalancerID,
@@ -239,7 +240,7 @@ func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string
 		return resource.CreatePoolResponse{}, err
 	}
 
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.ListenerPoolPath), bytes.NewBuffer(data))
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"listenerID": req.Pool.ListenerID,
@@ -297,7 +298,7 @@ func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poo
 		return err
 	}
 
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/%s/members", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, createMemberPath, poolID), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/%s/members", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.CreateMemberPath, poolID), bytes.NewBuffer(data))
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"poolID": poolID,
@@ -348,7 +349,7 @@ func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poo
 }
 
 func (lbc *loadbalancerService) ListListener(ctx context.Context, authToken, listenerID string) (resource.ListListenerResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.ListenersPath, listenerID), nil)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"listenerID": listenerID,
@@ -432,7 +433,7 @@ func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, aut
 		}).WithError(err).Error("failed to marshal request")
 		return err
 	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, healthMonitorPath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.HealthMonitorPath), bytes.NewBuffer(data))
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"poolID": req.HealthMonitor.PoolID,
@@ -488,7 +489,7 @@ func (lbc *loadbalancerService) CreateHealthTCPMonitor(ctx context.Context, auth
 		}).WithError(err).Error("failed to marshal request")
 		return err
 	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, healthMonitorPath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.HealthMonitorPath), bytes.NewBuffer(data))
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"poolID": req.HealthMonitor.PoolID,
@@ -566,7 +567,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerOperationStatus(ctx context.Con
 }
 
 func (lbc *loadbalancerService) GetLoadBalancerPools(ctx context.Context, authToken, loadBalancerID string) (resource.GetLoadBalancerPoolsResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.LoadBalancerPath, loadBalancerID), nil)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to create request")
 		return resource.GetLoadBalancerPoolsResponse{}, err
@@ -629,7 +630,7 @@ func (lbc *loadbalancerService) GetLoadBalancerPools(ctx context.Context, authTo
 }
 
 func (lbc *loadbalancerService) DeleteLoadbalancerPools(ctx context.Context, authToken, poolID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.ListenerPoolPath, poolID), nil)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to create request")
 		return err
@@ -667,7 +668,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Conte
 			}).Info("Waiting for load balancer pool to be deleted")
 			waitIterator++
 			waitSeconds = waitSeconds + 5
-			r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, ListenerPoolPath, poolID), nil)
+			r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.ListenerPoolPath, poolID), nil)
 			if err != nil {
 				lbc.logger.WithFields(logrus.Fields{
 					"poolID": poolID,
@@ -699,7 +700,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Conte
 
 }
 func (lbc *loadbalancerService) GetLoadBalancerListeners(ctx context.Context, authToken, loadBalancerID string) (resource.GetLoadBalancerListenersResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.LoadBalancerPath, loadBalancerID), nil)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to create request")
 		return resource.GetLoadBalancerListenersResponse{}, err
@@ -759,7 +760,7 @@ func (lbc *loadbalancerService) GetLoadBalancerListeners(ctx context.Context, au
 }
 
 func (lbc *loadbalancerService) DeleteLoadbalancerListeners(ctx context.Context, authToken, listenerID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.ListenersPath, listenerID), nil)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to create request")
 		return err
@@ -797,7 +798,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.C
 			}).Info("Waiting for load balancer listener to be deleted")
 			waitIterator++
 			waitSeconds = waitSeconds + 5
-			r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, listenersPath, listenerID), nil)
+			r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.ListenersPath, listenerID), nil)
 			if err != nil {
 				lbc.logger.WithError(err).Error("failed to create request")
 				return err
@@ -826,7 +827,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.C
 }
 
 func (lbc *loadbalancerService) DeleteLoadbalancer(ctx context.Context, authToken, loadBalancerID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, loadBalancerPath, loadBalancerID), nil)
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.LoadBalancerPath, loadBalancerID), nil)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"loadBalancerID": loadBalancerID,

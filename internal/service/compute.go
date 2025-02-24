@@ -15,6 +15,7 @@ import (
 	"github.com/vmindtech/vke/internal/dto/request"
 	"github.com/vmindtech/vke/internal/dto/resource"
 	"github.com/vmindtech/vke/internal/repository"
+	"github.com/vmindtech/vke/pkg/constants"
 )
 
 type IComputeService interface {
@@ -26,6 +27,8 @@ type IComputeService interface {
 	GetClusterFlavor(ctx context.Context, authToken string, clusterUUID string) ([]resource.Flavor, error)
 	DeleteCompute(ctx context.Context, authToken, serverID string) error
 	GetServerGroupMemberList(ctx context.Context, authToken, ServerGroupID string) (resource.GetServerGroupMemberListResponse, error)
+	GetServerGroup(ctx context.Context, authToken string, serverGroupID string) (resource.GetServerGroupResponse, error)
+	DeleteServer(ctx context.Context, authToken string, serverID string) error
 }
 
 type computeService struct {
@@ -47,7 +50,7 @@ func (cs *computeService) CreateCompute(ctx context.Context, authToken string, r
 	if err != nil {
 		return resource.CreateComputeResponse{}, err
 	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath), bytes.NewBuffer(data))
 	if err != nil {
 		return resource.CreateComputeResponse{}, err
 	}
@@ -91,7 +94,7 @@ func (cs *computeService) CreateServerGroup(ctx context.Context, authToken strin
 		return resource.ServerGroupResponse{}, err
 	}
 
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ServerGroupPath), bytes.NewBuffer(data))
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return resource.ServerGroupResponse{}, err
@@ -128,7 +131,7 @@ func (cs *computeService) CreateServerGroup(ctx context.Context, authToken strin
 }
 
 func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clusterServerGroupUUID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, clusterServerGroupUUID), nil)
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ServerGroupPath, clusterServerGroupUUID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return err
@@ -156,7 +159,7 @@ func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clus
 }
 
 func (cs *computeService) DeletePort(ctx context.Context, authToken, portID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort, portID), nil)
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.NetworkPort, portID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return err
@@ -183,7 +186,7 @@ func (cs *computeService) DeletePort(ctx context.Context, authToken, portID stri
 	return nil
 }
 func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToken, ServerGroupID string) (resource.GetServerGroupMemberListResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, ServerGroupID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ServerGroupPath, ServerGroupID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return resource.GetServerGroupMemberListResponse{}, err
@@ -237,7 +240,7 @@ func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToke
 	return respMembers, nil
 }
 func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, serverID), nil)
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, serverID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return err
@@ -271,7 +274,7 @@ func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, a
 		cs.logger.Errorf("failed to check auth token, error: %v", err)
 		return 0, err
 	}
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, serverGroupID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ServerGroupPath, serverGroupID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return 0, err
@@ -327,7 +330,7 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 		return []resource.Servers{}, err
 	}
 
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, serverGroupPath, nodeGroupUUID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ServerGroupPath, nodeGroupUUID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return []resource.Servers{}, err
@@ -415,7 +418,7 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 	return responseData, nil
 }
 func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, instanceUUID string) (resource.OpenstacServersResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instanceUUID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, instanceUUID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return resource.OpenstacServersResponse{}, err
@@ -473,7 +476,7 @@ func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string
 	var getFlavorsCluster []resource.Flavor
 	for _, nodeGroup := range getNodeGroups {
 
-		r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, flavorPath, nodeGroup.NodeFlavorUUID), nil)
+		r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.FlavorPath, nodeGroup.NodeFlavorUUID), nil)
 		if err != nil {
 			cs.logger.WithError(err).Error("failed to create request")
 			return nil, err
@@ -515,4 +518,59 @@ func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string
 		})
 	}
 	return getFlavorsCluster, nil
+}
+
+func (cs *computeService) GetServerGroup(ctx context.Context, authToken string, serverGroupID string) (resource.GetServerGroupResponse, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ServerGroupPath, serverGroupID), nil)
+	if err != nil {
+		cs.logger.WithError(err).Error("failed to create request")
+		return resource.GetServerGroupResponse{}, err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("Content-Type", "application/json")
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		cs.logger.WithError(err).Error("failed to send request")
+		return resource.GetServerGroupResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		cs.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+		}).Error("failed to get server group")
+		return resource.GetServerGroupResponse{}, fmt.Errorf("failed to get server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+	var respData resource.GetServerGroupResponse
+	err = json.NewDecoder(resp.Body).Decode(&respData)
+	if err != nil {
+		cs.logger.WithError(err).Error("failed to decode response body")
+		return resource.GetServerGroupResponse{}, err
+	}
+	return respData, nil
+}
+
+func (cs *computeService) DeleteServer(ctx context.Context, authToken string, serverID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, serverID), nil)
+	if err != nil {
+		cs.logger.WithError(err).Error("failed to create request")
+		return err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		cs.logger.WithError(err).Error("failed to send request")
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		cs.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+		}).Error("failed to delete server")
+		return fmt.Errorf("failed to delete server, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+	return nil
 }

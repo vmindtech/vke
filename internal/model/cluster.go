@@ -28,6 +28,7 @@ type Cluster struct {
 	ClusterCloudflareRecordID    string         `json:"cluster_cloudflare_record_id" gorm:"type:varchar(36)"`
 	ClusterSharedSecurityGroup   string         `json:"cluster_shared_security_group" gorm:"type:varchar(50)"`
 	ApplicationCredentialID      string         `json:"application_credential_id" gorm:"type:varchar(36)"`
+	DeleteState                  string         `json:"delete_state" gorm:"column:delete_state;type:enum('INITIAL','LOADBALANCER','DNS','FLOATING_IP','NODES','PORTS','SECURITY_GROUPS','CREDENTIALS','COMPLETED')"`
 }
 
 func (Cluster) TableName() string {

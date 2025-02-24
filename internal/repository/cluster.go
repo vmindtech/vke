@@ -81,10 +81,12 @@ func (c *ClusterRepository) DeleteUpdateCluster(ctx context.Context, cluster *mo
 	return c.mysqlInstance.
 		Database().
 		WithContext(ctx).
+		Model(&model.Cluster{}).
 		Where(&model.Cluster{ClusterUUID: clusterUUID}).
 		Updates(&model.Cluster{
-			ClusterDeleteDate: cluster.ClusterDeleteDate,
 			ClusterStatus:     cluster.ClusterStatus,
+			ClusterDeleteDate: cluster.ClusterDeleteDate,
+			DeleteState:       cluster.DeleteState,
 		}).
 		Error
 }

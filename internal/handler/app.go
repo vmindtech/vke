@@ -14,6 +14,7 @@ import (
 	"github.com/vmindtech/vke/config"
 	"github.com/vmindtech/vke/internal/dto/request"
 	"github.com/vmindtech/vke/internal/dto/resource"
+	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/internal/service"
 	"github.com/vmindtech/vke/pkg/utils"
 )
@@ -126,7 +127,18 @@ func (a *appHandler) GetCluster(c *fiber.Ctx) error {
 			response.NewErrorResponseWithDetails(err, utils.FailedToGetClusterMsg, clusterID, "", ""))
 	}
 
-	return c.JSON(response.NewSuccessResponse(resp))
+	// Map response to model
+	clusterModel := &model.Cluster{
+		ClusterUUID:                resp.ClusterID,
+		ClusterName:                resp.ClusterName,
+		ClusterProjectUUID:         resp.ProjectID,
+		ClusterVersion:             resp.KubernetesVersion,
+		ClusterAPIAccess:           resp.ClusterAPIAccess,
+		ClusterStatus:              resp.ClusterStatus,
+		ClusterSharedSecurityGroup: resp.ClusterSharedSecurityGroup,
+	}
+
+	return c.JSON(response.NewSuccessResponse(clusterModel))
 }
 
 func (a *appHandler) GetClustersByProjectId(c *fiber.Ctx) error {
@@ -151,22 +163,20 @@ func (a *appHandler) GetClustersByProjectId(c *fiber.Ctx) error {
 
 func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 	clusterID := c.Params("cluster_id")
-
 	ctx := context.Background()
-
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
 	}
-	clusterUUID := make(chan string)
-	go a.appService.Cluster().DestroyCluster(ctx, authToken, clusterID, clusterUUID)
-	resp := &resource.DestroyCluster{
-		ClusterID:         <-clusterUUID,
-		ClusterDeleteDate: time.Now(),
-		ClusterStatus:     "DELETING",
-	}
 
+	go a.appService.Cluster().DestroyCluster(ctx, authToken, clusterID)
+
+	resp := &resource.DestroyCluster{
+		ClusterID:         clusterID,
+		ClusterDeleteDate: time.Now(),
+		ClusterStatus:     service.DeletingClusterStatus,
+	}
 	return c.JSON(response.NewSuccessResponse(resp))
 }
 
