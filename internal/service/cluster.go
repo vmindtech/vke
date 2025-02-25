@@ -542,6 +542,8 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		createApplicationCredentialReq.Credential.Secret,
 		config.GlobalConfig.GetVkeAgentConfig().ClusterAgentVersion,
 	)
+	fmt.Println(config.GlobalConfig.GetVkeAgentConfig().ClusterAgentVersion)
+	fmt.Println(rke2InitScript)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -2459,6 +2461,8 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 			}
 		}
 	}
+
+	time.Sleep(30 * time.Second)
 
 	maxRetries := 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
