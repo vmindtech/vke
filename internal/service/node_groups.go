@@ -14,6 +14,7 @@ import (
 	"github.com/vmindtech/vke/internal/dto/resource"
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/internal/repository"
+	"github.com/vmindtech/vke/pkg/constants"
 )
 
 type INodeGroupsService interface {
@@ -87,7 +88,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 		})
 		return resp, nil
 	} else {
-		nodeGroups, err := nodg.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterID, "")
+		nodeGroups, err := nodg.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterID, "", constants.ActiveNodeGroupStatus)
 		if err != nil {
 			nodg.logger.WithFields(logrus.Fields{
 				"clusterID": clusterID,
@@ -120,7 +121,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 }
 
 func (nodg *nodeGroupsService) GetNodeGroupsByClusterUUID(ctx context.Context, clusterUUID string) ([]resource.NodeGroup, error) {
-	nodeGroups, err := nodg.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterUUID, "")
+	nodeGroups, err := nodg.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterUUID, "", constants.ActiveNodeGroupStatus)
 	if err != nil {
 		nodg.logger.WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,

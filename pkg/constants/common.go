@@ -9,4 +9,5 @@ const (
 // Node Group Status
 const (
 	DeletedNodeGroupStatus = "DELETED"
+	ActiveNodeGroupStatus  = "ACTIVE"
 )

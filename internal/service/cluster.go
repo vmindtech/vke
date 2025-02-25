@@ -2331,7 +2331,7 @@ func (c *clusterService) getServerGroupMembers(ctx context.Context, authToken st
 }
 
 func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string, cluster *model.Cluster) error {
-	nodeGroups, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "")
+	nodeGroups, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "", constants.ActiveNodeGroupStatus)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
@@ -2421,7 +2421,7 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 		cluster.ClusterSharedSecurityGroup,
 	}
 
-	nodeGroups, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "")
+	nodeGroups, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "", "")
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,

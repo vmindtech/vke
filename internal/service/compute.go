@@ -466,7 +466,7 @@ func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string
 		cs.logger.WithError(err).Error("failed to check auth token")
 		return nil, err
 	}
-	getNodeGroups, err := cs.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterUUID, "")
+	getNodeGroups, err := cs.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterUUID, "", constants.ActiveNodeGroupStatus)
 	if err != nil {
 		cs.logger.WithFields(logrus.Fields{
 			"cluster_uuid": clusterUUID,
