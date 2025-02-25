@@ -542,8 +542,6 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		createApplicationCredentialReq.Credential.Secret,
 		config.GlobalConfig.GetVkeAgentConfig().ClusterAgentVersion,
 	)
-	fmt.Println(config.GlobalConfig.GetVkeAgentConfig().ClusterAgentVersion)
-	fmt.Println(rke2InitScript)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -2477,7 +2475,6 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 			}
 
 			if strings.Contains(err.Error(), "404") {
-				fmt.Println(sgUUID)
 				c.logger.WithFields(logrus.Fields{
 					"clusterUUID": cluster.ClusterUUID,
 					"sgUUID":      sgUUID,
