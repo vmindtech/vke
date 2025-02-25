@@ -10,7 +10,7 @@ import (
 )
 
 type INodeGroupsRepository interface {
-	GetNodeGroupsByClusterUUID(ctx context.Context, uuid, nodeType string) ([]model.NodeGroups, error)
+	GetNodeGroupsByClusterUUID(ctx context.Context, uuid, nodeType, nodeGroupStatus string) ([]model.NodeGroups, error)
 	CreateNodeGroups(ctx context.Context, nodeGroups *model.NodeGroups) error
 	UpdateNodeGroups(ctx context.Context, nodeGroups *model.NodeGroups) error
 	GetNodeGroupByUUID(ctx context.Context, uuid string) (*model.NodeGroups, error)
@@ -27,9 +27,14 @@ func NewNodeGroupsRepository(mysqlInstance mysqldb.IMysqlInstance) *NodeGroupsRe
 	}
 }
 
-func (n *NodeGroupsRepository) GetNodeGroupsByClusterUUID(ctx context.Context, uuid, nodeType string) ([]model.NodeGroups, error) {
+func (n *NodeGroupsRepository) GetNodeGroupsByClusterUUID(ctx context.Context, uuid, nodeType, nodeGroupStatus string) ([]model.NodeGroups, error) {
 	var nodeGroups []model.NodeGroups
-	queryModel := &model.NodeGroups{ClusterUUID: uuid, NodeGroupsStatus: "Active"}
+
+	queryModel := &model.NodeGroups{ClusterUUID: uuid}
+
+	if nodeGroupStatus != "" {
+		queryModel.NodeGroupsStatus = nodeGroupStatus
+	}
 
 	if nodeType != "" {
 		queryModel.NodeGroupsType = nodeType

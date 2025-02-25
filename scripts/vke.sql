@@ -60,6 +60,8 @@ CREATE TABLE `clusters` (
   `cluster_cloudflare_record_id` varchar(36) DEFAULT NULL,
   `cluster_shared_security_group` varchar(50) DEFAULT NULL,
   `application_credential_id` varchar(36) DEFAULT NULL,
+  `delete_state` enum('initial', 'loadbalancer', 'dns', 'floating_ip', 'nodes', 'security_groups', 'credentials', 'completed') DEFAULT 'initial',
+  `cluster_certificate_expire_date` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `cluster_uuid` (`cluster_uuid`)
 ) ENGINE=InnoDB AUTO_INCREMENT=78 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -110,7 +112,7 @@ CREATE TABLE `node_groups` (
   `node_group_delete_date` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=77 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET character_set_client = @saved_cs_client */;2
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

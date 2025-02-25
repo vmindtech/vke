@@ -14,6 +14,7 @@ import (
 	"github.com/vmindtech/vke/config"
 	"github.com/vmindtech/vke/internal/dto/request"
 	"github.com/vmindtech/vke/internal/dto/resource"
+	"github.com/vmindtech/vke/pkg/constants"
 )
 
 type INetworkService interface {
@@ -30,6 +31,7 @@ type INetworkService interface {
 	GetSecurityGroupByID(ctx context.Context, authToken, securityGroupID string) (resource.GetSecurityGroupResponse, error)
 	GetSubnetByID(ctx context.Context, authToken, subnetID string) (resource.SubnetResponse, error)
 	GetComputeNetworkPorts(ctx context.Context, authToken, instanceID string) (resource.NetworkPortsResponse, error)
+	GetSecurityGroupPorts(ctx context.Context, authToken, securityGroupID string) (resource.NetworkPortsResponse, error)
 }
 
 type networkService struct {
@@ -43,7 +45,7 @@ func NewNetworkService(logger *logrus.Logger) INetworkService {
 }
 
 func (ns *networkService) ListSubnetByName(ctx context.Context, subnetName, authToken string) (resource.ListSubnetByNameResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s?name=%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, subnetsPath, subnetName), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s?name=%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SubnetsPath, subnetName), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.ListSubnetByNameResponse{}, err
@@ -79,7 +81,7 @@ func (ns *networkService) ListSubnetByName(ctx context.Context, subnetName, auth
 }
 
 func (ns *networkService) GetNetworkID(ctx context.Context, authToken, subnetID string) (resource.GetNetworkIdResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, subnetsPath, subnetID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SubnetsPath, subnetID), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.GetNetworkIdResponse{}, err
@@ -120,7 +122,7 @@ func (ns *networkService) CreateSecurityGroup(ctx context.Context, authToken str
 		ns.logger.WithError(err).Error("failed to marshal request")
 		return resource.CreateSecurityGroupResponse{}, err
 	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SecurityGroupPath), bytes.NewBuffer(data))
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.CreateSecurityGroupResponse{}, err
@@ -161,7 +163,7 @@ func (ns *networkService) CreateNetworkPort(ctx context.Context, authToken strin
 		ns.logger.WithError(err).Error("failed to marshal request")
 		return resource.CreateNetworkPortResponse{}, err
 	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.NetworkPort), bytes.NewBuffer(data))
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.CreateNetworkPortResponse{}, err
@@ -202,7 +204,7 @@ func (ns *networkService) CreateSecurityGroupRuleForIP(ctx context.Context, auth
 		ns.logger.WithError(err).Error("failed to marshal request")
 		return err
 	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, SecurityGroupRulesPath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SecurityGroupRulesPath), bytes.NewBuffer(data))
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
@@ -239,7 +241,7 @@ func (ns *networkService) CreateSecurityGroupRuleForSG(ctx context.Context, auth
 		ns.logger.WithError(err).Error("failed to marshal request")
 		return err
 	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, SecurityGroupRulesPath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SecurityGroupRulesPath), bytes.NewBuffer(data))
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
@@ -276,7 +278,7 @@ func (ns *networkService) CreateFloatingIP(ctx context.Context, authToken string
 		ns.logger.WithError(err).Error("failed to marshal request")
 		return resource.CreateFloatingIPResponse{}, err
 	}
-	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath), bytes.NewBuffer(data))
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.FloatingIPPath), bytes.NewBuffer(data))
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.CreateFloatingIPResponse{}, err
@@ -316,7 +318,7 @@ func (ns *networkService) CreateFloatingIP(ctx context.Context, authToken string
 }
 
 func (ns *networkService) DeleteSecurityGroup(ctx context.Context, authToken, clusterSecurityGroupId string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath, clusterSecurityGroupId), nil)
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SecurityGroupPath, clusterSecurityGroupId), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
@@ -341,7 +343,7 @@ func (ns *networkService) DeleteSecurityGroup(ctx context.Context, authToken, cl
 }
 
 func (ns *networkService) DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, floatingIPPath, floatingIPID), nil)
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.FloatingIPPath, floatingIPID), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
@@ -365,7 +367,7 @@ func (ns *networkService) DeleteFloatingIP(ctx context.Context, authToken, float
 }
 
 func (ns *networkService) GetSecurityGroupByID(ctx context.Context, authToken, securityGroupID string) (resource.GetSecurityGroupResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, securityGroupPath, securityGroupID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SecurityGroupPath, securityGroupID), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.GetSecurityGroupResponse{}, err
@@ -406,7 +408,7 @@ func (ns *networkService) GetSecurityGroupByID(ctx context.Context, authToken, s
 }
 
 func (ns *networkService) GetSubnetByID(ctx context.Context, authToken, subnetID string) (resource.SubnetResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, subnetsPath, subnetID), nil)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SubnetsPath, subnetID), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.SubnetResponse{}, err
@@ -447,7 +449,7 @@ func (ns *networkService) GetSubnetByID(ctx context.Context, authToken, subnetID
 }
 
 func (ns *networkService) GetComputeNetworkPorts(ctx context.Context, authToken, instanceID string) (resource.NetworkPortsResponse, error) {
-	getNetworkDetail, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, computePath, instanceID, osInterfacePath), nil)
+	getNetworkDetail, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, instanceID, constants.OSInterfacePath), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.NetworkPortsResponse{}, err
@@ -486,10 +488,10 @@ func (ns *networkService) GetComputeNetworkPorts(ctx context.Context, authToken,
 		portIDs.Ports = append(portIDs.Ports, attachment["port_id"].(string))
 	}
 	return portIDs, nil
-
 }
+
 func (ns *networkService) DeleteNetworkPort(ctx context.Context, authToken string, portID string) error {
-	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, networkPort, portID), nil)
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.NetworkPort, portID), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
@@ -514,4 +516,59 @@ func (ns *networkService) DeleteNetworkPort(ctx context.Context, authToken strin
 	}
 
 	return nil
+}
+
+func (ns *networkService) GetSecurityGroupPorts(ctx context.Context, authToken, securityGroupID string) (resource.NetworkPortsResponse, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.NetworkPort), nil)
+	if err != nil {
+		ns.logger.WithError(err).Error("failed to create request")
+		return resource.NetworkPortsResponse{}, err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		ns.logger.WithError(err).Error("failed to send request")
+		return resource.NetworkPortsResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		ns.logger.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"error_msg":   resp.Status,
+		}).Error("failed to list ports")
+		return resource.NetworkPortsResponse{}, fmt.Errorf("failed to list ports, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		ns.logger.WithError(err).Error("failed to read response body")
+		return resource.NetworkPortsResponse{}, err
+	}
+	var respData struct {
+		Ports []struct {
+			ID             string   `json:"id"`
+			SecurityGroups []string `json:"security_groups"`
+		} `json:"ports"`
+	}
+
+	err = json.Unmarshal([]byte(body), &respData)
+	if err != nil {
+		ns.logger.WithError(err).Error("failed to unmarshal response body")
+		return resource.NetworkPortsResponse{}, err
+	}
+
+	var result resource.NetworkPortsResponse
+	for _, port := range respData.Ports {
+		for _, sg := range port.SecurityGroups {
+			if sg == securityGroupID {
+				result.Ports = append(result.Ports, port.ID)
+				break
+			}
+		}
+	}
+
+	return result, nil
 }

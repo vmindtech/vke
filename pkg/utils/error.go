@@ -17,6 +17,7 @@ const (
 	FailedToGetAppMsg            = "failed to get app information."
 	FailedToGetClusterDetailsMsg = "failed to get cluster details."
 	FailedToGetClusterMsg        = "failed to get cluster information."
+	FailedToUpdateClusterMsg     = "failed to update cluster information."
 	FailedToGetClusterListMsg    = "failed to get cluster list."
 	FailedToGetKubeconfigMsg     = "failed to get kubeconfig."
 	FailedToDecodeKubeconfigMsg  = "failed to decode kubeconfig."

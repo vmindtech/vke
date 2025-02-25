@@ -62,3 +62,9 @@ type SubnetWithDetails struct {
 type NetworkPortsResponse struct {
 	Ports []string `json:"ports"`
 }
+
+type SecurityGroupRulesResponse struct {
+	SecurityGroupRules []struct {
+		ID string `json:"id"`
+	} `json:"security_group_rules"`
+}

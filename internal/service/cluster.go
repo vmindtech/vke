@@ -14,6 +14,7 @@ import (
 	"github.com/vmindtech/vke/internal/dto/resource"
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/internal/repository"
+	"github.com/vmindtech/vke/pkg/constants"
 )
 
 type IClusterService interface {
@@ -21,7 +22,8 @@ type IClusterService interface {
 	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
 	GetClusterDetails(ctx context.Context, authToken, clusterID string) (resource.GetClusterDetailsResponse, error)
 	GetClustersByProjectId(ctx context.Context, authToken, projectID string) ([]resource.GetClusterResponse, error)
-	DestroyCluster(ctx context.Context, authToken, clusterID string, clUUID chan string)
+	DestroyCluster(ctx context.Context, authToken string, clusterID string)
+	UpdateCluster(ctx context.Context, authToken, clusterID string, cluster *model.Cluster) error
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
 	CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error)
 	UpdateKubeConfig(ctx context.Context, authToken string, clusterID string, req request.UpdateKubeconfigRequest) (resource.UpdateKubeconfigResponse, error)
@@ -85,27 +87,6 @@ const (
 )
 
 const (
-	loadBalancerPath       = "v2/lbaas/loadbalancers"
-	listenersPath          = "v2/lbaas/listeners"
-	subnetsPath            = "v2.0/subnets"
-	createMemberPath       = "v2/lbaas/pools"
-	networkPort            = "v2.0/ports"
-	securityGroupPath      = "v2.0/security-groups"
-	SecurityGroupRulesPath = "v2.0/security-group-rules"
-	ListenerPoolPath       = "v2/lbaas/pools"
-	healthMonitorPath      = "v2/lbaas/healthmonitors"
-	computePath            = "v2.1/servers"
-	flavorPath             = "v2.1/flavors"
-	projectPath            = "v3/projects"
-	serverGroupPath        = "v2.1/os-server-groups"
-	amphoraePath           = "v2/octavia/amphorae"
-	floatingIPPath         = "v2.0/floatingips"
-	listernersPath         = "v2/lbaas/listeners"
-	osInterfacePath        = "os-interface"
-	tokenPath              = "v3/auth/tokens"
-)
-
-const (
 	cloudflareEndpoint = "https://api.cloudflare.com/client/v4/zones"
 )
 
@@ -124,7 +105,7 @@ func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string
 	waitIterator := 0
 	waitSeconds := 10
 	for {
-		if waitIterator < 6 {
+		if waitIterator < 30 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
 			c.logger.WithFields(logrus.Fields{
 				"ClusterUUID": clusterUUID,
@@ -194,6 +175,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		ClusterSharedSecurityGroup:   "",
 		ApplicationCredentialID:      createApplicationCredentialReq.Credential.ID,
 		ClusterCertificateExpireDate: time.Now().AddDate(0, 0, 365),
+		DeleteState:                  constants.DeleteStateInitial,
 	}
 
 	err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create")
@@ -2067,371 +2049,483 @@ func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, 
 	return clustersResp, nil
 }
 
-func (c *clusterService) DestroyCluster(ctx context.Context, authToken, clusterID string, clUUID chan string) {
-	clUUID <- clusterID
-
+func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, clusterID string) {
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": clusterID,
-		}).Error("failed to get cluster")
+		c.logger.WithError(err).WithField("clusterUUID", clusterID).Error("failed to get cluster")
 		return
 	}
 
-	if cluster == nil {
-		c.logger.WithFields(logrus.Fields{
-			"clusterUUID": clusterID,
-		}).Error("failed to get cluster")
-		return
-	}
-
-	if cluster.ClusterProjectUUID == "" {
-		c.logger.WithFields(logrus.Fields{
-			"clusterUUID": clusterID,
-		}).Error("failed to get cluster")
-		return
-	}
-
-	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": clusterID,
-		}).Error("failed to check auth token")
-		return
-	}
-
-	err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Cluster Destroying")
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": clusterID,
-		}).Error("failed to create audit log")
-	}
-
-	clModel := &model.Cluster{
+	err = c.repository.Cluster().DeleteUpdateCluster(ctx, &model.Cluster{
 		ClusterStatus:     DeletingClusterStatus,
 		ClusterDeleteDate: time.Now(),
+		DeleteState:       constants.DeleteStateInitial,
+	}, clusterID)
+	if err != nil {
+		c.logger.WithError(err).WithField("clusterUUID", clusterID).Error("failed to update cluster status")
+		return
 	}
 
-	err = c.repository.Cluster().DeleteUpdateCluster(ctx, clModel, cluster.ClusterUUID)
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
+	c.logger.WithFields(logrus.Fields{
+		"clusterUUID": cluster.ClusterUUID,
+		"clusterName": cluster.ClusterName,
+		"deleteState": cluster.DeleteState,
+	}).Info("starting cluster deletion")
+
+	switch cluster.DeleteState {
+	case constants.DeleteStateInitial:
+		if err := c.deleteLoadBalancerComponents(ctx, authToken, cluster); err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to delete load balancer components")
+		}
+		cluster.DeleteState = constants.DeleteStateLoadBalancer
+		c.updateClusterDeleteState(ctx, cluster)
+		fallthrough
+
+	case constants.DeleteStateLoadBalancer:
+		if err := c.deleteDNSRecord(ctx, cluster); err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to delete DNS record")
+		}
+		cluster.DeleteState = constants.DeleteStateDNS
+		c.updateClusterDeleteState(ctx, cluster)
+		fallthrough
+
+	case constants.DeleteStateDNS:
+		if err := c.deleteFloatingIP(ctx, authToken, cluster); err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to delete floating IP")
+		}
+		cluster.DeleteState = constants.DeleteStateFloatingIP
+		c.updateClusterDeleteState(ctx, cluster)
+		fallthrough
+
+	case constants.DeleteStateFloatingIP:
+		if err := c.deleteNodeGroups(ctx, authToken, cluster); err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to delete node groups")
+		}
+		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to delete update cluster")
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete update cluster")
-		if err != nil {
+			"deleteState": constants.DeleteStateNodes,
+		}).Info("completed node groups deletion")
+		cluster.DeleteState = constants.DeleteStateNodes
+		c.updateClusterDeleteState(ctx, cluster)
+		fallthrough
+
+	case constants.DeleteStateNodes:
+		if err := c.deleteSecurityGroups(ctx, authToken, cluster); err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to delete security groups")
+		}
+		cluster.DeleteState = constants.DeleteStateSecurityGroups
+		c.updateClusterDeleteState(ctx, cluster)
+		fallthrough
+
+	case constants.DeleteStateSecurityGroups:
+		if err := c.deleteApplicationCredentials(ctx, authToken, cluster); err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to delete application credentials")
+		}
+		cluster.DeleteState = constants.DeleteStateCredentials
+		c.updateClusterDeleteState(ctx, cluster)
+		fallthrough
+
+	case constants.DeleteStateCredentials:
+		cluster.DeleteState = constants.DeleteStateCompleted
+		cluster.ClusterStatus = DeletedClusterStatus
+		c.updateClusterDeleteState(ctx, cluster)
+		if err := c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Cluster Destroyed"); err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
 			}).Error("failed to create audit log")
 		}
 	}
-	//Delete LoadBalancer Pool and Listener
-	getLoadBalancerPoolsResponse, err := c.loadbalancerService.GetLoadBalancerPools(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+}
+
+func (c *clusterService) updateClusterDeleteState(ctx context.Context, cluster *model.Cluster) {
+	clModel := &model.Cluster{
+		DeleteState: cluster.DeleteState,
+	}
+	if cluster.DeleteState == constants.DeleteStateCompleted {
+		clModel.ClusterStatus = DeletedClusterStatus
+		clModel.ClusterDeleteDate = time.Now()
+	}
+
+	err := c.repository.Cluster().DeleteUpdateCluster(ctx, clModel, cluster.ClusterUUID)
 	if err != nil {
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to update cluster delete state")
+	}
+}
+
+func (c *clusterService) deleteLoadBalancerComponents(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	if cluster.ClusterLoadbalancerUUID == "" {
+		return nil
+	}
+
+	pools, err := c.loadbalancerService.GetLoadBalancerPools(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	if err != nil {
+		if strings.Contains(err.Error(), "404") {
+			c.logger.WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Info("loadbalancer not found, skipping deletion")
+			return nil
+		}
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
 		}).Error("failed to get load balancer pools")
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get load balancer pools")
+		return err
+	}
+
+	for _, pool := range pools.Pools {
+		err = c.loadbalancerService.DeleteLoadbalancerPools(ctx, authToken, pool)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to create audit log")
+				"poolID":      pool,
+			}).Error("failed to delete pool")
+			return err
 		}
 	}
 
-	for _, member := range getLoadBalancerPoolsResponse.Pools {
-		err = c.loadbalancerService.DeleteLoadbalancerPools(ctx, authToken, member)
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-				"pool":        member,
-			}).Error("failed to delete load balancer pools")
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete load balancer pools")
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"clusterUUID": cluster.ClusterUUID,
-				}).Error("failed to create audit log")
-			}
-		}
-		err = c.loadbalancerService.CheckLoadBalancerDeletingPools(ctx, authToken, member)
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-				"pool":        member,
-			}).Error("failed to check load balancer deleting pools")
-
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to check load balancer deleting pools")
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"clusterUUID": cluster.ClusterUUID,
-				}).Error("failed to create audit log")
-			}
-		}
-	}
-	getLoadBalancerListenersResponse, err := c.loadbalancerService.GetLoadBalancerListeners(ctx, authToken, cluster.ClusterLoadbalancerUUID)
-	if err != nil {
-		c.logger.Errorf("failed to get loadbalancer listeners, error: %v clusterUUID: %s", err, cluster.ClusterUUID)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get loadbalancer listeners")
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to create audit log")
-		}
-	}
-	for _, member := range getLoadBalancerListenersResponse.Listeners {
-		err = c.loadbalancerService.DeleteLoadbalancerListeners(ctx, authToken, member)
-		if err != nil {
-			c.logger.Errorf("failed to delete loadbalancer listeners, error: %v clusterUUID:%s Listener: %v", err, cluster.ClusterUUID, member)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete loadbalancer listeners")
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"clusterUUID": cluster.ClusterUUID,
-				}).Error("failed to create audit log")
-			}
-		}
-		err = c.loadbalancerService.CheckLoadBalancerDeletingListeners(ctx, authToken, member)
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to check loadbalancer deleting listeners")
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to check loadbalancer deleting listeners")
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"clusterUUID": cluster.ClusterUUID,
-				}).Error("failed to create audit log")
-			}
-		}
-	}
-
-	//Delete LoadBalancer
-	err = c.loadbalancerService.DeleteLoadbalancer(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	listeners, err := c.loadbalancerService.GetLoadBalancerListeners(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to delete load balancer")
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete load balancer")
+		}).Error("failed to get load balancer listeners")
+		return err
+	}
+
+	for _, listener := range listeners.Listeners {
+		err = c.loadbalancerService.DeleteLoadbalancerListeners(ctx, authToken, listener)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to create audit log")
+				"listenerID":  listener,
+			}).Error("failed to delete listener")
+			return err
+		}
+		// Wait for listener deletion
+		err = c.loadbalancerService.CheckLoadBalancerDeletingListeners(ctx, authToken, listener)
+		if err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+				"listenerID":  listener,
+			}).Error("failed to check listener deletion status")
+			return err
 		}
 	}
 
-	//Delete DNS Record
-	err = c.cloudflareService.DeleteDNSRecordFromCloudflare(ctx, cluster.ClusterCloudflareRecordID)
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
+	// Finally delete the loadbalancer
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := c.loadbalancerService.DeleteLoadbalancer(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+		if err == nil {
+			return nil
+		}
+
+		if attempt == maxRetries {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID":      cluster.ClusterUUID,
+				"loadbalancerUUID": cluster.ClusterLoadbalancerUUID,
+				"attempt":          attempt,
+			}).Error("failed to delete load balancer after all retries")
+			return err
+		}
+
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID":      cluster.ClusterUUID,
+			"loadbalancerUUID": cluster.ClusterLoadbalancerUUID,
+			"attempt":          attempt,
+		}).Warn("retrying load balancer deletion")
+
+		time.Sleep(time.Duration(attempt) * 5 * time.Second)
+	}
+
+	return nil
+}
+
+func (c *clusterService) deleteDNSRecord(ctx context.Context, cluster *model.Cluster) error {
+	if cluster.ClusterCloudflareRecordID == "" {
+		return nil
+	}
+
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := c.cloudflareService.DeleteDNSRecord(ctx, cluster.ClusterCloudflareRecordID)
+		if err == nil {
+			return nil
+		}
+
+		if attempt == maxRetries {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+				"recordID":    cluster.ClusterCloudflareRecordID,
+				"attempt":     attempt,
+			}).Error("failed to delete DNS record after all retries")
+			return err
+		}
+
+		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to delete dns record")
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete dns record")
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to create audit log")
-		}
+			"recordID":    cluster.ClusterCloudflareRecordID,
+			"attempt":     attempt,
+		}).Warn("retrying DNS record deletion")
+
+		time.Sleep(time.Duration(attempt) * 5 * time.Second)
 	}
 
-	//Delete FloatingIP
-	if cluster.ClusterAPIAccess == "public" {
-		deleteFloatingIPResp := c.networkService.DeleteFloatingIP(ctx, authToken, cluster.FloatingIPUUID)
-		if deleteFloatingIPResp != nil {
-			c.logger.WithError(deleteFloatingIPResp).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to delete floating ip")
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete floating ip")
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"clusterUUID": cluster.ClusterUUID,
-				}).Error("failed to create audit log")
-			}
-		}
+	return nil
+}
+
+func (c *clusterService) deleteFloatingIP(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	if cluster.FloatingIPUUID == "" {
+		return nil
 	}
-	nodeGroupsOfCluster, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "")
+
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := c.networkService.DeleteFloatingIP(ctx, authToken, cluster.FloatingIPUUID)
+		if err == nil {
+			return nil
+		}
+
+		if attempt == maxRetries {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID":    cluster.ClusterUUID,
+				"floatingIPUUID": cluster.FloatingIPUUID,
+				"attempt":        attempt,
+			}).Error("failed to delete floating IP after all retries")
+			return err
+		}
+
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID":    cluster.ClusterUUID,
+			"floatingIPUUID": cluster.FloatingIPUUID,
+			"attempt":        attempt,
+		}).Warn("retrying floating IP deletion")
+
+		time.Sleep(time.Duration(attempt) * 5 * time.Second)
+	}
+
+	return nil
+}
+
+func (c *clusterService) getServerGroupMembers(ctx context.Context, authToken string, serverGroupID string) ([]string, error) {
+	serverGroup, err := c.computeService.GetServerGroup(ctx, authToken, serverGroupID)
+	if err != nil {
+		if strings.Contains(err.Error(), "404") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return serverGroup.ServerGroup.Members, nil
+}
+
+func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	nodeGroups, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "", constants.ActiveNodeGroupStatus)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
 		}).Error("failed to get node groups")
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get node groups")
+		return err
+	}
+
+	for _, nodeGroup := range nodeGroups {
+		maxRetries := 3
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			members, err := c.getServerGroupMembers(ctx, authToken, nodeGroup.NodeGroupUUID)
+			if err != nil {
+				if strings.Contains(err.Error(), "404") {
+					c.logger.WithFields(logrus.Fields{
+						"clusterUUID":   cluster.ClusterUUID,
+						"nodeGroupUUID": nodeGroup.NodeGroupUUID,
+					}).Info("server group not found, skipping member deletion")
+					break
+				}
+				if attempt == maxRetries {
+					return err
+				}
+				time.Sleep(time.Duration(attempt) * 5 * time.Second)
+				continue
+			}
+
+			for _, serverID := range members {
+				err = c.computeService.DeleteServer(ctx, authToken, serverID)
+				if err != nil {
+					if strings.Contains(err.Error(), "404") {
+						c.logger.WithFields(logrus.Fields{
+							"clusterUUID": cluster.ClusterUUID,
+							"serverID":    serverID,
+						}).Info("server not found, skipping deletion")
+						continue
+					}
+					c.logger.WithError(err).WithFields(logrus.Fields{
+						"clusterUUID": cluster.ClusterUUID,
+						"serverID":    serverID,
+						"attempt":     attempt,
+					}).Error("failed to delete server")
+					if attempt == maxRetries {
+						return err
+					}
+					time.Sleep(time.Duration(attempt) * 5 * time.Second)
+					continue
+				}
+			}
+
+			time.Sleep(10 * time.Second)
+
+			err = c.computeService.DeleteServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID)
+			if err != nil {
+				if strings.Contains(err.Error(), "404") {
+					c.logger.WithFields(logrus.Fields{
+						"clusterUUID":   cluster.ClusterUUID,
+						"nodeGroupUUID": nodeGroup.NodeGroupUUID,
+					}).Info("server group not found, skipping deletion")
+					break
+				}
+				if attempt == maxRetries {
+					return err
+				}
+				time.Sleep(time.Duration(attempt) * 5 * time.Second)
+				continue
+			}
+
+			break
+		}
+	}
+
+	for _, nodeGroup := range nodeGroups {
+		nodeGroup.NodeGroupsStatus = constants.DeletedNodeGroupStatus
+		nodeGroup.NodeGroupDeleteDate = time.Now()
+		err = c.repository.NodeGroups().UpdateNodeGroups(ctx, &nodeGroup)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to create audit log")
+			}).Error("failed to delete node group")
 		}
 	}
-	// Delete Worker Server Group Members ports and compute and server groups
-	var clusterWorkerServerGroupsUUIDString []string
-	for _, nodeGroup := range nodeGroupsOfCluster {
-		clusterWorkerServerGroupsUUIDString = append(clusterWorkerServerGroupsUUIDString, nodeGroup.NodeGroupUUID)
+	return nil
+}
+
+func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	sgUUIDs := []string{
+		cluster.ClusterSharedSecurityGroup,
 	}
+
+	nodeGroups, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "", "")
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to unmarshal cluster worker server groups uuid")
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to unmarshal cluster worker server groups uuid")
+		}).Error("failed to get node groups")
+		return err
+	}
+
+	for _, nodeGroup := range nodeGroups {
+		sgUUIDs = append(sgUUIDs, nodeGroup.NodeGroupSecurityGroup)
+	}
+
+	ports := []resource.NetworkPortsResponse{}
+
+	for _, sgUUID := range sgUUIDs {
+		tempPorts, err := c.networkService.GetSecurityGroupPorts(ctx, authToken, sgUUID)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to create audit log")
+			}).Error("failed to get security group ports")
+			return err
+		}
+
+		ports = append(ports, tempPorts)
+	}
+
+	for _, port := range ports {
+		for _, portID := range port.Ports {
+			err = c.networkService.DeleteNetworkPort(ctx, authToken, portID)
+			if err != nil && !strings.Contains(err.Error(), "404") {
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+					"portID":      portID,
+				}).Error("failed to delete port")
+				return err
+			}
 		}
 	}
-	for _, serverGroup := range nodeGroupsOfCluster {
-		getServerGroupMembersListResp, err := c.computeService.GetServerGroupMemberList(ctx, authToken, serverGroup.NodeGroupUUID)
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to get server group members list")
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get server group members list")
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"clusterUUID": cluster.ClusterUUID,
-				}).Error("failed to create audit log")
+
+	time.Sleep(30 * time.Second)
+
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		var lastErr error
+		successCount := 0
+
+		for _, sgUUID := range sgUUIDs {
+			err := c.networkService.DeleteSecurityGroup(ctx, authToken, sgUUID)
+			if err == nil {
+				successCount++
+				continue
 			}
-		}
-		for _, member := range getServerGroupMembersListResp.Members {
-			getWorkerComputePortIdResp, err := c.networkService.GetComputeNetworkPorts(ctx, authToken, member)
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"clusterUUID": cluster.ClusterUUID,
-				}).Error("failed to get compute network ports")
-				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get compute network ports")
-				if err != nil {
-					c.logger.WithError(err).WithFields(logrus.Fields{
-						"clusterUUID": cluster.ClusterUUID,
-					}).Error("failed to create audit log")
-				}
-			}
-			if len(getWorkerComputePortIdResp.Ports) > 0 {
-				err = c.networkService.DeleteNetworkPort(ctx, authToken, getWorkerComputePortIdResp.Ports[0])
-				if err != nil {
-					c.logger.WithError(err).WithFields(logrus.Fields{
-						"clusterUUID": cluster.ClusterUUID,
-					}).Error("failed to delete network port")
-					err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete network port")
-					if err != nil {
-						c.logger.WithError(err).WithFields(logrus.Fields{
-							"clusterUUID": cluster.ClusterUUID,
-						}).Error("failed to create audit log")
-					}
-				}
-			} else {
+
+			if strings.Contains(err.Error(), "404") {
 				c.logger.WithFields(logrus.Fields{
 					"clusterUUID": cluster.ClusterUUID,
-				}).Errorf("compute node port not found, error: %v clusterUUID:%s PortID: %v", err, cluster.ClusterUUID, member)
-				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to get compute network ports")
-				if err != nil {
-					c.logger.WithFields(logrus.Fields{
-						"clusterUUID": cluster.ClusterUUID,
-					}).Error("failed to create audit log")
-				}
+					"sgUUID":      sgUUID,
+				}).Info("security group not found, skipping deletion")
+				continue
 			}
 
-			err = c.computeService.DeleteCompute(ctx, authToken, member)
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"clusterUUID": cluster.ClusterUUID,
-				}).Errorf("failed to delete compute, error: %v clusterUUID:%s ComputeID: %v", err, cluster.ClusterUUID, member)
-				err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete compute")
-				if err != nil {
-					c.logger.WithError(err).WithFields(logrus.Fields{
-						"clusterUUID": cluster.ClusterUUID,
-					}).Error("failed to create audit log")
-				}
-			}
-		}
-		err = c.computeService.DeleteServerGroup(ctx, authToken, serverGroup.NodeGroupUUID)
-		if err != nil {
+			lastErr = err
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
-			}).Errorf("failed to delete server group, error: %v clusterUUID:%s ServerGroup: %s", err, cluster.ClusterUUID, serverGroup.NodeGroupUUID)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete server group")
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"clusterUUID": cluster.ClusterUUID,
-				}).Error("failed to create audit log")
-			}
+				"sgUUID":      sgUUID,
+				"attempt":     attempt,
+			}).Error("failed to delete security group")
 		}
-		// Delete Worker Security Group
-		err = c.networkService.DeleteSecurityGroup(ctx, authToken, serverGroup.NodeGroupSecurityGroup)
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Errorf("failed to delete security group, error: %v clusterUUID:%s SecurityGroup: %s", err, cluster.ClusterUUID, serverGroup.NodeGroupSecurityGroup)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete security group")
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"clusterUUID": cluster.ClusterUUID,
-				}).Error("failed to create audit log")
-			}
+
+		if successCount == len(sgUUIDs) {
+			return nil
 		}
-		ngModel := &model.NodeGroups{
-			NodeGroupUUID:       serverGroup.NodeGroupUUID,
-			NodeGroupsStatus:    NodeGroupDeletedStatus,
-			NodeGroupUpdateDate: time.Now(),
+
+		if attempt == maxRetries {
+			return fmt.Errorf("failed to delete security groups after %d attempts, last error: %v", maxRetries, lastErr)
 		}
-		err = c.repository.NodeGroups().UpdateNodeGroups(ctx, ngModel)
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Errorf("failed to update node groups, error: %v clusterUUID:%s NodeGroupUUID: %s", err, cluster.ClusterUUID, serverGroup.NodeGroupUUID)
-			err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to update node groups")
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"clusterUUID": cluster.ClusterUUID,
-				}).Error("failed to create audit log")
-			}
-		}
+
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+			"attempt":     attempt,
+		}).Warn("retrying security group deletion")
+
+		time.Sleep(time.Duration(attempt) * 5 * time.Second)
 	}
-	// Delete Cluster Shared Security Group
-	err = c.networkService.DeleteSecurityGroup(ctx, authToken, cluster.ClusterSharedSecurityGroup)
+
+	return nil
+}
+
+func (c *clusterService) deleteApplicationCredentials(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	err := c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
-		}).Errorf("failed to delete security group, error: %v clusterUUID:%s SecurityGroup: %s", err, cluster.ClusterUUID, cluster.ClusterSharedSecurityGroup)
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete security group")
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to create audit log")
-		}
+		}).Error("failed to check auth token")
+		return err
 	}
 
-	// Delete Application Credentials
 	err = c.identityService.DeleteApplicationCredential(ctx, authToken, cluster.ApplicationCredentialID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to delete application credentials")
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete application credentials")
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to create audit log")
-		}
+		}).Error("failed to delete application credential")
+		return err
 	}
-
-	clModel = &model.Cluster{
-		ClusterStatus:     DeletedClusterStatus,
-		ClusterDeleteDate: time.Now(),
-	}
-
-	err = c.repository.Cluster().DeleteUpdateCluster(ctx, clModel, cluster.ClusterUUID)
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to delete update cluster")
-		err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "failed to delete update cluster")
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to create audit log")
-		}
-	}
-
-	err = c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Cluster Destroyed")
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to create audit log")
-	}
+	return nil
 }
 
 func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error) {
@@ -2594,4 +2688,8 @@ func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string,
 	return resource.UpdateKubeconfigResponse{
 		ClusterUUID: cluster.ClusterUUID,
 	}, nil
+}
+
+func (c *clusterService) UpdateCluster(ctx context.Context, authToken, clusterID string, cluster *model.Cluster) error {
+	return c.repository.Cluster().DeleteUpdateCluster(ctx, cluster, clusterID)
 }
