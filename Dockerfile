@@ -7,7 +7,7 @@ RUN go mod download
 
 RUN go build -o vke-application ./cmd/api
 
-FROM gcr.io/distroless/base-debian11 AS build-release-stage
+FROM alpine:3.21.3 AS build-release-stage
 
 WORKDIR /
 
