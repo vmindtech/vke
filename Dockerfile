@@ -5,7 +5,7 @@ WORKDIR /app
 COPY . ./
 RUN go mod download
 
-RUN go build -o vke-application ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o vke-application ./cmd/api
 
 FROM alpine:3.21.3 AS build-release-stage
 
