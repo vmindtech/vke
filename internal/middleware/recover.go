@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -25,15 +26,46 @@ func RecoverMiddleware(l *logrus.Logger) func(c *fiber.Ctx) (err error) {
 					err = fmt.Errorf("%v", r)
 				}
 
+				errMsg := err.Error()
+				stack := stacktrace.NewStackTrace(skipStackTraceFrame)
+
+				// HTTP/2 HPACK hatası kontrolü
+				if strings.Contains(errMsg, "hpack") ||
+					strings.Contains(errMsg, "http2") ||
+					strings.Contains(errMsg, "id <= evictCount") {
+
+					// HTTP/2 bağlantısını kapat ve HTTP/1.1'e düş
+					c.Request().Header.Set("Connection", "close")
+
+					l.WithFields(logrus.Fields{
+						"ip":       c.IP(),
+						"request":  getRequestLogFields(c),
+						"response": getResponseLogFields(fiber.StatusServiceUnavailable, t),
+						"error": fiber.Map{
+							"message": errMsg,
+							"type":    "http2_hpack_error",
+							"stack":   stack,
+						},
+					}).Warn("HTTP/2 HPACK error, falling back to HTTP/1.1")
+
+					err = c.SendStatus(fiber.StatusServiceUnavailable)
+					return
+				}
+
+				// Diğer panikler için normal hata loglaması
 				l.WithFields(logrus.Fields{
 					"ip":       c.IP(),
 					"request":  getRequestLogFields(c),
 					"response": getResponseLogFields(fiber.StatusInternalServerError, t),
 					"error": fiber.Map{
-						"message": err.Error(),
-						"stack":   stacktrace.NewStackTrace(skipStackTraceFrame),
+						"message": errMsg,
+						"stack":   stack,
 					},
 				}).Errorf("recover: %v", err)
+
+				err = c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+					"error": "Internal Server Error",
+				})
 			}
 		}()
 

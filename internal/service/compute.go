@@ -35,6 +35,7 @@ type computeService struct {
 	logger          *logrus.Logger
 	identityService IIdentityService
 	repository      repository.IRepository
+	client          *http.Client
 }
 
 func NewComputeService(l *logrus.Logger, i IIdentityService, repository repository.IRepository) IComputeService {
@@ -42,6 +43,7 @@ func NewComputeService(l *logrus.Logger, i IIdentityService, repository reposito
 		logger:          l,
 		identityService: i,
 		repository:      repository,
+		client:          CreateHTTPClient(),
 	}
 }
 
@@ -57,8 +59,7 @@ func (cs *computeService) CreateCompute(ctx context.Context, authToken string, r
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := cs.client.Do(r)
 	if err != nil {
 		return resource.CreateComputeResponse{}, err
 	}
@@ -104,8 +105,7 @@ func (cs *computeService) CreateServerGroup(ctx context.Context, authToken strin
 	r.Header.Add("Content-Type", "application/json")
 	r.Header.Add("x-openstack-nova-api-version", config.GlobalConfig.GetOpenStackApiConfig().NovaMicroVersion)
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := cs.client.Do(r)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to send request")
 		return resource.ServerGroupResponse{}, err
@@ -139,8 +139,7 @@ func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clus
 
 	r.Header.Add("X-Auth-Token", authToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := cs.client.Do(r)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to send request")
 		return err
@@ -167,8 +166,7 @@ func (cs *computeService) DeletePort(ctx context.Context, authToken, portID stri
 
 	r.Header.Add("X-Auth-Token", authToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := cs.client.Do(r)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to send request")
 		return err
@@ -195,8 +193,7 @@ func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToke
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := cs.client.Do(r)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to send request")
 		return resource.GetServerGroupMemberListResponse{}, err
@@ -249,8 +246,7 @@ func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := cs.client.Do(r)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to send request")
 		return err
@@ -283,8 +279,7 @@ func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, a
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := cs.client.Do(r)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to send request")
 		return 0, err
@@ -339,8 +334,7 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := cs.client.Do(r)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to send request")
 		return []resource.Servers{}, err
@@ -425,8 +419,8 @@ func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, ins
 	}
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
-	client := &http.Client{}
-	resp, err := client.Do(r)
+
+	resp, err := cs.client.Do(r)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to send request")
 		return resource.OpenstacServersResponse{}, err
@@ -483,8 +477,8 @@ func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string
 		}
 		r.Header.Add("X-Auth-Token", authToken)
 		r.Header.Add("Content-Type", "application/json")
-		client := &http.Client{}
-		resp, err := client.Do(r)
+
+		resp, err := cs.client.Do(r)
 		if err != nil {
 			cs.logger.WithError(err).Error("failed to send request")
 			return nil, err
@@ -528,8 +522,8 @@ func (cs *computeService) GetServerGroup(ctx context.Context, authToken string, 
 	}
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
-	client := &http.Client{}
-	resp, err := client.Do(r)
+
+	resp, err := cs.client.Do(r)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to send request")
 		return resource.GetServerGroupResponse{}, err
@@ -558,8 +552,8 @@ func (cs *computeService) DeleteServer(ctx context.Context, authToken string, se
 		return err
 	}
 	r.Header.Add("X-Auth-Token", authToken)
-	client := &http.Client{}
-	resp, err := client.Do(r)
+
+	resp, err := cs.client.Do(r)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to send request")
 		return err

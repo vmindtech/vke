@@ -41,11 +41,13 @@ type ILoadbalancerService interface {
 
 type loadbalancerService struct {
 	logger *logrus.Logger
+	client *http.Client
 }
 
 func NewLoadbalancerService(logger *logrus.Logger) ILoadbalancerService {
 	return &loadbalancerService{
 		logger: logger,
+		client: CreateHTTPClient(),
 	}
 }
 
@@ -59,8 +61,7 @@ func (lbc *loadbalancerService) GetAmphoraesVrrpIp(authToken, loadBalancerID str
 	}
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("X-Auth-Token", authToken)
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"loadBalancerID": loadBalancerID,
@@ -98,8 +99,7 @@ func (lbc *loadbalancerService) ListLoadBalancer(ctx context.Context, authToken,
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"loadBalancerID": loadBalancerID,
@@ -146,8 +146,7 @@ func (lbc *loadbalancerService) CreateLoadBalancer(ctx context.Context, authToke
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"loadBalancerName": req.LoadBalancer.Name,
@@ -198,8 +197,7 @@ func (lbc *loadbalancerService) CreateListener(ctx context.Context, authToken st
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"loadBalancerID": req.Listener.LoadbalancerID,
@@ -251,8 +249,7 @@ func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"listenerID": req.Pool.ListenerID,
@@ -309,8 +306,7 @@ func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poo
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"poolID": poolID,
@@ -359,8 +355,7 @@ func (lbc *loadbalancerService) ListListener(ctx context.Context, authToken, lis
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"listenerID": listenerID,
@@ -443,8 +438,7 @@ func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, aut
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"poolID": req.HealthMonitor.PoolID,
@@ -499,8 +493,7 @@ func (lbc *loadbalancerService) CreateHealthTCPMonitor(ctx context.Context, auth
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"poolID": req.HealthMonitor.PoolID,
@@ -575,8 +568,7 @@ func (lbc *loadbalancerService) GetLoadBalancerPools(ctx context.Context, authTo
 
 	r.Header.Add("X-Auth-Token", authToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to send request")
 		return resource.GetLoadBalancerPoolsResponse{}, err
@@ -638,8 +630,7 @@ func (lbc *loadbalancerService) DeleteLoadbalancerPools(ctx context.Context, aut
 
 	r.Header.Add("X-Auth-Token", authToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to send request")
 		return err
@@ -678,8 +669,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Conte
 
 			r.Header.Add("X-Auth-Token", authToken)
 
-			client := &http.Client{}
-			resp, err := client.Do(r)
+			resp, err := lbc.client.Do(r)
 			if err != nil {
 				lbc.logger.WithFields(logrus.Fields{
 					"poolID": poolID,
@@ -708,8 +698,7 @@ func (lbc *loadbalancerService) GetLoadBalancerListeners(ctx context.Context, au
 
 	r.Header.Add("X-Auth-Token", authToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to send request")
 		return resource.GetLoadBalancerListenersResponse{}, err
@@ -768,8 +757,7 @@ func (lbc *loadbalancerService) DeleteLoadbalancerListeners(ctx context.Context,
 
 	r.Header.Add("X-Auth-Token", authToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to send request")
 		return err
@@ -806,8 +794,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.C
 
 			r.Header.Add("X-Auth-Token", authToken)
 
-			client := &http.Client{}
-			resp, err := client.Do(r)
+			resp, err := lbc.client.Do(r)
 			if err != nil {
 				lbc.logger.WithError(err).Error("failed to send request")
 				return err
@@ -837,8 +824,7 @@ func (lbc *loadbalancerService) DeleteLoadbalancer(ctx context.Context, authToke
 
 	r.Header.Add("X-Auth-Token", authToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
 			"loadBalancerID": loadBalancerID,

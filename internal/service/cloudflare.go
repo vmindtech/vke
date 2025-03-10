@@ -21,11 +21,13 @@ type ICloudflareService interface {
 
 type cloudflareService struct {
 	logger *logrus.Logger
+	client *http.Client
 }
 
 func NewCloudflareService(logger *logrus.Logger) ICloudflareService {
 	return &cloudflareService{
 		logger: logger,
+		client: CreateHTTPClient(),
 	}
 }
 
@@ -60,8 +62,7 @@ func (cf *cloudflareService) AddDNSRecordToCloudflare(ctx context.Context, loadB
 	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := cf.client.Do(r)
 	if err != nil {
 		cf.logger.WithError(err).WithFields(logrus.Fields{
 			"loadBalancerSubdomainHash": loadBalancerSubdomainHash,
@@ -104,8 +105,7 @@ func (cf *cloudflareService) DeleteDNSRecordFromCloudflare(ctx context.Context, 
 	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := cf.client.Do(r)
 	if err != nil {
 		cf.logger.WithError(err).WithField("dnsRecordID", dnsRecordID).Error("failed to send request")
 		return err
@@ -130,8 +130,7 @@ func (cf *cloudflareService) DeleteDNSRecord(ctx context.Context, recordID strin
 	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := cf.client.Do(r)
 	if err != nil {
 		cf.logger.WithError(err).WithField("recordID", recordID).Error("failed to send request")
 		return err

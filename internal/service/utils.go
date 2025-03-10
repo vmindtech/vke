@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"math/rand"
+	"net/http"
 	"text/template"
 	"time"
 
@@ -94,4 +95,21 @@ func DeleteItemFromArray(a []string, item string) []string {
 		}
 	}
 	return a
+}
+
+func CreateHTTPClient() *http.Client {
+	t := &http.Transport{
+		ForceAttemptHTTP2:     true,
+		MaxIdleConnsPerHost:   100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		WriteBufferSize:       64 * 1024,
+		ReadBufferSize:        64 * 1024,
+	}
+
+	return &http.Client{
+		Transport: t,
+		Timeout:   time.Second * 30,
+	}
 }

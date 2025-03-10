@@ -24,11 +24,13 @@ type IIdentityService interface {
 
 type identityService struct {
 	logger *logrus.Logger
+	client *http.Client
 }
 
 func NewIdentityService(logger *logrus.Logger) IIdentityService {
 	return &identityService{
 		logger: logger,
+		client: CreateHTTPClient(),
 	}
 }
 
@@ -40,8 +42,7 @@ func (i *identityService) CheckAuthToken(ctx context.Context, authToken, project
 	}
 	r.Header.Add("X-Auth-Token", authToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := i.client.Do(r)
 	if err != nil {
 		i.logger.WithError(err).Error("failed to send request")
 		return err
@@ -79,8 +80,7 @@ func (i *identityService) GetTokenDetail(ctx context.Context, authToken string) 
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("X-Subject-Token", authToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := i.client.Do(r)
 	if err != nil {
 		i.logger.WithError(err).Error("failed to send request")
 		return "", err
@@ -138,8 +138,7 @@ func (i *identityService) CreateApplicationCredential(ctx context.Context, clust
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := i.client.Do(r)
 	if err != nil {
 		i.logger.WithError(err).Error("failed to send request")
 		return resource.CreateApplicationCredentialResponse{}, err
@@ -179,8 +178,7 @@ func (i *identityService) DeleteApplicationCredential(ctx context.Context, authT
 
 	r.Header.Add("X-Auth-Token", authToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(r)
+	resp, err := i.client.Do(r)
 	if err != nil {
 		i.logger.WithError(err).Error("failed to send request")
 		return err
