@@ -23,7 +23,7 @@ type IClusterService interface {
 	GetClusterDetails(ctx context.Context, authToken, clusterID string) (resource.GetClusterDetailsResponse, error)
 	GetClustersByProjectId(ctx context.Context, authToken, projectID string) ([]resource.GetClusterResponse, error)
 	DestroyCluster(ctx context.Context, authToken string, clusterID string)
-	UpdateCluster(ctx context.Context, authToken, clusterID string, cluster *model.Cluster) error
+	UpdateCluster(ctx context.Context, authToken, clusterID string, req request.UpdateClusterRequest) (resource.UpdateClusterResponse, error)
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
 	CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error)
 	UpdateKubeConfig(ctx context.Context, authToken string, clusterID string, req request.UpdateKubeconfigRequest) (resource.UpdateKubeconfigResponse, error)
@@ -2690,6 +2690,52 @@ func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string,
 	}, nil
 }
 
-func (c *clusterService) UpdateCluster(ctx context.Context, authToken, clusterID string, cluster *model.Cluster) error {
-	return c.repository.Cluster().DeleteUpdateCluster(ctx, cluster, clusterID)
+func (c *clusterService) UpdateCluster(ctx context.Context, authToken, clusterID string, req request.UpdateClusterRequest) (resource.UpdateClusterResponse, error) {
+	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
+	if err != nil {
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
+		return resource.UpdateClusterResponse{}, err
+	}
+
+	if cluster == nil {
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
+		return resource.UpdateClusterResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	if cluster.ClusterProjectUUID == "" {
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
+		return resource.UpdateClusterResponse{}, fmt.Errorf("failed to get cluster")
+	}
+
+	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	if err != nil {
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to check auth token")
+		return resource.UpdateClusterResponse{}, err
+	}
+
+	cluster.ClusterName = req.ClusterName
+	cluster.ClusterVersion = req.ClusterVersion
+	cluster.ClusterStatus = req.ClusterStatus
+	cluster.ClusterAPIAccess = req.ClusterAPIAccess
+	cluster.ClusterCertificateExpireDate = req.ClusterCertificateExpireDate
+
+	err = c.repository.Cluster().UpdateCluster(ctx, cluster)
+	if err != nil {
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to update cluster")
+		return resource.UpdateClusterResponse{}, err
+	}
+
+	return resource.UpdateClusterResponse{
+		ClusterUUID: cluster.ClusterUUID,
+	}, nil
 }

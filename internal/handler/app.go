@@ -24,6 +24,7 @@ type IAppHandler interface {
 	ClusterInfo(c *fiber.Ctx) error
 	CreateCluster(c *fiber.Ctx) error
 	GetCluster(c *fiber.Ctx) error
+	UpdateCluster(c *fiber.Ctx) error
 	GetClustersByProjectId(c *fiber.Ctx) error
 	DestroyCluster(c *fiber.Ctx) error
 	GetKubeConfig(c *fiber.Ctx) error
@@ -385,5 +386,22 @@ func (a *appHandler) UpdateKubeconfig(c *fiber.Ctx) error {
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
 	}
 	resp, _ := a.appService.Cluster().UpdateKubeConfig(ctx, authToken, clusterID, req)
+	return c.JSON(response.NewSuccessResponse(resp))
+}
+
+func (a *appHandler) UpdateCluster(c *fiber.Ctx) error {
+	clusterID := c.Params("cluster_id")
+	var req request.UpdateClusterRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.BodyParserMsg, clusterID, "", ""))
+	}
+	ctx := context.Background()
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
+	}
+	resp, _ := a.appService.Cluster().UpdateCluster(ctx, authToken, clusterID, req)
 	return c.JSON(response.NewSuccessResponse(resp))
 }

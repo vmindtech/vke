@@ -1,5 +1,7 @@
 package request
 
+import "time"
+
 type CreateClusterRequest struct {
 	ClusterName              string   `json:"clusterName"`
 	ProjectID                string   `json:"projectId"`
@@ -22,4 +24,12 @@ type CreateKubeconfigRequest struct {
 
 type UpdateKubeconfigRequest struct {
 	KubeConfig string `json:"kubeconfig"`
+}
+
+type UpdateClusterRequest struct {
+	ClusterName                  string    `json:"cluster_name"`
+	ClusterVersion               string    `json:"cluster_version"`
+	ClusterStatus                string    `json:"cluster_status"`
+	ClusterAPIAccess             string    `json:"cluster_api_access"`
+	ClusterCertificateExpireDate time.Time `json:"cluster_certificate_expire_date"`
 }

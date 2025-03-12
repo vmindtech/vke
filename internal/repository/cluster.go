@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/pkg/mysqldb"
@@ -69,6 +70,7 @@ func (c *ClusterRepository) CreateCluster(ctx context.Context, cluster *model.Cl
 }
 
 func (c *ClusterRepository) UpdateCluster(ctx context.Context, cluster *model.Cluster) error {
+	cluster.ClusterUpdateDate = time.Now()
 	return c.mysqlInstance.
 		Database().
 		WithContext(ctx).
