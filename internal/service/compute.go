@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/config"
@@ -546,19 +547,28 @@ func (cs *computeService) GetServerGroup(ctx context.Context, authToken string, 
 }
 
 func (cs *computeService) DeleteServer(ctx context.Context, authToken string, serverID string) error {
+	volumes, err := cs.GetServerVolumes(ctx, authToken, serverID)
+	if err != nil && !strings.Contains(err.Error(), "404") {
+		cs.logger.WithError(err).WithFields(logrus.Fields{
+			"serverID": serverID,
+		}).Error("failed to get volumes")
+		return err
+	}
+
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, serverID), nil)
 	if err != nil {
-		cs.logger.WithError(err).Error("failed to create request")
+		cs.logger.WithError(err).WithField("serverID", serverID).Error("failed to create server delete request")
 		return err
 	}
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := cs.client.Do(r)
 	if err != nil {
-		cs.logger.WithError(err).Error("failed to send request")
+		cs.logger.WithError(err).WithField("serverID", serverID).Error("failed to send server delete request")
 		return err
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusNoContent {
 		cs.logger.WithFields(logrus.Fields{
 			"status_code": resp.StatusCode,
@@ -566,5 +576,72 @@ func (cs *computeService) DeleteServer(ctx context.Context, authToken string, se
 		}).Error("failed to delete server")
 		return fmt.Errorf("failed to delete server, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
+
+	for _, volumeID := range volumes {
+		err = cs.DeleteVolume(ctx, authToken, volumeID)
+		if err != nil && !strings.Contains(err.Error(), "404") {
+			cs.logger.WithError(err).WithFields(logrus.Fields{
+				"serverID": serverID,
+				"volumeID": volumeID,
+			}).Error("failed to delete volume")
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (cs *computeService) GetServerVolumes(ctx context.Context, authToken, serverID string) ([]string, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/os-volume_attachments", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, serverID), nil)
+	if err != nil {
+		return nil, err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+
+	resp, err := cs.client.Do(r)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get volumes, status code: %v", resp.StatusCode)
+	}
+
+	var result struct {
+		VolumeAttachments []struct {
+			VolumeID string `json:"volumeId"`
+		} `json:"volumeAttachments"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	volumes := make([]string, 0)
+	for _, attachment := range result.VolumeAttachments {
+		volumes = append(volumes, attachment.VolumeID)
+	}
+
+	return volumes, nil
+}
+
+func (cs *computeService) DeleteVolume(ctx context.Context, authToken, volumeID string) error {
+	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/volumes/%s", config.GlobalConfig.GetEndpointsConfig().BlockStorageEndpoint, volumeID), nil)
+	if err != nil {
+		return err
+	}
+	r.Header.Add("X-Auth-Token", authToken)
+
+	resp, err := cs.client.Do(r)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("failed to delete volume, status code: %v", resp.StatusCode)
+	}
+
 	return nil
 }

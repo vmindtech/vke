@@ -30,6 +30,7 @@ type APIEndpointsConfig struct {
 	NetworkEndpoint      string
 	LoadBalancerEndpoint string
 	IdentityEndpoint     string
+	BlockStorageEndpoint string
 }
 
 type CloudflareConfig struct {
