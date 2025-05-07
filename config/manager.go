@@ -41,16 +41,14 @@ type configureManager struct {
 }
 
 func NewConfigureManager() IConfigureManager {
-	viper.SetConfigFile("config-" + os.Getenv("golang_env") + ".json")
-	viper.SetConfigType("json")
-
 	configPath := "./"
 
 	if os.Getenv("GO_VAULT_PATH") != "" {
 		configPath = os.Getenv("GO_VAULT_PATH")
 	}
 
-	viper.AddConfigPath(fmt.Sprintf("%sconfig-%s.json", configPath, os.Getenv("golang_env")))
+	viper.SetConfigFile(fmt.Sprintf("%sconfig-%s.json", configPath, os.Getenv("golang_env")))
+	viper.SetConfigType("json")
 
 	_ = viper.ReadInConfig()
 
