@@ -31,6 +31,7 @@ type APIEndpointsConfig struct {
 	LoadBalancerEndpoint string
 	IdentityEndpoint     string
 	BlockStorageEndpoint string
+	EnvoyEndpoint        string
 }
 
 type CloudflareConfig struct {

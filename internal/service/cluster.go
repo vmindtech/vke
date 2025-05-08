@@ -535,7 +535,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		authToken,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		"",
-		fmt.Sprintf("%s/v3/", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint),
+		fmt.Sprintf("%s/v3/", config.GlobalConfig.GetEndpointsConfig().EnvoyEndpoint),
 		config.GlobalConfig.GetVkeAgentConfig().ClusterAutoscalerVersion,
 		config.GlobalConfig.GetVkeAgentConfig().CloudProviderVkeVersion,
 		createApplicationCredentialReq.Credential.ID,
