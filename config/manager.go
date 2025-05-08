@@ -120,6 +120,7 @@ func loadAPIEndpointsConfig() APIEndpointsConfig {
 		LoadBalancerEndpoint: viper.GetString("LOAD_BALANCER_ENDPOINT"),
 		IdentityEndpoint:     viper.GetString("IDENTITY_ENDPOINT"),
 		BlockStorageEndpoint: viper.GetString("BLOCK_STORAGE_ENDPOINT"),
+		EnvoyEndpoint:        viper.GetString("ENVOY_ENDPOINT"),
 	}
 }
 
@@ -175,6 +176,7 @@ func (c *configureManager) GetEndpointsConfig() APIEndpointsConfig {
 		LoadBalancerEndpoint: viper.GetString("LOAD_BALANCER_ENDPOINT"),
 		IdentityEndpoint:     viper.GetString("IDENTITY_ENDPOINT"),
 		BlockStorageEndpoint: viper.GetString("BLOCK_STORAGE_ENDPOINT"),
+		EnvoyEndpoint:        viper.GetString("ENVOY_ENDPOINT"),
 	}
 }
 
