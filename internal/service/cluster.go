@@ -541,6 +541,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		createApplicationCredentialReq.Credential.ID,
 		createApplicationCredentialReq.Credential.Secret,
 		config.GlobalConfig.GetVkeAgentConfig().ClusterAgentVersion,
+		config.GlobalConfig.GetPublicNetworkIDConfig().PublicNetworkID,
 	)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1347,6 +1348,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		"",
 		"",
 		"",
+		config.GlobalConfig.GetPublicNetworkIDConfig().PublicNetworkID,
 	)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1695,6 +1697,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		"",
 		"",
 		"",
+		config.GlobalConfig.GetPublicNetworkIDConfig().PublicNetworkID,
 	)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{

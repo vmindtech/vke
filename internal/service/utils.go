@@ -30,7 +30,8 @@ func GenerateUserDataFromTemplate(
 	cloudProviderVkeVersion,
 	applicationCredentialID,
 	applicationCredentialKey,
-	clusterAgentVersion string,
+	clusterAgentVersion,
+	loadBalancerFloatingNetworkID string,
 ) (string, error) {
 	shFile := "scripts/rke2-init-sh.tpl"
 	t, err := template.ParseFiles(shFile)
@@ -41,24 +42,25 @@ func GenerateUserDataFromTemplate(
 	var tpl bytes.Buffer
 
 	if err := t.Execute(&tpl, map[string]string{
-		"initiliazeFlag":           initiliazeFlag,
-		"rke2AgentType":            rke2AgentType,
-		"rke2Token":                rke2Token,
-		"serverAddress":            serverAddress,
-		"kubeVersion":              kubeVersion,
-		"clusterName":              clusterName,
-		"clusterUUID":              clusterUUID,
-		"projectUUID":              projectUUID,
-		"vkeAPIEndpoint":           vkeAPIEndpoint,
-		"authToken":                authToken,
-		"vkeAgentVersion":          vkeAgentVersion,
-		"rke2NodeLabel":            rke2NodeLabel,
-		"vkeCloudAuthURL":          vkeCloudAuthURL,
-		"clusterAutoscalerVersion": clusterAutoscalerVersion,
-		"cloudProviderVkeVersion":  cloudProviderVkeVersion,
-		"applicationCredentialID":  applicationCredentialID,
-		"applicationCredentialKey": applicationCredentialKey,
-		"clusterAgentVersion":      clusterAgentVersion,
+		"initiliazeFlag":                initiliazeFlag,
+		"rke2AgentType":                 rke2AgentType,
+		"rke2Token":                     rke2Token,
+		"serverAddress":                 serverAddress,
+		"kubeVersion":                   kubeVersion,
+		"clusterName":                   clusterName,
+		"clusterUUID":                   clusterUUID,
+		"projectUUID":                   projectUUID,
+		"vkeAPIEndpoint":                vkeAPIEndpoint,
+		"authToken":                     authToken,
+		"vkeAgentVersion":               vkeAgentVersion,
+		"rke2NodeLabel":                 rke2NodeLabel,
+		"vkeCloudAuthURL":               vkeCloudAuthURL,
+		"clusterAutoscalerVersion":      clusterAutoscalerVersion,
+		"cloudProviderVkeVersion":       cloudProviderVkeVersion,
+		"applicationCredentialID":       applicationCredentialID,
+		"applicationCredentialKey":      applicationCredentialKey,
+		"clusterAgentVersion":           clusterAgentVersion,
+		"loadBalancerFloatingNetworkID": loadBalancerFloatingNetworkID,
 	}); err != nil {
 		return "", err
 	}
