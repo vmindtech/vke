@@ -18,17 +18,10 @@ type Config struct {
 	OpenSearch *OpenSearchConfig
 }
 
-type OpenSearchConfig struct {
-	Addresses []string
-	Username  string
-	Password  string
-	Index     string
-}
-
 func NewLogger(config Config) *logrus.Logger {
 	logger := logrus.New()
 
-	if config.OpenSearch == nil {
+	if config.OpenSearch == nil || len(config.OpenSearch.Addresses) == 0 {
 		logger.SetOutput(os.Stdout)
 	} else {
 		logger.SetOutput(io.Discard)
@@ -39,7 +32,7 @@ func NewLogger(config Config) *logrus.Logger {
 
 	logger.AddHook(NewServiceHook(config.Service))
 
-	if config.OpenSearch != nil {
+	if config.OpenSearch != nil && len(config.OpenSearch.Addresses) > 0 {
 		client, err := NewOpenSearchClient(*config.OpenSearch)
 		if err != nil {
 			return logger
