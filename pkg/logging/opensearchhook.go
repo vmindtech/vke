@@ -10,6 +10,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type OpenSearchConfig struct {
+	Addresses []string
+	Username  string
+	Password  string
+	Index     string
+}
+
 type OpenSearchHook struct {
 	client *opensearch.Client
 	index  string
