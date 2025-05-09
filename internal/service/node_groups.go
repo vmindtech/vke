@@ -267,6 +267,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		"",
 		"",
 		"",
+		config.GlobalConfig.GetPublicNetworkIDConfig().PublicNetworkID,
 	)
 	if err != nil {
 		nodg.logger.WithError(err).Error("failed to generate user data from template")
@@ -593,6 +594,7 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		"",
 		"",
 		"",
+		config.GlobalConfig.GetPublicNetworkIDConfig().PublicNetworkID,
 	)
 	if err != nil {
 		nodg.logger.WithFields(logrus.Fields{
