@@ -25,6 +25,7 @@ type IConfigureManager interface {
 	GetOpenStackApiConfig() OpenStackApiConfig
 	GetVkeAgentConfig() VkeAgentConfig
 	GetOpenstackRolesConfig() OpenStackRolesConfig
+	GetOpenSearchConfig() OpenSearchConfig
 }
 
 type configureManager struct {
@@ -38,6 +39,7 @@ type configureManager struct {
 	OpenStackApiConfig   OpenStackApiConfig
 	VkeAgentConfig       VkeAgentConfig
 	OpenStackRolesConfig OpenStackRolesConfig
+	OpenSearchConfig     OpenSearchConfig
 }
 
 func NewConfigureManager() IConfigureManager {
@@ -59,6 +61,7 @@ func NewConfigureManager() IConfigureManager {
 		Cloudflare:           loadCloudflareConfig(),
 		ImageRef:             loadImageRefConfig(),
 		PublicNetworkID:      loadPublicNetworkIDConfig(),
+		OpenSearchConfig:     loadOpenSearchConfig(),
 		APIEndpoints:         loadAPIEndpointsConfig(),
 		OpenStackApiConfig:   loadOpenStackApiConfig(),
 		VkeAgentConfig:       loadVkeAgentConfig(),
@@ -92,6 +95,15 @@ func loadCloudflareConfig() CloudflareConfig {
 		AuthToken: viper.GetString("CLOUDFLARE_AUTH_TOKEN"),
 		ZoneID:    viper.GetString("CLOUDFLARE_ZONE_ID"),
 		Domain:    viper.GetString("CLOUDFLARE_DOMAIN"),
+	}
+}
+
+func loadOpenSearchConfig() OpenSearchConfig {
+	return OpenSearchConfig{
+		Addresses: viper.GetStringSlice("OPENSEARCH_ADDRESSES"),
+		Username:  viper.GetString("OPENSEARCH_USERNAME"),
+		Password:  viper.GetString("OPENSEARCH_PASSWORD"),
+		Index:     viper.GetString("OPENSEARCH_INDEX"),
 	}
 }
 
@@ -167,6 +179,10 @@ func (c *configureManager) GetImageRefConfig() ImageRef {
 
 func (c *configureManager) GetPublicNetworkIDConfig() PublicNetworkID {
 	return c.PublicNetworkID
+}
+
+func (c *configureManager) GetOpenSearchConfig() OpenSearchConfig {
+	return c.OpenSearchConfig
 }
 
 func (c *configureManager) GetEndpointsConfig() APIEndpointsConfig {

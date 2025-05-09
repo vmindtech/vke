@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"io"
 	"os"
 
 	"github.com/sirupsen/logrus"
@@ -13,16 +14,38 @@ const (
 )
 
 type Config struct {
-	Service ServiceConfig
+	Service    ServiceConfig
+	OpenSearch *OpenSearchConfig
+}
+
+type OpenSearchConfig struct {
+	Addresses []string
+	Username  string
+	Password  string
+	Index     string
 }
 
 func NewLogger(config Config) *logrus.Logger {
 	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
+
+	if config.OpenSearch == nil {
+		logger.SetOutput(os.Stdout)
+	} else {
+		logger.SetOutput(io.Discard)
+	}
+
 	logger.SetReportCaller(true)
 	logger.SetFormatter(jsonFormatter())
 
 	logger.AddHook(NewServiceHook(config.Service))
+
+	if config.OpenSearch != nil {
+		client, err := NewOpenSearchClient(*config.OpenSearch)
+		if err != nil {
+			return logger
+		}
+		logger.AddHook(NewOpenSearchHook(client, config.OpenSearch.Index))
+	}
 
 	return logger
 }
