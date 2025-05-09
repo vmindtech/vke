@@ -16,6 +16,13 @@ type WebConfig struct {
 	Endpoint string
 }
 
+type OpenSearchConfig struct {
+	Addresses []string
+	Username  string
+	Password  string
+	Index     string
+}
+
 type LanguageConfig struct {
 	Default   language.Tag
 	Languages []language.Tag
