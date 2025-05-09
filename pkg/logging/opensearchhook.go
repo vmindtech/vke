@@ -56,6 +56,15 @@ func (h *OpenSearchHook) Fire(entry *logrus.Entry) error {
 		"fields":    entry.Data,
 	}
 
+	if err, ok := entry.Data["error"]; ok {
+		if errObj, ok := err.(error); ok {
+			doc["error"] = map[string]interface{}{
+				"message": errObj.Error(),
+				"type":    fmt.Sprintf("%T", errObj),
+			}
+		}
+	}
+
 	_, err := h.client.Index(
 		h.getIndexName(),
 		strings.NewReader(mustMarshal(doc)),
