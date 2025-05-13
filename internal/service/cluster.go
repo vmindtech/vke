@@ -2059,6 +2059,20 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 		return
 	}
 
+	if cluster.ClusterStatus == DeletedClusterStatus {
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Info("cluster already deleted, cannot delete")
+		return
+	}
+
+	if cluster.ClusterStatus == CreatingClusterStatus {
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Info("cluster is being created, cannot delete")
+		return
+	}
+
 	err = c.repository.Cluster().DeleteUpdateCluster(ctx, &model.Cluster{
 		ClusterStatus:     DeletingClusterStatus,
 		ClusterDeleteDate: time.Now(),
