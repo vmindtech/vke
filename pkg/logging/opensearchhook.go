@@ -1,8 +1,10 @@
 package logging
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -27,6 +29,11 @@ func NewOpenSearchClient(config OpenSearchConfig) (*opensearch.Client, error) {
 		Addresses: config.Addresses,
 		Username:  config.Username,
 		Password:  config.Password,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
 	}
 
 	return opensearch.NewClient(cfg)
