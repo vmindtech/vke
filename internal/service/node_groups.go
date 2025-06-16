@@ -287,7 +287,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 
 	createServerRequest := request.CreateComputeRequest{
 		Server: request.Server{
-			Name:             nodeGroup.NodeGroupName + "-" + uuid.New().String(),
+			Name:             nodeGroup.NodeGroupName + "-" + uuid.New().String()[:8],
 			ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
 			FlavorRef:        nodeGroup.NodeFlavorUUID,
 			KeyName:          cluster.ClusterNodeKeypairName,
@@ -503,7 +503,7 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 	return response, nil
 }
 func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, clusterID string, req request.CreateNodeGroupRequest) (resource.CreateNodeGroupResponse, error) {
-	if len(req.NodeGroupName) > 26 {
+	if len(req.NodeGroupName) > 20 {
 		return resource.CreateNodeGroupResponse{}, fmt.Errorf("node group name is too long")
 	}
 	cluster, err := nodg.repository.Cluster().GetClusterByUUID(ctx, clusterID)
@@ -685,7 +685,7 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		WorkerRequest.Server.Networks = []request.Networks{
 			{Port: portResp.Port.ID},
 		}
-		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s", req.NodeGroupName, uuid.New().String())
+		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s", req.NodeGroupName, uuid.New().String()[:8])
 
 		_, err = nodg.computeService.CreateCompute(ctx, authToken, *WorkerRequest)
 		if err != nil {
@@ -696,7 +696,7 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 	err = nodg.repository.NodeGroups().CreateNodeGroups(ctx, &model.NodeGroups{
 		NodeGroupUUID:          serverGroupResp.ServerGroup.ID,
 		ClusterUUID:            cluster.ClusterUUID,
-		NodeGroupName:          req.NodeGroupName,
+		NodeGroupName:          cluster.ClusterName + "-" + req.NodeGroupName,
 		NodeFlavorUUID:         req.NodeFlavorUUID,
 		NodeDiskSize:           req.NodeDiskSize,
 		NodeGroupLabels:        nodeGroupLabelsJSON,
