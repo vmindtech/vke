@@ -11,6 +11,13 @@ type ErrorAttribute struct {
 	Name    string `json:"name"`
 	Message string `json:"message"`
 }
+type ConflictError struct {
+	Message string
+}
+
+func (e *ConflictError) Error() string {
+	return e.Message
+}
 
 type ErrorSchema struct {
 	Code          string    `json:"code"`

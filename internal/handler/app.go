@@ -328,14 +328,14 @@ func (a *appHandler) UpdateNodeGroups(c *fiber.Ctx) error {
 func (a *appHandler) DeleteNode(c *fiber.Ctx) error {
 	nodeGroupID := c.Params("nodegroup_id")
 	clusterID := c.Params("cluster_id")
-	instanceName := c.Params("instance_name")
+	id := c.Params("id")
 	ctx := context.Background()
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(
-			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, nodeGroupID, instanceName))
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, nodeGroupID, id))
 	}
-	resp, _ := a.appService.NodeGroups().DeleteNode(ctx, authToken, clusterID, nodeGroupID, instanceName)
+	resp, _ := a.appService.NodeGroups().DeleteNode(ctx, authToken, clusterID, nodeGroupID, id)
 	return c.JSON(resp)
 }
 func (a *appHandler) CreateNodeGroup(c *fiber.Ctx) error {

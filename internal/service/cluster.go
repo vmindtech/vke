@@ -2091,10 +2091,15 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 
 	switch cluster.DeleteState {
 	case constants.DeleteStateInitial:
-		if err := c.deleteLoadBalancerComponents(ctx, authToken, cluster); err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Error("failed to delete load balancer components")
+		maxRetries := 10
+		waitSeconds := 3
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			time.Sleep(time.Duration(waitSeconds) * time.Second)
+			if err := c.deleteLoadBalancerComponents(ctx, authToken, cluster); err != nil {
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+				}).Error("failed to delete load balancer components")
+			}
 		}
 		cluster.DeleteState = constants.DeleteStateLoadBalancer
 		c.updateClusterDeleteState(ctx, cluster)
@@ -2242,7 +2247,7 @@ func (c *clusterService) deleteLoadBalancerComponents(ctx context.Context, authT
 	}
 
 	// Finally delete the loadbalancer
-	maxRetries := 3
+	maxRetries := 10
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		err := c.loadbalancerService.DeleteLoadbalancer(ctx, authToken, cluster.ClusterLoadbalancerUUID)
 		if err == nil {
@@ -2357,7 +2362,7 @@ func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string,
 	}
 
 	for _, nodeGroup := range nodeGroups {
-		maxRetries := 3
+		maxRetries := 10
 		for attempt := 1; attempt <= maxRetries; attempt++ {
 			members, err := c.getServerGroupMembers(ctx, authToken, nodeGroup.NodeGroupUUID)
 			if err != nil {

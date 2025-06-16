@@ -394,8 +394,7 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 
 			responseData = append(responseData, resource.Servers{
 				ClusterUUID:   nodeGroup.ClusterUUID,
-				InstanceName:  intanceDetail.OpenstackServers.Name,
-				InstanceUUID:  intanceDetail.OpenstackServers.ID,
+				Id:            "openstack:///" + intanceDetail.OpenstackServers.ID,
 				NodeGroupUUID: nodeGroup.NodeGroupUUID,
 				MinSize:       data.NodeGroupMinSize,
 				MaxSize:       data.NodeGroupMaxSize,
@@ -412,8 +411,8 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 
 	return responseData, nil
 }
-func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, instanceUUID string) (resource.OpenstacServersResponse, error) {
-	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, instanceUUID), nil)
+func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, id string) (resource.OpenstacServersResponse, error) {
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, id), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return resource.OpenstacServersResponse{}, err
