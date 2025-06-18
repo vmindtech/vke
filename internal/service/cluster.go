@@ -1915,13 +1915,14 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 	}
 
 	clusterResp := resource.GetClusterResponse{
-		ClusterName:                cluster.ClusterName,
-		ClusterID:                  cluster.ClusterUUID,
-		ProjectID:                  cluster.ClusterProjectUUID,
-		KubernetesVersion:          cluster.ClusterVersion,
-		ClusterAPIAccess:           cluster.ClusterAPIAccess,
-		ClusterStatus:              cluster.ClusterStatus,
-		ClusterSharedSecurityGroup: cluster.ClusterSharedSecurityGroup,
+		ClusterName:                  cluster.ClusterName,
+		ClusterID:                    cluster.ClusterUUID,
+		ProjectID:                    cluster.ClusterProjectUUID,
+		KubernetesVersion:            cluster.ClusterVersion,
+		ClusterAPIAccess:             cluster.ClusterAPIAccess,
+		ClusterStatus:                cluster.ClusterStatus,
+		ClusterSharedSecurityGroup:   cluster.ClusterSharedSecurityGroup,
+		ClusterCertificateExpireDate: cluster.ClusterCertificateExpireDate,
 	}
 
 	return clusterResp, nil
@@ -2043,13 +2044,14 @@ func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, 
 
 	for _, cluster := range clusters {
 		clustersResp = append(clustersResp, resource.GetClusterResponse{
-			ClusterName:                cluster.ClusterName,
-			ClusterID:                  cluster.ClusterUUID,
-			ProjectID:                  cluster.ClusterProjectUUID,
-			KubernetesVersion:          cluster.ClusterVersion,
-			ClusterAPIAccess:           cluster.ClusterAPIAccess,
-			ClusterStatus:              cluster.ClusterStatus,
-			ClusterSharedSecurityGroup: cluster.ClusterSharedSecurityGroup,
+			ClusterName:                  cluster.ClusterName,
+			ClusterID:                    cluster.ClusterUUID,
+			ProjectID:                    cluster.ClusterProjectUUID,
+			KubernetesVersion:            cluster.ClusterVersion,
+			ClusterAPIAccess:             cluster.ClusterAPIAccess,
+			ClusterStatus:                cluster.ClusterStatus,
+			ClusterSharedSecurityGroup:   cluster.ClusterSharedSecurityGroup,
+			ClusterCertificateExpireDate: cluster.ClusterCertificateExpireDate,
 		})
 	}
 
