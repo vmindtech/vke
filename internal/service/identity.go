@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -35,13 +36,14 @@ func NewIdentityService(logger *logrus.Logger) IIdentityService {
 }
 
 func (i *identityService) CheckAuthToken(ctx context.Context, authToken, projectUUID string) error {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint, constants.ProjectPath, projectUUID), nil)
 	if err != nil {
 		i.logger.WithError(err).Error("failed to create request")
 		return err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := i.client.Do(r)
 	if err != nil {
@@ -73,14 +75,15 @@ func (i *identityService) CheckAuthToken(ctx context.Context, authToken, project
 	return nil
 }
 func (i *identityService) GetTokenDetail(ctx context.Context, authToken string) (string, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint, constants.TokenPath), nil)
 	if err != nil {
 		i.logger.WithError(err).Error("failed to create request")
 		return "", err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
-	r.Header.Add("X-Subject-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
+	r.Header.Add("X-Subject-Token", token)
 
 	resp, err := i.client.Do(r)
 	if err != nil {
@@ -107,6 +110,7 @@ func (i *identityService) GetTokenDetail(ctx context.Context, authToken string) 
 }
 
 func (i *identityService) CreateApplicationCredential(ctx context.Context, clusterUUID, authToken string) (resource.CreateApplicationCredentialResponse, error) {
+	token := strings.Clone(authToken)
 	GenerateSecret := uuid.New().String()
 	createApplicationCredentialReq := &request.CreateApplicationCredentialRequest{
 		ApplicationCredential: request.ApplicationCredential{
@@ -137,7 +141,7 @@ func (i *identityService) CreateApplicationCredential(ctx context.Context, clust
 		return resource.CreateApplicationCredentialResponse{}, err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := i.client.Do(r)
@@ -166,7 +170,8 @@ func (i *identityService) CreateApplicationCredential(ctx context.Context, clust
 }
 
 func (i *identityService) DeleteApplicationCredential(ctx context.Context, authToken, applicationCredentialID string) error {
-	getUserID, err := i.GetTokenDetail(ctx, authToken)
+	token := strings.Clone(authToken)
+	getUserID, err := i.GetTokenDetail(ctx, token)
 	if err != nil {
 		i.logger.WithError(err).Error("failed to get user id")
 		return err
@@ -178,7 +183,7 @@ func (i *identityService) DeleteApplicationCredential(ctx context.Context, authT
 		return err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := i.client.Do(r)
 	if err != nil {

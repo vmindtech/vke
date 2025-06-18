@@ -42,9 +42,9 @@ type APIEndpointsConfig struct {
 }
 
 type CloudflareConfig struct {
-	AuthToken string
-	ZoneID    string
-	Domain    string
+	CfToken string
+	ZoneID  string
+	Domain  string
 }
 
 type ImageRef struct {

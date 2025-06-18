@@ -49,6 +49,7 @@ func NewComputeService(l *logrus.Logger, i IIdentityService, repository reposito
 }
 
 func (cs *computeService) CreateCompute(ctx context.Context, authToken string, req request.CreateComputeRequest) (resource.CreateComputeResponse, error) {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return resource.CreateComputeResponse{}, err
@@ -58,7 +59,7 @@ func (cs *computeService) CreateCompute(ctx context.Context, authToken string, r
 		return resource.CreateComputeResponse{}, err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cs.client.Do(r)
@@ -91,6 +92,7 @@ func (cs *computeService) CreateCompute(ctx context.Context, authToken string, r
 }
 
 func (cs *computeService) CreateServerGroup(ctx context.Context, authToken string, req request.CreateServerGroupRequest) (resource.ServerGroupResponse, error) {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to marshal request")
@@ -103,7 +105,7 @@ func (cs *computeService) CreateServerGroup(ctx context.Context, authToken strin
 		return resource.ServerGroupResponse{}, err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 	r.Header.Add("x-openstack-nova-api-version", config.GlobalConfig.GetOpenStackApiConfig().NovaMicroVersion)
 
@@ -133,13 +135,14 @@ func (cs *computeService) CreateServerGroup(ctx context.Context, authToken strin
 }
 
 func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clusterServerGroupUUID string) error {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ServerGroupPath, clusterServerGroupUUID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := cs.client.Do(r)
 	if err != nil {
@@ -160,13 +163,14 @@ func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clus
 }
 
 func (cs *computeService) DeletePort(ctx context.Context, authToken, portID string) error {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.NetworkPort, portID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := cs.client.Do(r)
 	if err != nil {
@@ -186,13 +190,14 @@ func (cs *computeService) DeletePort(ctx context.Context, authToken, portID stri
 	return nil
 }
 func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToken, ServerGroupID string) (resource.GetServerGroupMemberListResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ServerGroupPath, ServerGroupID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return resource.GetServerGroupMemberListResponse{}, err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cs.client.Do(r)
@@ -239,13 +244,14 @@ func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToke
 	return respMembers, nil
 }
 func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID string) error {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, serverID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cs.client.Do(r)
@@ -267,7 +273,8 @@ func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID
 	return nil
 }
 func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, authToken, serverGroupID, projectUUID string) (int, error) {
-	err := cs.identityService.CheckAuthToken(ctx, authToken, projectUUID)
+	token := strings.Clone(authToken)
+	err := cs.identityService.CheckAuthToken(ctx, token, projectUUID)
 	if err != nil {
 		cs.logger.Errorf("failed to check auth token, error: %v", err)
 		return 0, err
@@ -278,7 +285,7 @@ func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, a
 		return 0, err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cs.client.Do(r)
@@ -312,6 +319,7 @@ func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, a
 	return len(respData.ServerGroup.Members), nil
 }
 func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroupUUID string) ([]resource.Servers, error) {
+	token := strings.Clone(authToken)
 	ClusterUUID, err := cs.repository.NodeGroups().GetClusterProjectUUIDByNodeGroupUUID(ctx, nodeGroupUUID)
 	if err != nil {
 		return []resource.Servers{}, err
@@ -321,7 +329,7 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 		return []resource.Servers{}, err
 	}
 
-	err = cs.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
+	err = cs.identityService.CheckAuthToken(ctx, token, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to check auth token")
 		return []resource.Servers{}, err
@@ -333,7 +341,7 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 		return []resource.Servers{}, err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cs.client.Do(r)
@@ -413,13 +421,14 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 	return responseData, nil
 }
 func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, id string) (resource.OpenstacServersResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, id), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return resource.OpenstacServersResponse{}, err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cs.client.Do(r)
@@ -450,6 +459,7 @@ func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, id 
 }
 
 func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string, clusterUUID string) ([]resource.Flavor, error) {
+	token := strings.Clone(authToken)
 	clusterProjectUUID, err := cs.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
 	if err != nil {
 		cs.logger.WithFields(logrus.Fields{
@@ -457,7 +467,7 @@ func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string
 		}).WithError(err).Error("failed to get cluster by uuid")
 		return nil, err
 	}
-	err = cs.identityService.CheckAuthToken(ctx, authToken, clusterProjectUUID.ClusterProjectUUID)
+	err = cs.identityService.CheckAuthToken(ctx, token, clusterProjectUUID.ClusterProjectUUID)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to check auth token")
 		return nil, err
@@ -478,7 +488,7 @@ func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string
 			return nil, err
 		}
 		r.Header = make(http.Header)
-		r.Header.Add("X-Auth-Token", authToken)
+		r.Header.Add("X-Auth-Token", token)
 		r.Header.Add("Content-Type", "application/json")
 
 		resp, err := cs.client.Do(r)
@@ -518,13 +528,14 @@ func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string
 }
 
 func (cs *computeService) GetServerGroup(ctx context.Context, authToken string, serverGroupID string) (resource.GetServerGroupResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ServerGroupPath, serverGroupID), nil)
 	if err != nil {
 		cs.logger.WithError(err).Error("failed to create request")
 		return resource.GetServerGroupResponse{}, err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cs.client.Do(r)
@@ -550,7 +561,8 @@ func (cs *computeService) GetServerGroup(ctx context.Context, authToken string, 
 }
 
 func (cs *computeService) DeleteServer(ctx context.Context, authToken string, serverID string) error {
-	volumes, err := cs.GetServerVolumes(ctx, authToken, serverID)
+	token := strings.Clone(authToken)
+	volumes, err := cs.GetServerVolumes(ctx, token, serverID)
 	if err != nil && !strings.Contains(err.Error(), "404") {
 		cs.logger.WithError(err).WithFields(logrus.Fields{
 			"serverID": serverID,
@@ -564,7 +576,7 @@ func (cs *computeService) DeleteServer(ctx context.Context, authToken string, se
 		return err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := cs.client.Do(r)
 	if err != nil {
@@ -596,12 +608,13 @@ func (cs *computeService) DeleteServer(ctx context.Context, authToken string, se
 }
 
 func (cs *computeService) GetServerVolumes(ctx context.Context, authToken, serverID string) ([]string, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/os-volume_attachments", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, serverID), nil)
 	if err != nil {
 		return nil, err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := cs.client.Do(r)
 	if err != nil {
@@ -632,12 +645,13 @@ func (cs *computeService) GetServerVolumes(ctx context.Context, authToken, serve
 }
 
 func (cs *computeService) DeleteVolume(ctx context.Context, authToken, volumeID string) error {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/volumes/%s", config.GlobalConfig.GetEndpointsConfig().BlockStorageEndpoint, volumeID), nil)
 	if err != nil {
 		return err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := cs.client.Do(r)
 	if err != nil {

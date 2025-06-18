@@ -87,9 +87,16 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, "", "", req.ProjectID))
 	}
 
+	// Auth token'ı context'e ekleyelim
+	ctx = context.WithValue(ctx, "auth-token", authToken)
+
 	clusterUUID := make(chan string)
 
-	go a.appService.Cluster().CreateCluster(ctx, authToken, req, clusterUUID)
+	// Context ile birlikte auth token'ı geçirelim
+	go func(ctx context.Context) {
+		token := ctx.Value("auth-token").(string)
+		a.appService.Cluster().CreateCluster(ctx, token, req, clusterUUID)
+	}(ctx)
 
 	resp := &resource.CreateClusterResponse{
 		ClusterUUID:   <-clusterUUID,

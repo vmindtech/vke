@@ -128,8 +128,9 @@ func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string
 	return nil
 }
 func (c *clusterService) CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest, clUUID chan string) {
-	clusterUUID := uuid.New().String()
+	token := strings.Clone(authToken)
 
+	clusterUUID := uuid.New().String()
 	clUUID <- clusterUUID
 
 	subnetIdsJSON, err := json.Marshal(req.SubnetIDs)
@@ -145,7 +146,8 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-	createApplicationCredentialReq, err := c.identityService.CreateApplicationCredential(ctx, clusterUUID, authToken)
+
+	createApplicationCredentialReq, err := c.identityService.CreateApplicationCredential(ctx, clusterUUID, token)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -213,7 +215,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		},
 	}
 
-	lbResp, err := c.loadbalancerService.CreateLoadBalancer(ctx, authToken, *createLBReq)
+	lbResp, err := c.loadbalancerService.CreateLoadBalancer(ctx, token, *createLBReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -234,7 +236,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -257,7 +259,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	listLBResp, err := c.loadbalancerService.ListLoadBalancer(ctx, authToken, lbResp.LoadBalancer.ID)
+	listLBResp, err := c.loadbalancerService.ListLoadBalancer(ctx, token, lbResp.LoadBalancer.ID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -287,7 +289,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 				PortID:            listLBResp.LoadBalancer.VipPortID,
 			},
 		}
-		createFloatingIPResponse, err := c.networkService.CreateFloatingIP(ctx, authToken, *createFloatingIPreq)
+		createFloatingIPResponse, err := c.networkService.CreateFloatingIP(ctx, token, *createFloatingIPreq)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
@@ -320,7 +322,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	// create security group for master
-	createMasterSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+	createMasterSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, token, *createSecurityGroupReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -345,7 +347,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createSecurityGroupReq.SecurityGroup.Name = fmt.Sprintf("%v-worker-sg", req.ClusterName)
 	createSecurityGroupReq.SecurityGroup.Description = fmt.Sprintf("%v-worker-sg", req.ClusterName)
 
-	createWorkerSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+	createWorkerSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, token, *createSecurityGroupReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -371,7 +373,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createSecurityGroupReq.SecurityGroup.Name = fmt.Sprintf("%v-cluster-shared-sg", req.ClusterName)
 	createSecurityGroupReq.SecurityGroup.Description = fmt.Sprintf("%v-cluster-shared-sg", req.ClusterName)
 
-	createClusterSharedSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+	createClusterSharedSecurityResp, err := c.networkService.CreateSecurityGroup(ctx, token, *createSecurityGroupReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -404,7 +406,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Policy: "soft-anti-affinity",
 		},
 	}
-	masterServerGroupResp, err := c.computeService.CreateServerGroup(ctx, authToken, *createServerGroupReq)
+	masterServerGroupResp, err := c.computeService.CreateServerGroup(ctx, token, *createServerGroupReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -464,7 +466,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	createServerGroupReq.ServerGroup.Name = fmt.Sprintf("%v-default-worker-server-group", req.ClusterName)
-	workerServerGroupResp, err := c.computeService.CreateServerGroup(ctx, authToken, *createServerGroupReq)
+	workerServerGroupResp, err := c.computeService.CreateServerGroup(ctx, token, *createServerGroupReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -532,7 +534,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		clusterUUID,
 		req.ProjectID,
 		config.GlobalConfig.GetWebConfig().Endpoint,
-		authToken,
+		token,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		"",
 		fmt.Sprintf("%s/v3/", config.GlobalConfig.GetEndpointsConfig().EnvoyEndpoint),
@@ -564,7 +566,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	getNetworkIdResp, err := c.networkService.GetNetworkID(ctx, authToken, req.SubnetIDs[0])
+	getNetworkIdResp, err := c.networkService.GetNetworkID(ctx, token, req.SubnetIDs[0])
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -601,7 +603,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	for _, allowedCIDR := range req.AllowedCIDRS {
 		createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = allowedCIDR
-		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, token, *createSecurityGroupRuleReq)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
@@ -634,7 +636,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			RemoteGroupID:   createClusterSharedSecurityResp.SecurityGroup.ID,
 		},
 	}
-	err = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createSecurityGroupRuleReqSG)
+	err = c.networkService.CreateSecurityGroupRuleForSG(ctx, token, *createSecurityGroupRuleReqSG)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -671,7 +673,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	portRequest.Port.Name = fmt.Sprintf("%v-master-1-port", req.ClusterName)
 	portRequest.Port.SecurityGroups = []string{createMasterSecurityResp.SecurityGroup.ID, createClusterSharedSecurityResp.SecurityGroup.ID}
-	portResp, err := c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
+	portResp, err := c.networkService.CreateNetworkPort(ctx, token, *portRequest)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -726,7 +728,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	masterRequest.Server.Name = fmt.Sprintf("%v-master-1", req.ClusterName)
 
-	_, err = c.computeService.CreateCompute(ctx, authToken, *masterRequest)
+	_, err = c.computeService.CreateCompute(ctx, token, *masterRequest)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -749,7 +751,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	for _, subnetID := range req.SubnetIDs {
-		subnetDetails, err := c.networkService.GetSubnetByID(ctx, authToken, subnetID)
+		subnetDetails, err := c.networkService.GetSubnetByID(ctx, token, subnetID)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
@@ -776,7 +778,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createMasterSecurityResp.SecurityGroup.ID
 		createSecurityGroupRuleReq.SecurityGroupRule.RemoteIPPrefix = subnetDetails.Subnet.CIDR
 
-		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, token, *createSecurityGroupRuleReq)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
@@ -801,7 +803,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "9345"
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "9345"
-		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, token, *createSecurityGroupRuleReq)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
@@ -828,7 +830,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMin = "30000"
 		createSecurityGroupRuleReq.SecurityGroupRule.PortRangeMax = "32767"
 		createSecurityGroupRuleReq.SecurityGroupRule.SecurityGroupID = createClusterSharedSecurityResp.SecurityGroup.ID
-		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createSecurityGroupRuleReq)
+		err = c.networkService.CreateSecurityGroupRuleForIP(ctx, token, *createSecurityGroupRuleReq)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
@@ -876,7 +878,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -909,7 +911,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		},
 	}
 
-	apiListenerResp, err := c.loadbalancerService.CreateListener(ctx, authToken, *createListenerReq)
+	apiListenerResp, err := c.loadbalancerService.CreateListener(ctx, token, *createListenerReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -934,7 +936,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createListenerReq.Listener.Name = fmt.Sprintf("%v-register-listener", req.ClusterName)
 	createListenerReq.Listener.ProtocolPort = 9345
 
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -957,7 +959,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	registerListenerResp, err := c.loadbalancerService.CreateListener(ctx, authToken, *createListenerReq)
+	registerListenerResp, err := c.loadbalancerService.CreateListener(ctx, token, *createListenerReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -979,7 +981,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1001,7 +1003,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.Errorf("failed to check load balancer status, error: %v  clusterUUID:%s", err, clusterUUID)
@@ -1030,7 +1032,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			LBAlgorithm:  "SOURCE_IP_PORT",
 		},
 	}
-	apiPoolResp, err := c.loadbalancerService.CreatePool(ctx, authToken, *createPoolReq)
+	apiPoolResp, err := c.loadbalancerService.CreatePool(ctx, token, *createPoolReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1051,7 +1053,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1073,7 +1075,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-	err = c.loadbalancerService.CreateHealthTCPMonitor(ctx, authToken, request.CreateHealthMonitorTCPRequest{
+	err = c.loadbalancerService.CreateHealthTCPMonitor(ctx, token, request.CreateHealthMonitorTCPRequest{
 		HealthMonitor: request.HealthMonitorTCP{
 			Name:           fmt.Sprintf("%v-api-healthmonitor", req.ClusterName),
 			AdminStateUp:   true,
@@ -1107,7 +1109,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	createPoolReq.Pool.ListenerID = registerListenerResp.Listener.ID
 	createPoolReq.Pool.Name = fmt.Sprintf("%v-register-pool", req.ClusterName)
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1129,7 +1131,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-	registerPoolResp, err := c.loadbalancerService.CreatePool(ctx, authToken, *createPoolReq)
+	registerPoolResp, err := c.loadbalancerService.CreatePool(ctx, token, *createPoolReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1150,7 +1152,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1172,7 +1174,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		return
 	}
-	err = c.loadbalancerService.CreateHealthHTTPMonitor(ctx, authToken, request.CreateHealthMonitorHTTPRequest{
+	err = c.loadbalancerService.CreateHealthHTTPMonitor(ctx, token, request.CreateHealthMonitorHTTPRequest{
 		HealthMonitor: request.HealthMonitorHTTP{
 			Name:           fmt.Sprintf("%v-register-healthmonitor", req.ClusterName),
 			AdminStateUp:   true,
@@ -1215,7 +1217,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			Backup:       false,
 		},
 	}
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1238,7 +1240,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	err = c.loadbalancerService.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, token, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1261,7 +1263,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 	createMemberReq.Member.ProtocolPort = 9345
 
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1284,7 +1286,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, token, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1307,7 +1309,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	portRequest.Port.Name = fmt.Sprintf("%v-master-2-port", req.ClusterName)
-	portResp, err = c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
+	portResp, err = c.networkService.CreateNetworkPort(ctx, token, *portRequest)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1339,7 +1341,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		clusterUUID,
 		"",
 		config.GlobalConfig.GetWebConfig().Endpoint,
-		authToken,
+		token,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		"",
 		"",
@@ -1373,7 +1375,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 
 	masterRequest.Server.UserData = Base64Encoder(rke2InitScript)
 
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1396,7 +1398,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	_, err = c.computeService.CreateCompute(ctx, authToken, *masterRequest)
+	_, err = c.computeService.CreateCompute(ctx, token, *masterRequest)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1422,7 +1424,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.Name = fmt.Sprintf("%v-master-2", req.ClusterName)
 	createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
 	createMemberReq.Member.ProtocolPort = 6443
-	err = c.loadbalancerService.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, token, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1444,7 +1446,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1467,7 +1469,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 	createMemberReq.Member.ProtocolPort = 9345
-	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, token, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1490,7 +1492,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	portRequest.Port.Name = fmt.Sprintf("%v-master-3-port", req.ClusterName)
-	portResp, err = c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
+	portResp, err = c.networkService.CreateNetworkPort(ctx, token, *portRequest)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1514,7 +1516,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	masterRequest.Server.Name = fmt.Sprintf("%s-master-3", req.ClusterName)
 	masterRequest.Server.Networks[0].Port = portResp.Port.ID
 
-	_, err = c.computeService.CreateCompute(ctx, authToken, *masterRequest)
+	_, err = c.computeService.CreateCompute(ctx, token, *masterRequest)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1561,7 +1563,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1588,7 +1590,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	createMemberReq.Member.Name = fmt.Sprintf("%v-master-3", req.ClusterName)
 	createMemberReq.Member.Address = portResp.Port.FixedIps[0].IpAddress
 	createMemberReq.Member.ProtocolPort = 6443
-	err = c.loadbalancerService.CreateMember(ctx, authToken, apiPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, token, apiPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1610,7 +1612,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID)
+	_, err = c.loadbalancerService.CheckLoadBalancerStatus(ctx, token, lbResp.LoadBalancer.ID)
 
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1634,7 +1636,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	}
 
 	createMemberReq.Member.ProtocolPort = 9345
-	err = c.loadbalancerService.CreateMember(ctx, authToken, registerPoolResp.Pool.ID, *createMemberReq)
+	err = c.loadbalancerService.CreateMember(ctx, token, registerPoolResp.Pool.ID, *createMemberReq)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
@@ -1688,7 +1690,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		clusterUUID,
 		"",
 		config.GlobalConfig.GetWebConfig().Endpoint,
-		authToken,
+		token,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		strings.Join(defaultWorkerLabels, ","),
 		"",
@@ -1753,7 +1755,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 	for i := 1; i <= req.WorkerNodeGroupMinSize; i++ {
 		portRequest.Port.Name = fmt.Sprintf("%v-%s-port", req.ClusterName, workerNodeGroupModel.NodeGroupName)
 		portRequest.Port.SecurityGroups = []string{createWorkerSecurityResp.SecurityGroup.ID, createClusterSharedSecurityResp.SecurityGroup.ID}
-		portResp, err = c.networkService.CreateNetworkPort(ctx, authToken, *portRequest)
+		portResp, err = c.networkService.CreateNetworkPort(ctx, token, *portRequest)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
@@ -1777,7 +1779,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		WorkerRequest.Server.Networks[0].Port = portResp.Port.ID
 		WorkerRequest.Server.Name = fmt.Sprintf("%s-%s", workerNodeGroupModel.NodeGroupName, uuid.New().String()[:8])
 
-		_, err = c.computeService.CreateCompute(ctx, authToken, *WorkerRequest)
+		_, err = c.computeService.CreateCompute(ctx, token, *WorkerRequest)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
@@ -1880,6 +1882,8 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 }
 
 func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error) {
+	token := strings.Clone(authToken)
+
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1902,7 +1906,7 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 		return resource.GetClusterResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
-	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	err = c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterID,
@@ -1924,6 +1928,8 @@ func (c *clusterService) GetCluster(ctx context.Context, authToken, clusterID st
 }
 
 func (c *clusterService) GetClusterDetails(ctx context.Context, authToken, clusterID string) (resource.GetClusterDetailsResponse, error) {
+	token := strings.Clone(authToken)
+
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -1945,7 +1951,7 @@ func (c *clusterService) GetClusterDetails(ctx context.Context, authToken, clust
 		return resource.GetClusterDetailsResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
-	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	err = c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterID,
@@ -2008,6 +2014,8 @@ func (c *clusterService) GetClusterDetails(ctx context.Context, authToken, clust
 }
 
 func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, projectID string) ([]resource.GetClusterResponse, error) {
+	token := strings.Clone(authToken)
+
 	clusters, err := c.repository.Cluster().GetClustersByProjectId(ctx, projectID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -2023,7 +2031,7 @@ func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, 
 		return []resource.GetClusterResponse{}, nil
 	}
 
-	err = c.identityService.CheckAuthToken(ctx, authToken, projectID)
+	err = c.identityService.CheckAuthToken(ctx, token, projectID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"projectID": projectID,
@@ -2053,6 +2061,8 @@ func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, 
 }
 
 func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, clusterID string) {
+	token := strings.Clone(authToken)
+
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		c.logger.WithError(err).WithField("clusterUUID", clusterID).Error("failed to get cluster")
@@ -2095,7 +2105,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 		waitSeconds := 3
 		for attempt := 1; attempt <= maxRetries; attempt++ {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			if err := c.deleteLoadBalancerComponents(ctx, authToken, cluster); err != nil {
+			if err := c.deleteLoadBalancerComponents(ctx, token, cluster); err != nil {
 				c.logger.WithError(err).WithFields(logrus.Fields{
 					"clusterUUID": cluster.ClusterUUID,
 				}).Error("failed to delete load balancer components")
@@ -2116,7 +2126,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 		fallthrough
 
 	case constants.DeleteStateDNS:
-		if err := c.deleteFloatingIP(ctx, authToken, cluster); err != nil {
+		if err := c.deleteFloatingIP(ctx, token, cluster); err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
 			}).Error("failed to delete floating IP")
@@ -2126,7 +2136,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 		fallthrough
 
 	case constants.DeleteStateFloatingIP:
-		if err := c.deleteNodeGroups(ctx, authToken, cluster); err != nil {
+		if err := c.deleteNodeGroups(ctx, token, cluster); err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
 			}).Error("failed to delete node groups")
@@ -2140,7 +2150,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 		fallthrough
 
 	case constants.DeleteStateNodes:
-		if err := c.deleteSecurityGroups(ctx, authToken, cluster); err != nil {
+		if err := c.deleteSecurityGroups(ctx, token, cluster); err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
 			}).Error("failed to delete security groups")
@@ -2150,7 +2160,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 		fallthrough
 
 	case constants.DeleteStateSecurityGroups:
-		if err := c.deleteApplicationCredentials(ctx, authToken, cluster); err != nil {
+		if err := c.deleteApplicationCredentials(ctx, token, cluster); err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
 			}).Error("failed to delete application credentials")
@@ -2189,11 +2199,13 @@ func (c *clusterService) updateClusterDeleteState(ctx context.Context, cluster *
 }
 
 func (c *clusterService) deleteLoadBalancerComponents(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	token := strings.Clone(authToken)
+
 	if cluster.ClusterLoadbalancerUUID == "" {
 		return nil
 	}
 
-	pools, err := c.loadbalancerService.GetLoadBalancerPools(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	pools, err := c.loadbalancerService.GetLoadBalancerPools(ctx, token, cluster.ClusterLoadbalancerUUID)
 	if err != nil {
 		if strings.Contains(err.Error(), "404") {
 			c.logger.WithFields(logrus.Fields{
@@ -2208,7 +2220,7 @@ func (c *clusterService) deleteLoadBalancerComponents(ctx context.Context, authT
 	}
 
 	for _, pool := range pools.Pools {
-		err = c.loadbalancerService.DeleteLoadbalancerPools(ctx, authToken, pool)
+		err = c.loadbalancerService.DeleteLoadbalancerPools(ctx, token, pool)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
@@ -2218,7 +2230,7 @@ func (c *clusterService) deleteLoadBalancerComponents(ctx context.Context, authT
 		}
 	}
 
-	listeners, err := c.loadbalancerService.GetLoadBalancerListeners(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+	listeners, err := c.loadbalancerService.GetLoadBalancerListeners(ctx, token, cluster.ClusterLoadbalancerUUID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
@@ -2227,7 +2239,7 @@ func (c *clusterService) deleteLoadBalancerComponents(ctx context.Context, authT
 	}
 
 	for _, listener := range listeners.Listeners {
-		err = c.loadbalancerService.DeleteLoadbalancerListeners(ctx, authToken, listener)
+		err = c.loadbalancerService.DeleteLoadbalancerListeners(ctx, token, listener)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
@@ -2236,7 +2248,7 @@ func (c *clusterService) deleteLoadBalancerComponents(ctx context.Context, authT
 			return err
 		}
 		// Wait for listener deletion
-		err = c.loadbalancerService.CheckLoadBalancerDeletingListeners(ctx, authToken, listener)
+		err = c.loadbalancerService.CheckLoadBalancerDeletingListeners(ctx, token, listener)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
@@ -2249,7 +2261,7 @@ func (c *clusterService) deleteLoadBalancerComponents(ctx context.Context, authT
 	// Finally delete the loadbalancer
 	maxRetries := 10
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := c.loadbalancerService.DeleteLoadbalancer(ctx, authToken, cluster.ClusterLoadbalancerUUID)
+		err := c.loadbalancerService.DeleteLoadbalancer(ctx, token, cluster.ClusterLoadbalancerUUID)
 		if err == nil {
 			return nil
 		}
@@ -2309,13 +2321,15 @@ func (c *clusterService) deleteDNSRecord(ctx context.Context, cluster *model.Clu
 }
 
 func (c *clusterService) deleteFloatingIP(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	token := strings.Clone(authToken)
+
 	if cluster.FloatingIPUUID == "" {
 		return nil
 	}
 
 	maxRetries := 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := c.networkService.DeleteFloatingIP(ctx, authToken, cluster.FloatingIPUUID)
+		err := c.networkService.DeleteFloatingIP(ctx, token, cluster.FloatingIPUUID)
 		if err == nil {
 			return nil
 		}
@@ -2342,7 +2356,9 @@ func (c *clusterService) deleteFloatingIP(ctx context.Context, authToken string,
 }
 
 func (c *clusterService) getServerGroupMembers(ctx context.Context, authToken string, serverGroupID string) ([]string, error) {
-	serverGroup, err := c.computeService.GetServerGroup(ctx, authToken, serverGroupID)
+	token := strings.Clone(authToken)
+
+	serverGroup, err := c.computeService.GetServerGroup(ctx, token, serverGroupID)
 	if err != nil {
 		if strings.Contains(err.Error(), "404") {
 			return nil, nil
@@ -2353,6 +2369,8 @@ func (c *clusterService) getServerGroupMembers(ctx context.Context, authToken st
 }
 
 func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	token := strings.Clone(authToken)
+
 	nodeGroups, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "", constants.ActiveNodeGroupStatus)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -2364,7 +2382,7 @@ func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string,
 	for _, nodeGroup := range nodeGroups {
 		maxRetries := 10
 		for attempt := 1; attempt <= maxRetries; attempt++ {
-			members, err := c.getServerGroupMembers(ctx, authToken, nodeGroup.NodeGroupUUID)
+			members, err := c.getServerGroupMembers(ctx, token, nodeGroup.NodeGroupUUID)
 			if err != nil {
 				if strings.Contains(err.Error(), "404") {
 					c.logger.WithFields(logrus.Fields{
@@ -2381,7 +2399,7 @@ func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string,
 			}
 
 			for _, serverID := range members {
-				err = c.computeService.DeleteServer(ctx, authToken, serverID)
+				err = c.computeService.DeleteServer(ctx, token, serverID)
 				if err != nil {
 					if strings.Contains(err.Error(), "404") {
 						c.logger.WithFields(logrus.Fields{
@@ -2405,7 +2423,7 @@ func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string,
 
 			time.Sleep(10 * time.Second)
 
-			err = c.computeService.DeleteServerGroup(ctx, authToken, nodeGroup.NodeGroupUUID)
+			err = c.computeService.DeleteServerGroup(ctx, token, nodeGroup.NodeGroupUUID)
 			if err != nil {
 				if strings.Contains(err.Error(), "404") {
 					c.logger.WithFields(logrus.Fields{
@@ -2439,6 +2457,8 @@ func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string,
 }
 
 func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	token := strings.Clone(authToken)
+
 	sgUUIDs := []string{
 		cluster.ClusterSharedSecurityGroup,
 	}
@@ -2458,7 +2478,7 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 	ports := []resource.NetworkPortsResponse{}
 
 	for _, sgUUID := range sgUUIDs {
-		tempPorts, err := c.networkService.GetSecurityGroupPorts(ctx, authToken, sgUUID)
+		tempPorts, err := c.networkService.GetSecurityGroupPorts(ctx, token, sgUUID)
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
@@ -2471,7 +2491,7 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 
 	for _, port := range ports {
 		for _, portID := range port.Ports {
-			err = c.networkService.DeleteNetworkPort(ctx, authToken, portID)
+			err = c.networkService.DeleteNetworkPort(ctx, token, portID)
 			if err != nil && !strings.Contains(err.Error(), "404") {
 				c.logger.WithError(err).WithFields(logrus.Fields{
 					"clusterUUID": cluster.ClusterUUID,
@@ -2490,7 +2510,7 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 		successCount := 0
 
 		for _, sgUUID := range sgUUIDs {
-			err := c.networkService.DeleteSecurityGroup(ctx, authToken, sgUUID)
+			err := c.networkService.DeleteSecurityGroup(ctx, token, sgUUID)
 			if err == nil {
 				successCount++
 				continue
@@ -2532,7 +2552,9 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 }
 
 func (c *clusterService) deleteApplicationCredentials(ctx context.Context, authToken string, cluster *model.Cluster) error {
-	err := c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	token := strings.Clone(authToken)
+
+	err := c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
@@ -2540,7 +2562,7 @@ func (c *clusterService) deleteApplicationCredentials(ctx context.Context, authT
 		return err
 	}
 
-	err = c.identityService.DeleteApplicationCredential(ctx, authToken, cluster.ApplicationCredentialID)
+	err = c.identityService.DeleteApplicationCredential(ctx, token, cluster.ApplicationCredentialID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
@@ -2551,6 +2573,8 @@ func (c *clusterService) deleteApplicationCredentials(ctx context.Context, authT
 }
 
 func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error) {
+	token := strings.Clone(authToken)
+
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -2573,7 +2597,7 @@ func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID
 		return resource.GetKubeConfigResponse{}, err
 	}
 
-	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	err = c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterID,
@@ -2598,6 +2622,8 @@ func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID
 }
 
 func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error) {
+	token := strings.Clone(authToken)
+
 	if req.ClusterID == "" {
 		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": req.ClusterID,
@@ -2627,7 +2653,7 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
-	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	err = c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": req.ClusterID,
@@ -2662,6 +2688,8 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 }
 
 func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string, clusterID string, req request.UpdateKubeconfigRequest) (resource.UpdateKubeconfigResponse, error) {
+	token := strings.Clone(authToken)
+
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -2684,7 +2712,7 @@ func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string,
 		return resource.UpdateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
-	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	err = c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterID,
@@ -2713,6 +2741,8 @@ func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string,
 }
 
 func (c *clusterService) UpdateCluster(ctx context.Context, authToken, clusterID string, req request.UpdateClusterRequest) (resource.UpdateClusterResponse, error) {
+	token := strings.Clone(authToken)
+
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -2735,7 +2765,7 @@ func (c *clusterService) UpdateCluster(ctx context.Context, authToken, clusterID
 		return resource.UpdateClusterResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
-	err = c.identityService.CheckAuthToken(ctx, authToken, cluster.ClusterProjectUUID)
+	err = c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterID,

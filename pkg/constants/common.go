@@ -10,5 +10,5 @@ const (
 const (
 	DeletedNodeGroupStatus = "DELETED"
 	ActiveNodeGroupStatus  = "ACTIVE"
-	ActiveClusterStatus    = "ACTIVE"
+	ActiveClusterStatus    = "Active"
 )

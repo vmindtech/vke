@@ -92,9 +92,9 @@ func loadLanguageConfig() LanguageConfig {
 
 func loadCloudflareConfig() CloudflareConfig {
 	return CloudflareConfig{
-		AuthToken: viper.GetString("CLOUDFLARE_AUTH_TOKEN"),
-		ZoneID:    viper.GetString("CLOUDFLARE_ZONE_ID"),
-		Domain:    viper.GetString("CLOUDFLARE_DOMAIN"),
+		CfToken: viper.GetString("CLOUDFLARE_AUTH_TOKEN"),
+		ZoneID:  viper.GetString("CLOUDFLARE_ZONE_ID"),
+		Domain:  viper.GetString("CLOUDFLARE_DOMAIN"),
 	}
 }
 

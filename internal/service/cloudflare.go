@@ -59,7 +59,7 @@ func (cf *cloudflareService) AddDNSRecordToCloudflare(ctx context.Context, loadB
 		return resource.AddDNSRecordResponse{}, err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
+	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().CfToken))
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cf.client.Do(r)
@@ -102,7 +102,7 @@ func (cf *cloudflareService) DeleteDNSRecordFromCloudflare(ctx context.Context, 
 		return err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
+	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().CfToken))
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cf.client.Do(r)
@@ -127,7 +127,7 @@ func (cf *cloudflareService) DeleteDNSRecord(ctx context.Context, recordID strin
 		return err
 	}
 	r.Header = make(http.Header)
-	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
+	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().CfToken))
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cf.client.Do(r)
