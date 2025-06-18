@@ -50,6 +50,7 @@ func (ns *networkService) ListSubnetByName(ctx context.Context, subnetName, auth
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.ListSubnetByNameResponse{}, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -86,6 +87,7 @@ func (ns *networkService) GetNetworkID(ctx context.Context, authToken, subnetID 
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.GetNetworkIdResponse{}, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -127,6 +129,7 @@ func (ns *networkService) CreateSecurityGroup(ctx context.Context, authToken str
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.CreateSecurityGroupResponse{}, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -168,6 +171,7 @@ func (ns *networkService) CreateNetworkPort(ctx context.Context, authToken strin
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.CreateNetworkPortResponse{}, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -209,6 +213,7 @@ func (ns *networkService) CreateSecurityGroupRuleForIP(ctx context.Context, auth
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -246,6 +251,7 @@ func (ns *networkService) CreateSecurityGroupRuleForSG(ctx context.Context, auth
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -283,7 +289,7 @@ func (ns *networkService) CreateFloatingIP(ctx context.Context, authToken string
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.CreateFloatingIPResponse{}, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -323,7 +329,7 @@ func (ns *networkService) DeleteSecurityGroup(ctx context.Context, authToken, cl
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	client := &http.Client{}
@@ -348,7 +354,7 @@ func (ns *networkService) DeleteFloatingIP(ctx context.Context, authToken, float
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	client := &http.Client{}
@@ -372,7 +378,7 @@ func (ns *networkService) GetSecurityGroupByID(ctx context.Context, authToken, s
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.GetSecurityGroupResponse{}, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	client := &http.Client{}
@@ -413,7 +419,7 @@ func (ns *networkService) GetSubnetByID(ctx context.Context, authToken, subnetID
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.SubnetResponse{}, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	client := &http.Client{}
@@ -496,6 +502,7 @@ func (ns *networkService) DeleteNetworkPort(ctx context.Context, authToken strin
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	client := &http.Client{}
@@ -524,6 +531,7 @@ func (ns *networkService) GetSecurityGroupPorts(ctx context.Context, authToken, 
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.NetworkPortsResponse{}, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	client := &http.Client{}

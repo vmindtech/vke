@@ -24,7 +24,7 @@ type IIdentityService interface {
 
 type identityService struct {
 	logger *logrus.Logger
-	client *http.Client
+	client http.Client
 }
 
 func NewIdentityService(logger *logrus.Logger) IIdentityService {
@@ -40,6 +40,7 @@ func (i *identityService) CheckAuthToken(ctx context.Context, authToken, project
 		i.logger.WithError(err).Error("failed to create request")
 		return err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := i.client.Do(r)
@@ -77,6 +78,7 @@ func (i *identityService) GetTokenDetail(ctx context.Context, authToken string) 
 		i.logger.WithError(err).Error("failed to create request")
 		return "", err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("X-Subject-Token", authToken)
 
@@ -134,7 +136,7 @@ func (i *identityService) CreateApplicationCredential(ctx context.Context, clust
 		i.logger.WithError(err).Error("failed to create request")
 		return resource.CreateApplicationCredentialResponse{}, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -175,7 +177,7 @@ func (i *identityService) DeleteApplicationCredential(ctx context.Context, authT
 		i.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := i.client.Do(r)

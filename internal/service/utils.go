@@ -99,7 +99,7 @@ func DeleteItemFromArray(a []string, item string) []string {
 	return a
 }
 
-func CreateHTTPClient() *http.Client {
+func CreateHTTPClient() http.Client {
 	t := &http.Transport{
 		ForceAttemptHTTP2:     true,
 		MaxIdleConnsPerHost:   100,
@@ -110,7 +110,7 @@ func CreateHTTPClient() *http.Client {
 		ReadBufferSize:        64 * 1024,
 	}
 
-	return &http.Client{
+	return http.Client{
 		Transport: t,
 		Timeout:   time.Second * 30,
 	}

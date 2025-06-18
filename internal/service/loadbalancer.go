@@ -41,7 +41,7 @@ type ILoadbalancerService interface {
 
 type loadbalancerService struct {
 	logger *logrus.Logger
-	client *http.Client
+	client http.Client
 }
 
 func NewLoadbalancerService(logger *logrus.Logger) ILoadbalancerService {
@@ -96,6 +96,7 @@ func (lbc *loadbalancerService) ListLoadBalancer(ctx context.Context, authToken,
 		}).WithError(err).Error("failed to create request")
 		return resource.ListLoadBalancerResponse{}, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -143,6 +144,7 @@ func (lbc *loadbalancerService) CreateLoadBalancer(ctx context.Context, authToke
 		}).WithError(err).Error("failed to create request")
 		return resource.CreateLoadBalancerResponse{}, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -193,7 +195,7 @@ func (lbc *loadbalancerService) CreateListener(ctx context.Context, authToken st
 		}).WithError(err).Error("failed to create request")
 		return resource.CreateListenerResponse{}, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -245,7 +247,7 @@ func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string
 		}).WithError(err).Error("failed to create request")
 		return resource.CreatePoolResponse{}, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -302,7 +304,7 @@ func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poo
 		}).WithError(err).Error("failed to create request")
 		return err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -352,6 +354,7 @@ func (lbc *loadbalancerService) ListListener(ctx context.Context, authToken, lis
 		}).WithError(err).Error("failed to create request")
 		return resource.ListListenerResponse{}, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -435,6 +438,7 @@ func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, aut
 		}).WithError(err).Error("failed to create request")
 		return err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -490,6 +494,7 @@ func (lbc *loadbalancerService) CreateHealthTCPMonitor(ctx context.Context, auth
 		}).WithError(err).Error("failed to create request")
 		return err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -565,7 +570,7 @@ func (lbc *loadbalancerService) GetLoadBalancerPools(ctx context.Context, authTo
 		lbc.logger.WithError(err).Error("failed to create request")
 		return resource.GetLoadBalancerPoolsResponse{}, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := lbc.client.Do(r)
@@ -627,7 +632,7 @@ func (lbc *loadbalancerService) DeleteLoadbalancerPools(ctx context.Context, aut
 		lbc.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := lbc.client.Do(r)
@@ -666,7 +671,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Conte
 				}).WithError(err).Error("failed to create request")
 				return err
 			}
-
+			r.Header = make(http.Header)
 			r.Header.Add("X-Auth-Token", authToken)
 
 			resp, err := lbc.client.Do(r)
@@ -695,7 +700,7 @@ func (lbc *loadbalancerService) GetLoadBalancerListeners(ctx context.Context, au
 		lbc.logger.WithError(err).Error("failed to create request")
 		return resource.GetLoadBalancerListenersResponse{}, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := lbc.client.Do(r)
@@ -754,7 +759,7 @@ func (lbc *loadbalancerService) DeleteLoadbalancerListeners(ctx context.Context,
 		lbc.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := lbc.client.Do(r)
@@ -791,7 +796,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.C
 				lbc.logger.WithError(err).Error("failed to create request")
 				return err
 			}
-
+			r.Header = make(http.Header)
 			r.Header.Add("X-Auth-Token", authToken)
 
 			resp, err := lbc.client.Do(r)
@@ -821,7 +826,7 @@ func (lbc *loadbalancerService) DeleteLoadbalancer(ctx context.Context, authToke
 		}).WithError(err).Error("failed to create request")
 		return err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := lbc.client.Do(r)

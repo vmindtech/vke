@@ -36,7 +36,7 @@ type computeService struct {
 	logger          *logrus.Logger
 	identityService IIdentityService
 	repository      repository.IRepository
-	client          *http.Client
+	client          http.Client
 }
 
 func NewComputeService(l *logrus.Logger, i IIdentityService, repository repository.IRepository) IComputeService {
@@ -57,6 +57,7 @@ func (cs *computeService) CreateCompute(ctx context.Context, authToken string, r
 	if err != nil {
 		return resource.CreateComputeResponse{}, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -101,7 +102,7 @@ func (cs *computeService) CreateServerGroup(ctx context.Context, authToken strin
 		cs.logger.WithError(err).Error("failed to create request")
 		return resource.ServerGroupResponse{}, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 	r.Header.Add("x-openstack-nova-api-version", config.GlobalConfig.GetOpenStackApiConfig().NovaMicroVersion)
@@ -137,7 +138,7 @@ func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clus
 		cs.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := cs.client.Do(r)
@@ -164,7 +165,7 @@ func (cs *computeService) DeletePort(ctx context.Context, authToken, portID stri
 		cs.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := cs.client.Do(r)
@@ -190,7 +191,7 @@ func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToke
 		cs.logger.WithError(err).Error("failed to create request")
 		return resource.GetServerGroupMemberListResponse{}, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -243,7 +244,7 @@ func (cs *computeService) DeleteCompute(ctx context.Context, authToken, serverID
 		cs.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -276,7 +277,7 @@ func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, a
 		cs.logger.WithError(err).Error("failed to create request")
 		return 0, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -331,7 +332,7 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 		cs.logger.WithError(err).Error("failed to create request")
 		return []resource.Servers{}, err
 	}
-
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -417,6 +418,7 @@ func (cs *computeService) GetInstancesDetail(ctx context.Context, authToken, id 
 		cs.logger.WithError(err).Error("failed to create request")
 		return resource.OpenstacServersResponse{}, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -475,6 +477,7 @@ func (cs *computeService) GetClusterFlavor(ctx context.Context, authToken string
 			cs.logger.WithError(err).Error("failed to create request")
 			return nil, err
 		}
+		r.Header = make(http.Header)
 		r.Header.Add("X-Auth-Token", authToken)
 		r.Header.Add("Content-Type", "application/json")
 
@@ -520,6 +523,7 @@ func (cs *computeService) GetServerGroup(ctx context.Context, authToken string, 
 		cs.logger.WithError(err).Error("failed to create request")
 		return resource.GetServerGroupResponse{}, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 	r.Header.Add("Content-Type", "application/json")
 
@@ -559,6 +563,7 @@ func (cs *computeService) DeleteServer(ctx context.Context, authToken string, se
 		cs.logger.WithError(err).WithField("serverID", serverID).Error("failed to create server delete request")
 		return err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := cs.client.Do(r)
@@ -595,6 +600,7 @@ func (cs *computeService) GetServerVolumes(ctx context.Context, authToken, serve
 	if err != nil {
 		return nil, err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := cs.client.Do(r)
@@ -630,6 +636,7 @@ func (cs *computeService) DeleteVolume(ctx context.Context, authToken, volumeID 
 	if err != nil {
 		return err
 	}
+	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", authToken)
 
 	resp, err := cs.client.Do(r)
