@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -41,7 +42,7 @@ type ILoadbalancerService interface {
 
 type loadbalancerService struct {
 	logger *logrus.Logger
-	client *http.Client
+	client http.Client
 }
 
 func NewLoadbalancerService(logger *logrus.Logger) ILoadbalancerService {
@@ -52,6 +53,7 @@ func NewLoadbalancerService(logger *logrus.Logger) ILoadbalancerService {
 }
 
 func (lbc *loadbalancerService) GetAmphoraesVrrpIp(authToken, loadBalancerID string) (resource.GetAmphoraesVrrpIpResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/?loadbalancer_id=%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.AmphoraePath, loadBalancerID), nil)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -59,8 +61,9 @@ func (lbc *loadbalancerService) GetAmphoraesVrrpIp(authToken, loadBalancerID str
 		}).WithError(err).Error("failed to create request")
 		return resource.GetAmphoraesVrrpIpResponse{}, err
 	}
-	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("Content-Type", "application/json")
+	r.Header.Add("X-Auth-Token", token)
 	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -89,6 +92,8 @@ func (lbc *loadbalancerService) GetAmphoraesVrrpIp(authToken, loadBalancerID str
 }
 
 func (lbc *loadbalancerService) ListLoadBalancer(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error) {
+	token := strings.Clone(authToken)
+
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.LoadBalancerPath, loadBalancerID), nil)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -96,9 +101,10 @@ func (lbc *loadbalancerService) ListLoadBalancer(ctx context.Context, authToken,
 		}).WithError(err).Error("failed to create request")
 		return resource.ListLoadBalancerResponse{}, err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
-
+	fmt.Println("Raw token", token)
 	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -129,6 +135,7 @@ func (lbc *loadbalancerService) ListLoadBalancer(ctx context.Context, authToken,
 }
 
 func (lbc *loadbalancerService) CreateLoadBalancer(ctx context.Context, authToken string, req request.CreateLoadBalancerRequest) (resource.CreateLoadBalancerResponse, error) {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -143,7 +150,8 @@ func (lbc *loadbalancerService) CreateLoadBalancer(ctx context.Context, authToke
 		}).WithError(err).Error("failed to create request")
 		return resource.CreateLoadBalancerResponse{}, err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := lbc.client.Do(r)
@@ -178,6 +186,7 @@ func (lbc *loadbalancerService) CreateLoadBalancer(ctx context.Context, authToke
 }
 
 func (lbc *loadbalancerService) CreateListener(ctx context.Context, authToken string, req request.CreateListenerRequest) (resource.CreateListenerResponse, error) {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -193,8 +202,8 @@ func (lbc *loadbalancerService) CreateListener(ctx context.Context, authToken st
 		}).WithError(err).Error("failed to create request")
 		return resource.CreateListenerResponse{}, err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := lbc.client.Do(r)
@@ -230,6 +239,7 @@ func (lbc *loadbalancerService) CreateListener(ctx context.Context, authToken st
 }
 
 func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string, req request.CreatePoolRequest) (resource.CreatePoolResponse, error) {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -245,8 +255,8 @@ func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string
 		}).WithError(err).Error("failed to create request")
 		return resource.CreatePoolResponse{}, err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := lbc.client.Do(r)
@@ -287,6 +297,7 @@ func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string
 }
 
 func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poolID string, req request.AddMemberRequest) error {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -302,8 +313,8 @@ func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poo
 		}).WithError(err).Error("failed to create request")
 		return err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := lbc.client.Do(r)
@@ -345,6 +356,7 @@ func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poo
 }
 
 func (lbc *loadbalancerService) ListListener(ctx context.Context, authToken, listenerID string) (resource.ListListenerResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.ListenersPath, listenerID), nil)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -352,7 +364,8 @@ func (lbc *loadbalancerService) ListListener(ctx context.Context, authToken, lis
 		}).WithError(err).Error("failed to create request")
 		return resource.ListListenerResponse{}, err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := lbc.client.Do(r)
@@ -387,6 +400,7 @@ func (lbc *loadbalancerService) ListListener(ctx context.Context, authToken, lis
 }
 
 func (lbc *loadbalancerService) CheckLoadBalancerStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error) {
+	token := strings.Clone(authToken)
 	waitIterator := 0
 	waitSeconds := 1
 	for {
@@ -402,7 +416,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerStatus(ctx context.Context, aut
 			err := fmt.Errorf("failed to create load balancer, provisioning status is not ACTIVE")
 			return resource.ListLoadBalancerResponse{}, err
 		}
-		listLBResp, err := lbc.ListLoadBalancer(ctx, authToken, loadBalancerID)
+		listLBResp, err := lbc.ListLoadBalancer(ctx, token, loadBalancerID)
 		if err != nil {
 			lbc.logger.WithFields(logrus.Fields{
 				"loadBalancerID": loadBalancerID,
@@ -421,6 +435,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerStatus(ctx context.Context, aut
 }
 
 func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorHTTPRequest) error {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -435,7 +450,8 @@ func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, aut
 		}).WithError(err).Error("failed to create request")
 		return err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := lbc.client.Do(r)
@@ -476,6 +492,7 @@ func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, aut
 }
 
 func (lbc *loadbalancerService) CreateHealthTCPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorTCPRequest) error {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -490,7 +507,8 @@ func (lbc *loadbalancerService) CreateHealthTCPMonitor(ctx context.Context, auth
 		}).WithError(err).Error("failed to create request")
 		return err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := lbc.client.Do(r)
@@ -531,6 +549,7 @@ func (lbc *loadbalancerService) CreateHealthTCPMonitor(ctx context.Context, auth
 }
 
 func (lbc *loadbalancerService) CheckLoadBalancerOperationStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error) {
+	token := strings.Clone(authToken)
 	waitIterator := 0
 	waitSeconds := 35
 	for {
@@ -545,7 +564,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerOperationStatus(ctx context.Con
 		} else {
 			return resource.ListLoadBalancerResponse{}, fmt.Errorf("failed to create load balancer, operation status is not ONLINE")
 		}
-		listLBResp, err := lbc.ListLoadBalancer(ctx, authToken, loadBalancerID)
+		listLBResp, err := lbc.ListLoadBalancer(ctx, token, loadBalancerID)
 		if err != nil {
 			lbc.logger.WithFields(logrus.Fields{
 				"loadBalancerID": loadBalancerID,
@@ -560,13 +579,14 @@ func (lbc *loadbalancerService) CheckLoadBalancerOperationStatus(ctx context.Con
 }
 
 func (lbc *loadbalancerService) GetLoadBalancerPools(ctx context.Context, authToken, loadBalancerID string) (resource.GetLoadBalancerPoolsResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.LoadBalancerPath, loadBalancerID), nil)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to create request")
 		return resource.GetLoadBalancerPoolsResponse{}, err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := lbc.client.Do(r)
 	if err != nil {
@@ -622,13 +642,14 @@ func (lbc *loadbalancerService) GetLoadBalancerPools(ctx context.Context, authTo
 }
 
 func (lbc *loadbalancerService) DeleteLoadbalancerPools(ctx context.Context, authToken, poolID string) error {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.ListenerPoolPath, poolID), nil)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := lbc.client.Do(r)
 	if err != nil {
@@ -648,6 +669,7 @@ func (lbc *loadbalancerService) DeleteLoadbalancerPools(ctx context.Context, aut
 }
 
 func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Context, authToken, poolID string) error {
+	token := strings.Clone(authToken)
 	waitIterator := 0
 	waitSeconds := 10
 	for {
@@ -666,8 +688,8 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Conte
 				}).WithError(err).Error("failed to create request")
 				return err
 			}
-
-			r.Header.Add("X-Auth-Token", authToken)
+			r.Header = make(http.Header)
+			r.Header.Add("X-Auth-Token", token)
 
 			resp, err := lbc.client.Do(r)
 			if err != nil {
@@ -690,13 +712,14 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingPools(ctx context.Conte
 
 }
 func (lbc *loadbalancerService) GetLoadBalancerListeners(ctx context.Context, authToken, loadBalancerID string) (resource.GetLoadBalancerListenersResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.LoadBalancerPath, loadBalancerID), nil)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to create request")
 		return resource.GetLoadBalancerListenersResponse{}, err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := lbc.client.Do(r)
 	if err != nil {
@@ -749,13 +772,14 @@ func (lbc *loadbalancerService) GetLoadBalancerListeners(ctx context.Context, au
 }
 
 func (lbc *loadbalancerService) DeleteLoadbalancerListeners(ctx context.Context, authToken, listenerID string) error {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.ListenersPath, listenerID), nil)
 	if err != nil {
 		lbc.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := lbc.client.Do(r)
 	if err != nil {
@@ -775,6 +799,7 @@ func (lbc *loadbalancerService) DeleteLoadbalancerListeners(ctx context.Context,
 }
 
 func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.Context, authToken, listenerID string) error {
+	token := strings.Clone(authToken)
 	waitIterator := 0
 	waitSeconds := 10
 	for {
@@ -791,8 +816,8 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.C
 				lbc.logger.WithError(err).Error("failed to create request")
 				return err
 			}
-
-			r.Header.Add("X-Auth-Token", authToken)
+			r.Header = make(http.Header)
+			r.Header.Add("X-Auth-Token", token)
 
 			resp, err := lbc.client.Do(r)
 			if err != nil {
@@ -814,6 +839,7 @@ func (lbc *loadbalancerService) CheckLoadBalancerDeletingListeners(ctx context.C
 }
 
 func (lbc *loadbalancerService) DeleteLoadbalancer(ctx context.Context, authToken, loadBalancerID string) error {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.LoadBalancerPath, loadBalancerID), nil)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
@@ -821,8 +847,8 @@ func (lbc *loadbalancerService) DeleteLoadbalancer(ctx context.Context, authToke
 		}).WithError(err).Error("failed to create request")
 		return err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 
 	resp, err := lbc.client.Do(r)
 	if err != nil {

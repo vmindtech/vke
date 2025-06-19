@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/config"
@@ -45,12 +46,14 @@ func NewNetworkService(logger *logrus.Logger) INetworkService {
 }
 
 func (ns *networkService) ListSubnetByName(ctx context.Context, subnetName, authToken string) (resource.ListSubnetByNameResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s?name=%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SubnetsPath, subnetName), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.ListSubnetByNameResponse{}, err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -81,12 +84,14 @@ func (ns *networkService) ListSubnetByName(ctx context.Context, subnetName, auth
 }
 
 func (ns *networkService) GetNetworkID(ctx context.Context, authToken, subnetID string) (resource.GetNetworkIdResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SubnetsPath, subnetID), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.GetNetworkIdResponse{}, err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -117,6 +122,7 @@ func (ns *networkService) GetNetworkID(ctx context.Context, authToken, subnetID 
 }
 
 func (ns *networkService) CreateSecurityGroup(ctx context.Context, authToken string, req request.CreateSecurityGroupRequest) (resource.CreateSecurityGroupResponse, error) {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to marshal request")
@@ -127,7 +133,8 @@ func (ns *networkService) CreateSecurityGroup(ctx context.Context, authToken str
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.CreateSecurityGroupResponse{}, err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -158,6 +165,7 @@ func (ns *networkService) CreateSecurityGroup(ctx context.Context, authToken str
 }
 
 func (ns *networkService) CreateNetworkPort(ctx context.Context, authToken string, req request.CreateNetworkPortRequest) (resource.CreateNetworkPortResponse, error) {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to marshal request")
@@ -168,7 +176,8 @@ func (ns *networkService) CreateNetworkPort(ctx context.Context, authToken strin
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.CreateNetworkPortResponse{}, err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -199,6 +208,7 @@ func (ns *networkService) CreateNetworkPort(ctx context.Context, authToken strin
 }
 
 func (ns *networkService) CreateSecurityGroupRuleForIP(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForIpRequest) error {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to marshal request")
@@ -209,7 +219,8 @@ func (ns *networkService) CreateSecurityGroupRuleForIP(ctx context.Context, auth
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -236,6 +247,7 @@ func (ns *networkService) CreateSecurityGroupRuleForIP(ctx context.Context, auth
 }
 
 func (ns *networkService) CreateSecurityGroupRuleForSG(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForSgRequest) error {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to marshal request")
@@ -246,7 +258,8 @@ func (ns *networkService) CreateSecurityGroupRuleForSG(ctx context.Context, auth
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -273,6 +286,7 @@ func (ns *networkService) CreateSecurityGroupRuleForSG(ctx context.Context, auth
 }
 
 func (ns *networkService) CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error) {
+	token := strings.Clone(authToken)
 	data, err := json.Marshal(req)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to marshal request")
@@ -283,8 +297,8 @@ func (ns *networkService) CreateFloatingIP(ctx context.Context, authToken string
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.CreateFloatingIPResponse{}, err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -318,13 +332,14 @@ func (ns *networkService) CreateFloatingIP(ctx context.Context, authToken string
 }
 
 func (ns *networkService) DeleteSecurityGroup(ctx context.Context, authToken, clusterSecurityGroupId string) error {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SecurityGroupPath, clusterSecurityGroupId), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 
 	client := &http.Client{}
 	resp, err := client.Do(r)
@@ -343,13 +358,14 @@ func (ns *networkService) DeleteSecurityGroup(ctx context.Context, authToken, cl
 }
 
 func (ns *networkService) DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.FloatingIPPath, floatingIPID), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 
 	client := &http.Client{}
 	resp, err := client.Do(r)
@@ -367,13 +383,14 @@ func (ns *networkService) DeleteFloatingIP(ctx context.Context, authToken, float
 }
 
 func (ns *networkService) GetSecurityGroupByID(ctx context.Context, authToken, securityGroupID string) (resource.GetSecurityGroupResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SecurityGroupPath, securityGroupID), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.GetSecurityGroupResponse{}, err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 
 	client := &http.Client{}
 	resp, err := client.Do(r)
@@ -408,13 +425,14 @@ func (ns *networkService) GetSecurityGroupByID(ctx context.Context, authToken, s
 }
 
 func (ns *networkService) GetSubnetByID(ctx context.Context, authToken, subnetID string) (resource.SubnetResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SubnetsPath, subnetID), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.SubnetResponse{}, err
 	}
-
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 
 	client := &http.Client{}
 	resp, err := client.Do(r)
@@ -449,12 +467,13 @@ func (ns *networkService) GetSubnetByID(ctx context.Context, authToken, subnetID
 }
 
 func (ns *networkService) GetComputeNetworkPorts(ctx context.Context, authToken, instanceID string) (resource.NetworkPortsResponse, error) {
+	token := strings.Clone(authToken)
 	getNetworkDetail, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().ComputeEndpoint, constants.ComputePath, instanceID, constants.OSInterfacePath), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.NetworkPortsResponse{}, err
 	}
-	getNetworkDetail.Header.Add("X-Auth-Token", authToken)
+	getNetworkDetail.Header.Add("X-Auth-Token", token)
 
 	client := &http.Client{}
 	resp, err := client.Do(getNetworkDetail)
@@ -491,12 +510,14 @@ func (ns *networkService) GetComputeNetworkPorts(ctx context.Context, authToken,
 }
 
 func (ns *networkService) DeleteNetworkPort(ctx context.Context, authToken string, portID string) error {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("DELETE", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.NetworkPort, portID), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 
 	client := &http.Client{}
 	resp, err := client.Do(r)
@@ -519,12 +540,14 @@ func (ns *networkService) DeleteNetworkPort(ctx context.Context, authToken strin
 }
 
 func (ns *networkService) GetSecurityGroupPorts(ctx context.Context, authToken, securityGroupID string) (resource.NetworkPortsResponse, error) {
+	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.NetworkPort), nil)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to create request")
 		return resource.NetworkPortsResponse{}, err
 	}
-	r.Header.Add("X-Auth-Token", authToken)
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
 
 	client := &http.Client{}
 	resp, err := client.Do(r)

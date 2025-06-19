@@ -30,8 +30,7 @@ type OpenstackServer struct {
 
 type Servers struct {
 	ClusterUUID   string `json:"cluster_uuid"`
-	InstanceName  string `json:"instance_name"`
-	InstanceUUID  string `json:"instance_uuid"`
+	Id            string `json:"id"`
 	NodeGroupUUID string `json:"node_group_uuid"`
 	MinSize       int    `json:"node_group_min_size"`
 	MaxSize       int    `json:"node_group_max_size"`
@@ -67,4 +66,3 @@ type GetServerGroupResponse struct {
 		Members []string `json:"members"`
 	} `json:"server_group"`
 }
-

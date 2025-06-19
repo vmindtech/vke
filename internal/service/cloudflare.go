@@ -21,7 +21,7 @@ type ICloudflareService interface {
 
 type cloudflareService struct {
 	logger *logrus.Logger
-	client *http.Client
+	client http.Client
 }
 
 func NewCloudflareService(logger *logrus.Logger) ICloudflareService {
@@ -58,8 +58,8 @@ func (cf *cloudflareService) AddDNSRecordToCloudflare(ctx context.Context, loadB
 		}).Error("failed to create request")
 		return resource.AddDNSRecordResponse{}, err
 	}
-
-	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
+	r.Header = make(http.Header)
+	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().CfToken))
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cf.client.Do(r)
@@ -101,8 +101,8 @@ func (cf *cloudflareService) DeleteDNSRecordFromCloudflare(ctx context.Context, 
 		cf.logger.WithError(err).WithField("dnsRecordID", dnsRecordID).Error("failed to create request")
 		return err
 	}
-
-	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
+	r.Header = make(http.Header)
+	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().CfToken))
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cf.client.Do(r)
@@ -126,8 +126,8 @@ func (cf *cloudflareService) DeleteDNSRecord(ctx context.Context, recordID strin
 		cf.logger.WithError(err).WithField("recordID", recordID).Error("failed to create request")
 		return err
 	}
-
-	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().AuthToken))
+	r.Header = make(http.Header)
+	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().CfToken))
 	r.Header.Add("Content-Type", "application/json")
 
 	resp, err := cf.client.Do(r)

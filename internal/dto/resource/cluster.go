@@ -29,13 +29,14 @@ type GetClusterDetailsResponse struct {
 }
 
 type GetClusterResponse struct {
-	ClusterName                string `json:"clusterName"`
-	ClusterID                  string `json:"clusterId"`
-	ProjectID                  string `json:"projectId"`
-	KubernetesVersion          string `json:"kubernetesVersion"`
-	ClusterAPIAccess           string `json:"clusterApiAccess"`
-	ClusterStatus              string `json:"clusterStatus"`
-	ClusterSharedSecurityGroup string `json:"clusterSharedSecurityGroup"`
+	ClusterName                  string    `json:"clusterName"`
+	ClusterID                    string    `json:"clusterId"`
+	ProjectID                    string    `json:"projectId"`
+	KubernetesVersion            string    `json:"kubernetesVersion"`
+	ClusterAPIAccess             string    `json:"clusterApiAccess"`
+	ClusterStatus                string    `json:"clusterStatus"`
+	ClusterSharedSecurityGroup   string    `json:"clusterSharedSecurityGroup"`
+	ClusterCertificateExpireDate time.Time `json:"cluster_certificate_expire_date"`
 }
 
 type DestroyCluster struct {

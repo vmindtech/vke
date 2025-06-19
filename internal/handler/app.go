@@ -87,9 +87,13 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, "", "", req.ProjectID))
 	}
 
-	clusterUUID := make(chan string)
+	ctx = context.WithValue(ctx, "auth-token", authToken)
 
-	go a.appService.Cluster().CreateCluster(ctx, authToken, req, clusterUUID)
+	clusterUUID := make(chan string)
+	go func(ctx context.Context) {
+		token := ctx.Value("auth-token").(string)
+		a.appService.Cluster().CreateCluster(ctx, token, req, clusterUUID)
+	}(ctx)
 
 	resp := &resource.CreateClusterResponse{
 		ClusterUUID:   <-clusterUUID,
@@ -128,7 +132,6 @@ func (a *appHandler) GetCluster(c *fiber.Ctx) error {
 			response.NewErrorResponseWithDetails(err, utils.FailedToGetClusterMsg, clusterID, "", ""))
 	}
 
-	// Map response to model
 	clusterModel := &model.Cluster{
 		ClusterUUID:                resp.ClusterID,
 		ClusterName:                resp.ClusterName,
@@ -328,14 +331,14 @@ func (a *appHandler) UpdateNodeGroups(c *fiber.Ctx) error {
 func (a *appHandler) DeleteNode(c *fiber.Ctx) error {
 	nodeGroupID := c.Params("nodegroup_id")
 	clusterID := c.Params("cluster_id")
-	instanceName := c.Params("instance_name")
+	id := c.Params("id")
 	ctx := context.Background()
 	authToken := c.Get("X-Auth-Token")
 	if authToken == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(
-			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, nodeGroupID, instanceName))
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, nodeGroupID, id))
 	}
-	resp, _ := a.appService.NodeGroups().DeleteNode(ctx, authToken, clusterID, nodeGroupID, instanceName)
+	resp, _ := a.appService.NodeGroups().DeleteNode(ctx, authToken, clusterID, nodeGroupID, id)
 	return c.JSON(resp)
 }
 func (a *appHandler) CreateNodeGroup(c *fiber.Ctx) error {
