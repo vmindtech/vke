@@ -20,11 +20,9 @@ func main() {
 			Env:     configureManager.GetWebConfig().Env,
 			AppName: configureManager.GetWebConfig().AppName,
 		},
-		OpenSearch: &logging.OpenSearchConfig{
-			Addresses: configureManager.GetOpenSearchConfig().Addresses,
-			Username:  configureManager.GetOpenSearchConfig().Username,
-			Password:  configureManager.GetOpenSearchConfig().Password,
-			Index:     configureManager.GetOpenSearchConfig().Index,
+		Logstash: &logging.LogstashConfig{
+			Host: configureManager.GetLogstashConfig().Host,
+			Port: configureManager.GetLogstashConfig().Port,
 		},
 	})
 

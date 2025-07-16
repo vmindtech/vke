@@ -29,6 +29,7 @@ To run the application, follow these steps:
 - Go 1.21+ installed on your system.
 - An active OpenStack account with valid credentials.
 - MySQL 8.0.36+ installed on your system and accessible.
+- Logstash 8.x+ for log aggregation (optional but recommended for production).
 
 ### Installation
 
@@ -37,6 +38,26 @@ To run the application, follow these steps:
     ```
     mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/vke.sql 
     ```
+
+#### Logstash Setup (Recommended for Production)
+
+For production environments, we recommend using Logstash for log aggregation. The application sends logs via UDP to Logstash, which then forwards them to OpenSearch/Elasticsearch.
+
+1. Install Logstash OpenSearch output plugin:
+   ```sh
+   /usr/share/logstash/bin/logstash-plugin install logstash-output-opensearch
+   ```
+
+2. Use the provided Logstash configuration:
+   ```sh
+   cp logstash.conf /etc/logstash/conf.d/vke-api.conf
+   ```
+
+3. Start Logstash:
+   ```sh
+   sudo systemctl start logstash
+   sudo systemctl enable logstash
+   ```
 
 #### Configuring and Running the Application Locally
 1. Clone the repo
@@ -70,9 +91,18 @@ To run the application, follow these steps:
           "CLUSTER_AUTOSCALER_VERSION": "0.73",
           "CLOUD_PROVIDER_VKE_VERSION": "2.29.2",
           "OPENSTACK_LOADBALANCER_ADMIN_ROLE": "load-balancer_admin",
-          "OPENSTACK_USER_OR_MEMBER_ROLE": "member"
+          "OPENSTACK_USER_OR_MEMBER_ROLE": "member",
+          "LOGSTASH_HOST": "localhost",
+          "LOGSTASH_PORT": 2053
         }
    ```
+
+   **Logging Configuration:**
+   - `LOGSTASH_HOST`: Logstash server hostname (default: localhost)
+   - `LOGSTASH_PORT`: Logstash UDP port (default: 2053)
+   
+   If Logstash is not configured, logs will be written to stdout.
+
     Set the environment variable for your application's environment using the following commands in the terminal:
 
     ```sh
@@ -133,6 +163,34 @@ To run the application with Docker, follow these steps:
     Use the above commands to stop and remove the container when you're done.
 
 Once you've successfully run the application with Docker, you can access it at `http://localhost:8080`.
+
+## Logging System
+
+The application uses a robust logging system with the following features:
+
+### Logstash Integration
+- **UDP Transport**: Logs are sent via UDP to prevent application crashes when OpenSearch is unavailable
+- **Fault Tolerance**: Application continues running even if Logstash/OpenSearch is down
+- **Structured Logging**: JSON format with timestamps, log levels, and structured fields
+- **Error Handling**: Detailed error information with stack traces
+
+### Log Levels
+- `INFO`: General application information
+- `ERROR`: Error conditions that don't stop the application
+- `FATAL`: Critical errors that cause application shutdown
+
+### Log Fields
+- `@timestamp`: ISO8601 formatted timestamp
+- `level`: Log level (info, error, fatal)
+- `message`: Log message
+- `fields`: Additional structured data
+- `environment`: Application environment
+- `service`: Service name
+- `error_message`: Error details (when applicable)
+- `error_type`: Error type information
+
+### Monitoring
+Logs are automatically indexed in OpenSearch with the pattern `vke.prod-YYYY.MM.dd` for easy querying and monitoring.
 
 <!-- LICENSE -->
 ## License

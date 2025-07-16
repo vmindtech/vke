@@ -1,7 +1,9 @@
 package logging
 
 import (
+	"fmt"
 	"io"
+	"net"
 	"os"
 
 	"github.com/sirupsen/logrus"
@@ -14,14 +16,14 @@ const (
 )
 
 type Config struct {
-	Service    ServiceConfig
-	OpenSearch *OpenSearchConfig
+	Service  ServiceConfig
+	Logstash *LogstashConfig
 }
 
 func NewLogger(config Config) *logrus.Logger {
 	logger := logrus.New()
 
-	if config.OpenSearch == nil || len(config.OpenSearch.Addresses) == 0 {
+	if config.Logstash == nil || config.Logstash.Host == "" {
 		logger.SetOutput(os.Stdout)
 	} else {
 		logger.SetOutput(io.Discard)
@@ -32,12 +34,18 @@ func NewLogger(config Config) *logrus.Logger {
 
 	logger.AddHook(NewServiceHook(config.Service))
 
-	if config.OpenSearch != nil && len(config.OpenSearch.Addresses) > 0 {
-		client, err := NewOpenSearchClient(*config.OpenSearch)
+	if config.Logstash != nil && config.Logstash.Host != "" {
+		conn, err := NewLogstashClient(*config.Logstash)
 		if err != nil {
 			return logger
 		}
-		logger.AddHook(NewOpenSearchHook(client, config.OpenSearch.Index))
+
+		addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", config.Logstash.Host, config.Logstash.Port))
+		if err != nil {
+			return logger
+		}
+
+		logger.AddHook(NewLogstashHook(conn, addr))
 	}
 
 	return logger
