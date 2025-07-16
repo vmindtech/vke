@@ -49,7 +49,9 @@ func NewConfigureManager() IConfigureManager {
 		configPath = os.Getenv("GO_VAULT_PATH")
 	}
 
-	viper.SetConfigFile(fmt.Sprintf("%sconfig-%s.json", configPath, os.Getenv("golang_env")))
+	configFile := fmt.Sprintf("%sconfig-%s.json", configPath, os.Getenv("golang_env"))
+	fmt.Println("configFile", configFile)
+	viper.SetConfigFile(configFile)
 	viper.SetConfigType("json")
 
 	_ = viper.ReadInConfig()
