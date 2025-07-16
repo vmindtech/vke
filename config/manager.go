@@ -50,7 +50,6 @@ func NewConfigureManager() IConfigureManager {
 	}
 
 	configFile := fmt.Sprintf("%sconfig-%s.json", configPath, os.Getenv("golang_env"))
-	fmt.Println("configFile", configFile)
 	viper.SetConfigFile(configFile)
 	viper.SetConfigType("json")
 
