@@ -23,30 +23,30 @@ type Config struct {
 func NewLogger(config Config) *logrus.Logger {
 	logger := logrus.New()
 
-	if config.Logstash == nil || config.Logstash.Host == "" {
-		logger.SetOutput(os.Stdout)
-	} else {
+	if config.Logstash != nil && config.Logstash.Host != "" && config.Logstash.Port > 0 {
 		logger.SetOutput(io.Discard)
+
+		conn, err := NewLogstashClient(*config.Logstash)
+		if err != nil {
+			logger.SetOutput(os.Stdout)
+			fmt.Printf("Failed to connect to Logstash: %v, falling back to console output\n", err)
+		} else {
+			addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", config.Logstash.Host, config.Logstash.Port))
+			if err != nil {
+				logger.SetOutput(os.Stdout)
+				fmt.Printf("Failed to resolve Logstash address: %v, falling back to console output\n", err)
+			} else {
+				logger.AddHook(NewLogstashHook(conn, addr))
+			}
+		}
+	} else {
+		logger.SetOutput(os.Stdout)
 	}
 
 	logger.SetReportCaller(true)
 	logger.SetFormatter(jsonFormatter())
 
 	logger.AddHook(NewServiceHook(config.Service))
-
-	if config.Logstash != nil && config.Logstash.Host != "" {
-		conn, err := NewLogstashClient(*config.Logstash)
-		if err != nil {
-			return logger
-		}
-
-		addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", config.Logstash.Host, config.Logstash.Port))
-		if err != nil {
-			return logger
-		}
-
-		logger.AddHook(NewLogstashHook(conn, addr))
-	}
 
 	return logger
 }
