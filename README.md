@@ -29,6 +29,7 @@ To run the application, follow these steps:
 - Go 1.21+ installed on your system.
 - An active OpenStack account with valid credentials.
 - MySQL 8.0.36+ installed on your system and accessible.
+- Logstash 8.x+ for log aggregation (optional - application works without it).
 
 ### Installation
 
@@ -37,6 +38,26 @@ To run the application, follow these steps:
     ```
     mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/vke.sql 
     ```
+
+#### Logstash Setup (Optional - Recommended for Production)
+
+For production environments, we recommend using Logstash for log aggregation. The application sends logs via UDP to Logstash, which then forwards them to OpenSearch/Elasticsearch. **The application works perfectly without Logstash - it will fall back to console output.**
+
+1. Install Logstash OpenSearch output plugin:
+   ```sh
+   /usr/share/logstash/bin/logstash-plugin install logstash-output-opensearch
+   ```
+
+2. Use the provided Logstash configuration:
+   ```sh
+   cp logstash.conf /etc/logstash/conf.d/vke-api.conf
+   ```
+
+3. Start Logstash:
+   ```sh
+   sudo systemctl start logstash
+   sudo systemctl enable logstash
+   ```
 
 #### Configuring and Running the Application Locally
 1. Clone the repo
@@ -48,31 +69,68 @@ To run the application, follow these steps:
 2. Environment Configuration
     Create a configuration file (e.g., config-development.json or config-production.json) with the following structure:
 
-   ```sh
-        {
-          "APP_NAME" : "vke",
-          "PORT" : "80",
-          "ENV" : "development",
-          "VERSION" : "1.0.0",
-          "MYSQL_URL": "USER:PASS@tcp(MYSQL_ADDRESS:3306)/DATABASE?charset=utf8&parseTime=true&loc=Europe%2FIstanbul",
-          "COMPUTE_ENDPOINT": "https://OPENSTACK_DOMAIN:8774",
-          "NETWORK_ENDPOINT": "https://OPENSTACK_DOMAIN:9696",
-          "LOAD_BALANCER_ENDPOINT": "https://OPENSTACK_DOMAIN:9876",
-          "IDENTITY_ENDPOINT": "https://OPENSTACK_DOMAIN:5000",
-          "CLOUDFLARE_AUTH_TOKEN": "YOUR_CLOUDFLARE_TOKEN",
-          "CLOUDFLARE_ZONE_ID": "YOUR_CLOUDFLARE_ZONE_ID",
-          "CLOUDFLARE_DOMAIN": "YOUR_DOMAIN_FOR_DNS_RECORD",
-          "PUBLIC_NETWORK_ID": "PUCLIC_NETWORK_UUID",
-          "IMAGE_REF": "UBUNTU20.04-IMAGE-UUID",
-          "NOVA_MICRO_VERSION": "2.88",
-          "ENDPOINT":  "YOUR_VKE_API_PUBLIC_ADDRESS exp: http://vmind.com.tr/api/v1",
-          "VKE_AGENT_VERSION": "1.0.0",
-          "CLUSTER_AUTOSCALER_VERSION": "0.73",
-          "CLOUD_PROVIDER_VKE_VERSION": "2.29.2",
-          "OPENSTACK_LOADBALANCER_ADMIN_ROLE": "load-balancer_admin",
-          "OPENSTACK_USER_OR_MEMBER_ROLE": "member"
-        }
+   **Basic Configuration (Console Logging):**
+   ```json
+   {
+     "APP_NAME" : "vke",
+     "PORT" : "80",
+     "ENV" : "development",
+     "VERSION" : "1.0.0",
+     "MYSQL_URL": "USER:PASS@tcp(MYSQL_ADDRESS:3306)/DATABASE?charset=utf8&parseTime=true&loc=Europe%2FIstanbul",
+     "COMPUTE_ENDPOINT": "https://OPENSTACK_DOMAIN:8774",
+     "NETWORK_ENDPOINT": "https://OPENSTACK_DOMAIN:9696",
+     "LOAD_BALANCER_ENDPOINT": "https://OPENSTACK_DOMAIN:9876",
+     "IDENTITY_ENDPOINT": "https://OPENSTACK_DOMAIN:5000",
+     "CLOUDFLARE_AUTH_TOKEN": "YOUR_CLOUDFLARE_TOKEN",
+     "CLOUDFLARE_ZONE_ID": "YOUR_CLOUDFLARE_ZONE_ID",
+     "CLOUDFLARE_DOMAIN": "YOUR_DOMAIN_FOR_DNS_RECORD",
+     "PUBLIC_NETWORK_ID": "PUCLIC_NETWORK_UUID",
+     "IMAGE_REF": "UBUNTU20.04-IMAGE-UUID",
+     "NOVA_MICRO_VERSION": "2.88",
+     "ENDPOINT":  "YOUR_VKE_API_PUBLIC_ADDRESS exp: http://vmind.com.tr/api/v1",
+     "VKE_AGENT_VERSION": "1.0.0",
+     "CLUSTER_AUTOSCALER_VERSION": "0.73",
+     "CLOUD_PROVIDER_VKE_VERSION": "2.29.2",
+     "OPENSTACK_LOADBALANCER_ADMIN_ROLE": "load-balancer_admin",
+     "OPENSTACK_USER_OR_MEMBER_ROLE": "member"
+   }
    ```
+
+   **Advanced Configuration (with Logstash):**
+   ```json
+   {
+     "APP_NAME" : "vke",
+     "PORT" : "80",
+     "ENV" : "production",
+     "VERSION" : "1.0.0",
+     "MYSQL_URL": "USER:PASS@tcp(MYSQL_ADDRESS:3306)/DATABASE?charset=utf8&parseTime=true&loc=Europe%2FIstanbul",
+     "COMPUTE_ENDPOINT": "https://OPENSTACK_DOMAIN:8774",
+     "NETWORK_ENDPOINT": "https://OPENSTACK_DOMAIN:9696",
+     "LOAD_BALANCER_ENDPOINT": "https://OPENSTACK_DOMAIN:9876",
+     "IDENTITY_ENDPOINT": "https://OPENSTACK_DOMAIN:5000",
+     "CLOUDFLARE_AUTH_TOKEN": "YOUR_CLOUDFLARE_TOKEN",
+     "CLOUDFLARE_ZONE_ID": "YOUR_CLOUDFLARE_ZONE_ID",
+     "CLOUDFLARE_DOMAIN": "YOUR_DOMAIN_FOR_DNS_RECORD",
+     "PUBLIC_NETWORK_ID": "PUCLIC_NETWORK_UUID",
+     "IMAGE_REF": "UBUNTU20.04-IMAGE-UUID",
+     "NOVA_MICRO_VERSION": "2.88",
+     "ENDPOINT":  "YOUR_VKE_API_PUBLIC_ADDRESS exp: http://vmind.com.tr/api/v1",
+     "VKE_AGENT_VERSION": "1.0.0",
+     "CLUSTER_AUTOSCALER_VERSION": "0.73",
+     "CLOUD_PROVIDER_VKE_VERSION": "2.29.2",
+     "OPENSTACK_LOADBALANCER_ADMIN_ROLE": "load-balancer_admin",
+     "OPENSTACK_USER_OR_MEMBER_ROLE": "member",
+     "LOGSTASH_HOST": "localhost",
+     "LOGSTASH_PORT": 2053
+   }
+   ```
+
+   **Logging Configuration (Optional):**
+   - `LOGSTASH_HOST`: Logstash server hostname (optional - defaults to console output)
+   - `LOGSTASH_PORT`: Logstash UDP port (optional - defaults to console output)
+   
+   **Note:** If `LOGSTASH_HOST` is empty or `LOGSTASH_PORT` is 0, the application will automatically use console output. The application is designed to work seamlessly with or without Logstash.
+
     Set the environment variable for your application's environment using the following commands in the terminal:
 
     ```sh
@@ -133,6 +191,73 @@ To run the application with Docker, follow these steps:
     Use the above commands to stop and remove the container when you're done.
 
 Once you've successfully run the application with Docker, you can access it at `http://localhost:8080`.
+
+## Logging System
+
+The application uses a robust logging system with the following features:
+
+### Logstash Integration (Optional)
+- **UDP Transport**: Logs are sent via UDP to prevent application crashes when OpenSearch is unavailable
+- **Fault Tolerance**: Application continues running even if Logstash/OpenSearch is down
+- **Automatic Fallback**: If Logstash is unavailable, logs automatically fall back to console output
+- **Structured Logging**: JSON format with timestamps, log levels, and structured fields
+- **Error Handling**: Detailed error information with stack traces
+
+### Console Logging (Default)
+- **Development Friendly**: Perfect for development and testing
+- **No Dependencies**: Works without any external logging infrastructure
+- **JSON Format**: Structured logs in JSON format for easy parsing
+- **Service Information**: Includes environment and service name in all logs
+
+### Log Levels
+- `INFO`: General application information
+- `ERROR`: Error conditions that don't stop the application
+- `FATAL`: Critical errors that cause application shutdown
+
+### Log Fields
+- `@timestamp`: ISO8601 formatted timestamp
+- `level`: Log level (info, error, fatal)
+- `message`: Log message
+- `fields`: Additional structured data
+- `environment`: Application environment
+- `service`: Service name
+- `error_message`: Error details (when applicable)
+- `error_type`: Error type information
+
+### Monitoring
+When using Logstash, logs are automatically indexed in OpenSearch with the pattern `vke.prod-YYYY.MM.dd` for easy querying and monitoring.
+
+### Configuration Examples
+
+**Development (Console Only):**
+```json
+{
+  "APP_NAME": "vke",
+  "ENV": "development"
+  // No LOGSTASH_HOST/LOGSTASH_PORT = console output
+}
+```
+
+**Production (with Logstash):**
+```json
+{
+  "APP_NAME": "vke",
+  "ENV": "production",
+  "LOGSTASH_HOST": "localhost",
+  "LOGSTASH_PORT": 2053
+}
+```
+
+**Production (with Fallback):**
+```json
+{
+  "APP_NAME": "vke",
+  "ENV": "production",
+  "LOGSTASH_HOST": "localhost",
+  "LOGSTASH_PORT": 2053
+}
+// If Logstash is down, automatically falls back to console
+```
 
 <!-- LICENSE -->
 ## License

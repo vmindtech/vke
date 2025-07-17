@@ -25,7 +25,7 @@ type IConfigureManager interface {
 	GetOpenStackApiConfig() OpenStackApiConfig
 	GetVkeAgentConfig() VkeAgentConfig
 	GetOpenstackRolesConfig() OpenStackRolesConfig
-	GetOpenSearchConfig() OpenSearchConfig
+	GetLogstashConfig() LogstashConfig
 }
 
 type configureManager struct {
@@ -39,7 +39,7 @@ type configureManager struct {
 	OpenStackApiConfig   OpenStackApiConfig
 	VkeAgentConfig       VkeAgentConfig
 	OpenStackRolesConfig OpenStackRolesConfig
-	OpenSearchConfig     OpenSearchConfig
+	LogstashConfig       LogstashConfig
 }
 
 func NewConfigureManager() IConfigureManager {
@@ -62,7 +62,7 @@ func NewConfigureManager() IConfigureManager {
 		Cloudflare:           loadCloudflareConfig(),
 		ImageRef:             loadImageRefConfig(),
 		PublicNetworkID:      loadPublicNetworkIDConfig(),
-		OpenSearchConfig:     loadOpenSearchConfig(),
+		LogstashConfig:       loadLogstashConfig(),
 		APIEndpoints:         loadAPIEndpointsConfig(),
 		OpenStackApiConfig:   loadOpenStackApiConfig(),
 		VkeAgentConfig:       loadVkeAgentConfig(),
@@ -96,15 +96,6 @@ func loadCloudflareConfig() CloudflareConfig {
 		CfToken: viper.GetString("CLOUDFLARE_AUTH_TOKEN"),
 		ZoneID:  viper.GetString("CLOUDFLARE_ZONE_ID"),
 		Domain:  viper.GetString("CLOUDFLARE_DOMAIN"),
-	}
-}
-
-func loadOpenSearchConfig() OpenSearchConfig {
-	return OpenSearchConfig{
-		Addresses: viper.GetStringSlice("OPENSEARCH_ADDRESSES"),
-		Username:  viper.GetString("OPENSEARCH_USERNAME"),
-		Password:  viper.GetString("OPENSEARCH_PASSWORD"),
-		Index:     viper.GetString("OPENSEARCH_INDEX"),
 	}
 }
 
@@ -158,6 +149,13 @@ func loadOpenstackRolesConfig() OpenStackRolesConfig {
 	}
 }
 
+func loadLogstashConfig() LogstashConfig {
+	return LogstashConfig{
+		Host: viper.GetString("LOGSTASH_HOST"),
+		Port: viper.GetInt("LOGSTASH_PORT"),
+	}
+}
+
 func (c *configureManager) GetWebConfig() WebConfig {
 	return c.Web
 }
@@ -180,10 +178,6 @@ func (c *configureManager) GetImageRefConfig() ImageRef {
 
 func (c *configureManager) GetPublicNetworkIDConfig() PublicNetworkID {
 	return c.PublicNetworkID
-}
-
-func (c *configureManager) GetOpenSearchConfig() OpenSearchConfig {
-	return c.OpenSearchConfig
 }
 
 func (c *configureManager) GetEndpointsConfig() APIEndpointsConfig {
@@ -218,4 +212,8 @@ func (c *configureManager) GetOpenstackRolesConfig() OpenStackRolesConfig {
 		OpenstackLoadbalancerRole: viper.GetString("OPENSTACK_LOADBALANCER_ADMIN_ROLE"),
 		OpenstackMemberOrUserRole: viper.GetString("OPENSTACK_USER_OR_MEMBER_ROLE"),
 	}
+}
+
+func (c *configureManager) GetLogstashConfig() LogstashConfig {
+	return c.LogstashConfig
 }

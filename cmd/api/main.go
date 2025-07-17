@@ -15,17 +15,21 @@ import (
 
 func main() {
 	configureManager := config.NewConfigureManager()
+
+	var logstashConfig *logging.LogstashConfig
+	if configureManager.GetLogstashConfig().Host != "" && configureManager.GetLogstashConfig().Port > 0 {
+		logstashConfig = &logging.LogstashConfig{
+			Host: configureManager.GetLogstashConfig().Host,
+			Port: configureManager.GetLogstashConfig().Port,
+		}
+	}
+
 	logger := logging.NewLogger(logging.Config{
 		Service: logging.ServiceConfig{
 			Env:     configureManager.GetWebConfig().Env,
 			AppName: configureManager.GetWebConfig().AppName,
 		},
-		OpenSearch: &logging.OpenSearchConfig{
-			Addresses: configureManager.GetOpenSearchConfig().Addresses,
-			Username:  configureManager.GetOpenSearchConfig().Username,
-			Password:  configureManager.GetOpenSearchConfig().Password,
-			Index:     configureManager.GetOpenSearchConfig().Index,
-		},
+		Logstash: logstashConfig,
 	})
 
 	logger.Info("starting app")
