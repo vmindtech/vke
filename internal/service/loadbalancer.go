@@ -104,7 +104,6 @@ func (lbc *loadbalancerService) ListLoadBalancer(ctx context.Context, authToken,
 	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
-	fmt.Println("Raw token", token)
 	resp, err := lbc.client.Do(r)
 	if err != nil {
 		lbc.logger.WithFields(logrus.Fields{
