@@ -29,12 +29,10 @@ func RecoverMiddleware(l *logrus.Logger) func(c *fiber.Ctx) (err error) {
 				errMsg := err.Error()
 				stack := stacktrace.NewStackTrace(skipStackTraceFrame)
 
-				// HTTP/2 HPACK hatası kontrolü
 				if strings.Contains(errMsg, "hpack") ||
 					strings.Contains(errMsg, "http2") ||
 					strings.Contains(errMsg, "id <= evictCount") {
 
-					// HTTP/2 bağlantısını kapat ve HTTP/1.1'e düş
 					c.Request().Header.Set("Connection", "close")
 
 					l.WithFields(logrus.Fields{
@@ -52,7 +50,6 @@ func RecoverMiddleware(l *logrus.Logger) func(c *fiber.Ctx) (err error) {
 					return
 				}
 
-				// Diğer panikler için normal hata loglaması
 				l.WithFields(logrus.Fields{
 					"ip":       c.IP(),
 					"request":  getRequestLogFields(c),

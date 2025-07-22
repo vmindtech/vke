@@ -16,11 +16,9 @@ type WebConfig struct {
 	Endpoint string
 }
 
-type OpenSearchConfig struct {
-	Addresses []string
-	Username  string
-	Password  string
-	Index     string
+type LogstashConfig struct {
+	Host string
+	Port int
 }
 
 type LanguageConfig struct {
