@@ -12,6 +12,7 @@ type IRepository interface {
 	AuditLog() IAuditLogRepository
 	Kubeconfig() IKubeconfigRepository
 	NodeGroups() INodeGroupsRepository
+	Resources() IResourcesRepository
 	StartDBTransaction(ctx context.Context) (*gorm.DB, error)
 	CommitDBTransaction(tx *gorm.DB) error
 }
@@ -22,15 +23,17 @@ type repository struct {
 	audit         IAuditLogRepository
 	kubeconfig    IKubeconfigRepository
 	nodegroups    INodeGroupsRepository
+	resources     IResourcesRepository
 }
 
-func NewRepository(mi mysqldb.IMysqlInstance, cr IClusterRepository, ar IAuditLogRepository, kr IKubeconfigRepository, ng INodeGroupsRepository) IRepository {
+func NewRepository(mi mysqldb.IMysqlInstance, cr IClusterRepository, ar IAuditLogRepository, kr IKubeconfigRepository, ng INodeGroupsRepository, rr IResourcesRepository) IRepository {
 	return &repository{
 		mysqlInstance: mi,
 		cluster:       cr,
 		audit:         ar,
 		kubeconfig:    kr,
 		nodegroups:    ng,
+		resources:     rr,
 	}
 }
 
@@ -70,4 +73,8 @@ func (r *repository) Kubeconfig() IKubeconfigRepository {
 
 func (r *repository) NodeGroups() INodeGroupsRepository {
 	return r.nodegroups
+}
+
+func (r *repository) Resources() IResourcesRepository {
+	return r.resources
 }
