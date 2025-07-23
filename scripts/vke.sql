@@ -68,6 +68,24 @@ CREATE TABLE `clusters` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `errors`
+--
+
+DROP TABLE IF EXISTS `errors`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `errors` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `cluster_uuid` varchar(36) DEFAULT NULL,
+  `error_message` text NOT NULL,
+  `created_at` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_cluster_uuid` (`cluster_uuid`),
+  KEY `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `kubeconfigs`
 --
 
@@ -112,7 +130,24 @@ CREATE TABLE `node_groups` (
   `node_group_delete_date` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=77 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;2
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `resources`
+--
+
+DROP TABLE IF EXISTS `resources`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `resources` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `cluster_uuid` varchar(36) DEFAULT NULL,
+  `resource_type` varchar(255) DEFAULT NULL,
+  `resource_uuid` varchar(36) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=77 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

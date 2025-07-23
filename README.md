@@ -39,6 +39,12 @@ To run the application, follow these steps:
     mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/vke.sql 
     ```
 
+**Note:** The `vke.sql` file includes the `errors` table for cluster error logging. If you're updating an existing database, you can run the separate migration:
+
+    ```
+    mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_errors_table.sql
+    ```
+
 #### Logstash Setup (Optional - Recommended for Production)
 
 For production environments, we recommend using Logstash for log aggregation. The application sends logs via UDP to Logstash, which then forwards them to OpenSearch/Elasticsearch. **The application works perfectly without Logstash - it will fall back to console output.**

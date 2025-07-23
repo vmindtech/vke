@@ -50,6 +50,12 @@ type GetKubeConfigResponse struct {
 	KubeConfig  string `json:"kubeconfig"`
 }
 
+type GetClusterErrorsResponse struct {
+	ClusterUUID  string    `json:"cluster_uuid"`
+	ErrorMessage string    `json:"error_message"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 type CreateKubeconfigResponse struct {
 	ClusterUUID string `json:"cluster_uuid"`
 }

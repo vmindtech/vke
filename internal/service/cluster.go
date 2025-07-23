@@ -24,6 +24,7 @@ type IClusterService interface {
 	GetClustersByProjectId(ctx context.Context, authToken, projectID string) ([]resource.GetClusterResponse, error)
 	DestroyCluster(ctx context.Context, authToken string, clusterID string)
 	UpdateCluster(ctx context.Context, authToken, clusterID string, req request.UpdateClusterRequest) (resource.UpdateClusterResponse, error)
+	GetClusterErrors(ctx context.Context, authToken, clusterID string) ([]resource.GetClusterErrorsResponse, error)
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
 	CreateKubeConfig(ctx context.Context, authToken string, req request.CreateKubeconfigRequest) (resource.CreateKubeconfigResponse, error)
 	UpdateKubeConfig(ctx context.Context, authToken string, clusterID string, req request.UpdateKubeconfigRequest) (resource.UpdateKubeconfigResponse, error)
@@ -101,6 +102,24 @@ func (c *clusterService) CreateAuditLog(ctx context.Context, clusterUUID, projec
 	return c.repository.AuditLog().CreateAuditLog(ctx, auditLog)
 }
 
+func (c *clusterService) logClusterError(ctx context.Context, clusterUUID, errorMessage string) {
+	if clusterUUID == "" {
+		clusterUUID = "unknown"
+	}
+
+	errorRecord := &model.Error{
+		ClusterUUID:  clusterUUID,
+		ErrorMessage: errorMessage,
+		CreatedAt:    time.Now(),
+	}
+
+	go func() {
+		if err := c.repository.Error().CreateError(ctx, errorRecord); err != nil {
+			c.logger.WithError(err).Error("Failed to save cluster error to database")
+		}
+	}()
+}
+
 func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string) error {
 	waitIterator := 0
 	waitSeconds := 10
@@ -135,6 +154,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"projectID": req.ProjectID,
 		}).Error("failed to check auth token")
+		c.logClusterError(ctx, "", fmt.Sprintf("Auth token check failed: %v", err))
 		return
 	}
 
@@ -146,6 +166,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
 		}).Error("failed to marshal subnet ids")
+		c.logClusterError(ctx, clusterUUID, fmt.Sprintf("Failed to marshal subnet IDs: %v", err))
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
@@ -160,6 +181,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
 		}).Error("failed to create application credential")
+		c.logClusterError(ctx, clusterUUID, fmt.Sprintf("Failed to create application credential: %v", err))
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
@@ -179,6 +201,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
 		}).Error("failed to create resource")
+		c.logClusterError(ctx, clusterUUID, fmt.Sprintf("Failed to create resource: %v", err))
 		return
 	}
 	clusterModel := &model.Cluster{
@@ -241,6 +264,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
 		}).Error("failed to create load balancer")
+		c.logClusterError(ctx, clusterUUID, fmt.Sprintf("Failed to create load balancer: %v", err))
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
@@ -2176,6 +2200,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		c.logger.WithError(err).WithField("clusterUUID", clusterID).Error("failed to get cluster")
+		c.logClusterError(ctx, clusterID, fmt.Sprintf("Failed to get cluster: %v", err))
 		return
 	}
 
@@ -2184,6 +2209,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterID,
 		}).Error("failed to check auth token")
+		c.logClusterError(ctx, clusterID, fmt.Sprintf("Auth token check failed: %v", err))
 		return
 	}
 
@@ -2201,6 +2227,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 	}, clusterID)
 	if err != nil {
 		c.logger.WithError(err).WithField("clusterUUID", clusterID).Error("failed to update cluster status")
+		c.logClusterError(ctx, clusterID, fmt.Sprintf("Failed to update cluster status: %v", err))
 		return
 	}
 
@@ -2222,6 +2249,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 				c.logger.WithError(err).WithFields(logrus.Fields{
 					"clusterUUID": cluster.ClusterUUID,
 				}).Error("failed to delete load balancer components")
+				c.logClusterError(ctx, cluster.ClusterUUID, fmt.Sprintf("Failed to delete load balancer components: %v", err))
 			}
 		}
 		cluster.DeleteState = constants.DeleteStateLoadBalancer
@@ -2233,6 +2261,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
 			}).Error("failed to delete DNS record")
+			c.logClusterError(ctx, cluster.ClusterUUID, fmt.Sprintf("Failed to delete DNS record: %v", err))
 		}
 		cluster.DeleteState = constants.DeleteStateDNS
 		c.updateClusterDeleteState(ctx, cluster)
@@ -2243,6 +2272,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
 			}).Error("failed to delete floating IP")
+			c.logClusterError(ctx, cluster.ClusterUUID, fmt.Sprintf("Failed to delete floating IP: %v", err))
 		}
 		cluster.DeleteState = constants.DeleteStateFloatingIP
 		c.updateClusterDeleteState(ctx, cluster)
@@ -2253,6 +2283,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
 			}).Error("failed to delete node groups")
+			c.logClusterError(ctx, cluster.ClusterUUID, fmt.Sprintf("Failed to delete node groups: %v", err))
 		}
 		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
@@ -2267,6 +2298,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
 			}).Error("failed to delete security groups")
+			c.logClusterError(ctx, cluster.ClusterUUID, fmt.Sprintf("Failed to delete security groups: %v", err))
 		}
 		cluster.DeleteState = constants.DeleteStateSecurityGroups
 		c.updateClusterDeleteState(ctx, cluster)
@@ -2277,6 +2309,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
 			}).Error("failed to delete application credentials")
+			c.logClusterError(ctx, cluster.ClusterUUID, fmt.Sprintf("Failed to delete application credentials: %v", err))
 		}
 		cluster.DeleteState = constants.DeleteStateCredentials
 		c.updateClusterDeleteState(ctx, cluster)
@@ -2290,6 +2323,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": cluster.ClusterUUID,
 			}).Error("failed to create audit log")
+			c.logClusterError(ctx, cluster.ClusterUUID, fmt.Sprintf("Failed to create audit log: %v", err))
 		}
 	}
 }
@@ -2308,6 +2342,7 @@ func (c *clusterService) updateClusterDeleteState(ctx context.Context, cluster *
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
 		}).Error("failed to update cluster delete state")
+		c.logClusterError(ctx, cluster.ClusterUUID, fmt.Sprintf("Failed to update cluster delete state: %v", err))
 	}
 }
 
@@ -2930,4 +2965,47 @@ func (c *clusterService) UpdateCluster(ctx context.Context, authToken, clusterID
 	return resource.UpdateClusterResponse{
 		ClusterUUID: cluster.ClusterUUID,
 	}, nil
+}
+
+func (c *clusterService) GetClusterErrors(ctx context.Context, authToken, clusterID string) ([]resource.GetClusterErrorsResponse, error) {
+	token := strings.Clone(authToken)
+
+	err := c.identityService.CheckAuthToken(ctx, token, clusterID)
+	if err != nil {
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to check auth token")
+		return nil, err
+	}
+
+	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
+	if err != nil {
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
+		return nil, err
+	}
+
+	if cluster == nil {
+		return nil, fmt.Errorf("cluster not found")
+	}
+
+	errors, err := c.repository.Error().GetErrorsByClusterUUID(ctx, clusterID)
+	if err != nil {
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster errors")
+		return nil, err
+	}
+
+	response := []resource.GetClusterErrorsResponse{}
+	for _, error := range errors {
+		response = append(response, resource.GetClusterErrorsResponse{
+			ClusterUUID:  error.ClusterUUID,
+			ErrorMessage: error.ErrorMessage,
+			CreatedAt:    error.CreatedAt,
+		})
+	}
+
+	return response, nil
 }
