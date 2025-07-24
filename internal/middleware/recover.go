@@ -10,6 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/internal/repository"
+	"github.com/vmindtech/vke/pkg/constants"
 	"github.com/vmindtech/vke/pkg/stacktrace"
 )
 
@@ -71,9 +72,17 @@ func RecoverMiddleware(l *logrus.Logger, errorRepo repository.IErrorRepository) 
 						clusterUUID = "unknown" // Eğer cluster ID yoksa
 					}
 
+					// HTTP hataları için özel mesaj oluştur
+					httpErrorMsg := constants.GetDetailedErrorMessage(
+						constants.ErrSystemUnavailable,
+						fmt.Sprintf("HTTP_%s", c.Method()),
+						clusterUUID,
+						fmt.Sprintf("Status: %d, Path: %s", fiber.StatusInternalServerError, c.Path()),
+					)
+
 					errorRecord := &model.Error{
 						ClusterUUID:  clusterUUID,
-						ErrorMessage: fmt.Sprintf("HTTP Error: %s - %s", c.Method(), errMsg),
+						ErrorMessage: httpErrorMsg,
 						CreatedAt:    time.Now(),
 					}
 
