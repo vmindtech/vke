@@ -1,5 +1,10 @@
 package constants
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Cluster Error Messages
 const (
 	// Authentication Errors
@@ -95,7 +100,6 @@ const (
 	ErrorCategoryUnknown    = "unknown"
 )
 
-// GetErrorMessage returns a formatted error message with additional context
 func GetErrorMessage(baseMessage, operation, clusterUUID string) string {
 	if clusterUUID == "" {
 		clusterUUID = "unknown"
@@ -108,12 +112,60 @@ func GetErrorMessage(baseMessage, operation, clusterUUID string) string {
 	return baseMessage + " during " + operation + " for cluster: " + clusterUUID
 }
 
-// GetDetailedErrorMessage returns a detailed error message with all context
 func GetDetailedErrorMessage(baseMessage, operation, clusterUUID, details string) string {
 	msg := GetErrorMessage(baseMessage, operation, clusterUUID)
 
 	if details != "" {
 		msg += " - Details: " + details
+	}
+
+	return msg
+}
+
+func GetSafeErrorMessage(baseMessage, operation, clusterUUID string, err error) string {
+	msg := GetErrorMessage(baseMessage, operation, clusterUUID)
+
+	if err != nil {
+		// Sadece error type'ını al, tam mesajı alma
+		errorType := "unknown_error"
+		if err != nil {
+			errorType = fmt.Sprintf("%T", err)
+		}
+		msg += " - Error Type: " + errorType
+	}
+
+	return msg
+}
+
+func GetFilteredErrorMessage(baseMessage, operation, clusterUUID string, err error) string {
+	msg := GetErrorMessage(baseMessage, operation, clusterUUID)
+
+	if err != nil {
+		errMsg := err.Error()
+		if len(errMsg) > 100 {
+			errMsg = errMsg[:100] + "..."
+		}
+
+		errMsg = filterSensitiveInfo(errMsg)
+
+		msg += " - Details: " + errMsg
+	}
+
+	return msg
+}
+
+func filterSensitiveInfo(msg string) string {
+	sensitivePatterns := []string{
+		"password",
+		"token",
+		"key",
+		"secret",
+		"credential",
+		"auth",
+	}
+
+	for _, pattern := range sensitivePatterns {
+		msg = strings.ReplaceAll(msg, pattern, "[REDACTED]")
 	}
 
 	return msg
