@@ -2987,7 +2987,15 @@ func (c *clusterService) UpdateCluster(ctx context.Context, authToken, clusterID
 func (c *clusterService) GetClusterErrors(ctx context.Context, authToken, clusterID string) ([]resource.GetClusterErrorsResponse, error) {
 	token := strings.Clone(authToken)
 
-	err := c.identityService.CheckAuthToken(ctx, token, clusterID)
+	cl, clErr := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
+	if clErr != nil {
+		c.logger.WithError(clErr).WithFields(logrus.Fields{
+			"clusterUUID": clusterID,
+		}).Error("failed to get cluster")
+		return nil, clErr
+	}
+
+	err := c.identityService.CheckAuthToken(ctx, token, cl.ClusterProjectUUID)
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterID,

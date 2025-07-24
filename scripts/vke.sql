@@ -142,7 +142,7 @@ DROP TABLE IF EXISTS `resources`;
 CREATE TABLE `resources` (
   `id` int NOT NULL AUTO_INCREMENT,
   `cluster_uuid` varchar(36) DEFAULT NULL,
-  `resource_type` varchar(255) DEFAULT NULL,
+  `resource_type` varchar(30) DEFAULT NULL,
   `resource_uuid` varchar(36) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=77 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
