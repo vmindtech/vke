@@ -35,6 +35,7 @@ type IAppHandler interface {
 	GetNodeGroups(c *fiber.Ctx) error
 	CreateNodeGroup(c *fiber.Ctx) error
 	GetClusterFlavor(c *fiber.Ctx) error
+	GetClusterErrors(c *fiber.Ctx) error
 	UpdateNodeGroups(c *fiber.Ctx) error
 	DeleteNode(c *fiber.Ctx) error
 	DeleteNodeGroup(c *fiber.Ctx) error
@@ -406,5 +407,17 @@ func (a *appHandler) UpdateCluster(c *fiber.Ctx) error {
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
 	}
 	resp, _ := a.appService.Cluster().UpdateCluster(ctx, authToken, clusterID, req)
+	return c.JSON(response.NewSuccessResponse(resp))
+}
+
+func (a *appHandler) GetClusterErrors(c *fiber.Ctx) error {
+	clusterID := c.Params("cluster_id")
+	ctx := context.Background()
+	authToken := c.Get("X-Auth-Token")
+	if authToken == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
+	}
+	resp, _ := a.appService.Cluster().GetClusterErrors(ctx, authToken, clusterID)
 	return c.JSON(response.NewSuccessResponse(resp))
 }

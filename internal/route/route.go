@@ -60,4 +60,5 @@ func (r *route) appRoutes(fr fiber.Router) {
 	appGroup.Delete("/cluster/:cluster_id/nodegroups/:nodegroup_id/nodes/:id", r.appHandler.DeleteNode)
 	appGroup.Delete("/cluster/:cluster_id/nodegroups/:nodegroup_id", r.appHandler.DeleteNodeGroup)
 	appGroup.Get("/cluster/:cluster_id/flavors", r.appHandler.GetClusterFlavor)
+	appGroup.Get("/cluster/:cluster_id/errors", r.appHandler.GetClusterErrors)
 }
