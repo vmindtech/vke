@@ -32,7 +32,6 @@ func RecoverMiddleware(l *logrus.Logger, errorRepo repository.IErrorRepository) 
 				errMsg := err.Error()
 				stack := stacktrace.NewStackTrace(skipStackTraceFrame)
 
-				// HTTP/2 HPACK hatalarını özel olarak işle
 				if strings.Contains(errMsg, "hpack") ||
 					strings.Contains(errMsg, "http2") ||
 					strings.Contains(errMsg, "id <= evictCount") {
@@ -54,7 +53,6 @@ func RecoverMiddleware(l *logrus.Logger, errorRepo repository.IErrorRepository) 
 					return
 				}
 
-				// Genel hataları logla ve database'e kaydet
 				l.WithFields(logrus.Fields{
 					"ip":       c.IP(),
 					"request":  getRequestLogFields(c),
@@ -65,14 +63,12 @@ func RecoverMiddleware(l *logrus.Logger, errorRepo repository.IErrorRepository) 
 					},
 				}).Errorf("recover: %v", err)
 
-				// Error'u database'e kaydet
 				if errorRepo != nil {
-					clusterUUID := c.Params("clusterID") // URL'den cluster ID'yi al
+					clusterUUID := c.Params("clusterID")
 					if clusterUUID == "" {
-						clusterUUID = "unknown" // Eğer cluster ID yoksa
+						clusterUUID = "unknown"
 					}
 
-					// HTTP hataları için özel mesaj oluştur
 					httpErrorMsg := constants.GetDetailedErrorMessage(
 						constants.ErrSystemUnavailable,
 						fmt.Sprintf("HTTP_%s", c.Method()),
@@ -86,7 +82,6 @@ func RecoverMiddleware(l *logrus.Logger, errorRepo repository.IErrorRepository) 
 						CreatedAt:    time.Now(),
 					}
 
-					// Async olarak kaydet, hata durumunda log'la
 					go func() {
 						if saveErr := errorRepo.CreateError(context.Background(), errorRecord); saveErr != nil {
 							l.WithError(saveErr).Error("Failed to save error to database")
