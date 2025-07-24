@@ -892,11 +892,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
 		}).Error("failed to create compute")
+		c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrComputeCreateFailed, "cluster_creation", err)
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
 			}).Error("failed to create audit log")
+			c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrAuditLogCreateFailed, "cluster_creation", err)
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
@@ -905,6 +907,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
 			}).Error("failed to update cluster")
+			c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrDatabaseQueryFailed, "cluster_creation", err)
 		}
 		return
 	}
@@ -915,11 +918,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
 			}).Error("failed to get subnet details")
+			c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrSubnetCreateFailed, "cluster_creation", err)
 			err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 			if err != nil {
 				c.logger.WithError(err).WithFields(logrus.Fields{
 					"clusterUUID": clusterUUID,
 				}).Error("failed to create audit log")
+				c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrAuditLogCreateFailed, "cluster_creation", err)
 			}
 
 			clusterModel.ClusterStatus = ErrorClusterStatus
@@ -928,6 +933,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 				c.logger.WithError(err).WithFields(logrus.Fields{
 					"clusterUUID": clusterUUID,
 				}).Error("failed to update cluster")
+				c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrDatabaseQueryFailed, "cluster_creation", err)
 			}
 			return
 		}
@@ -1562,11 +1568,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
 		}).Error("failed to create compute")
+		c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrComputeCreateFailed, "cluster_creation", err)
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
 			}).Error("failed to create audit log")
+			c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrAuditLogCreateFailed, "cluster_creation", err)
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
@@ -1575,6 +1583,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
 			}).Error("failed to update cluster")
+			c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrDatabaseQueryFailed, "cluster_creation", err)
 		}
 		return
 	}
@@ -1680,11 +1689,13 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
 		}).Error("failed to create compute")
+		c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrComputeCreateFailed, "cluster_creation", err)
 		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
 			}).Error("failed to create audit log")
+			c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrAuditLogCreateFailed, "cluster_creation", err)
 		}
 
 		clusterModel.ClusterStatus = ErrorClusterStatus
@@ -1693,6 +1704,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
 			}).Error("failed to update cluster")
+			c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrDatabaseQueryFailed, "cluster_creation", err)
 		}
 		return
 	}
@@ -1943,11 +1955,20 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
 			}).Error("failed to create compute")
+
+			// Check if it's a quota exceeded error
+			if strings.Contains(err.Error(), "Quota exceeded") {
+				c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrComputeQuotaExceeded, "cluster_creation", err)
+			} else {
+				c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrComputeCreateFailed, "cluster_creation", err)
+			}
+
 			err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 			if err != nil {
 				c.logger.WithError(err).WithFields(logrus.Fields{
 					"clusterUUID": clusterUUID,
 				}).Error("failed to create audit log")
+				c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrAuditLogCreateFailed, "cluster_creation", err)
 			}
 
 			clusterModel.ClusterStatus = ErrorClusterStatus
@@ -1956,6 +1977,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 				c.logger.WithError(err).WithFields(logrus.Fields{
 					"clusterUUID": clusterUUID,
 				}).Error("failed to update cluster")
+				c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrDatabaseQueryFailed, "cluster_creation", err)
 			}
 			return
 		}

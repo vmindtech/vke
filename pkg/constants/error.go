@@ -39,6 +39,13 @@ const (
 	ErrNodeGroupUpdateFailed  = "Failed to update node groups"
 	ErrNodeGroupScalingFailed = "Failed to scale node groups"
 
+	// Compute Errors
+	ErrComputeCreateFailed            = "Failed to create compute instance"
+	ErrComputeDeleteFailed            = "Failed to delete compute instance"
+	ErrComputeQuotaExceeded           = "Compute quota exceeded"
+	ErrComputeServerGroupCreateFailed = "Failed to create server group"
+	ErrComputeServerGroupDeleteFailed = "Failed to delete server group"
+
 	// Network Errors
 	ErrNetworkCreateFailed = "Failed to create network components"
 	ErrNetworkDeleteFailed = "Failed to delete network components"
