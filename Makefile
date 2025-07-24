@@ -24,5 +24,13 @@ db-add-errors-table:
 	read -p "Enter database name: " DB_NAME; \
 	mysql -h $$MYSQL_HOST -u $$MYSQL_USER --password=$$MYSQL_PASS --database=$$DB_NAME < scripts/add_errors_table.sql
 
+db-add-resources-table:
+	@echo "Adding resources table to database..."
+	@read -p "Enter MySQL host: " MYSQL_HOST; \
+	read -p "Enter MySQL user: " MYSQL_USER; \
+	read -p "Enter MySQL password: " MYSQL_PASS; \
+	read -p "Enter database name: " DB_NAME; \
+	mysql -h $$MYSQL_HOST -u $$MYSQL_USER --password=$$MYSQL_PASS --database=$$DB_NAME < scripts/add_resources_table.sql
+
 generate-mock-all:
 	mockgen -source=./internal/repository/repository.go -destination=./internal/repository/mocks/repository_mock.go -package=mocks

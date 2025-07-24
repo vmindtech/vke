@@ -39,10 +39,14 @@ To run the application, follow these steps:
     mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/vke.sql 
     ```
 
-**Note:** The `vke.sql` file includes the `errors` table for cluster error logging. If you're updating an existing database, you can run the separate migration:
+**Note:** The `vke.sql` file includes the `errors` and `resources` tables for cluster error logging and resource tracking. If you're updating an existing database, you can run the separate migrations:
 
     ```
+    # Add errors table
     mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_errors_table.sql
+    
+    # Add resources table
+    mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_resources_table.sql
     ```
 
 #### Logstash Setup (Optional - Recommended for Production)
