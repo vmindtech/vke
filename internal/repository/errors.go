@@ -8,7 +8,7 @@ import (
 )
 
 type IErrorRepository interface {
-	CreateError(ctx context.Context, error *model.Error) error
+	CreateError(ctx context.Context, err *model.Error) error
 	GetErrorsByClusterUUID(ctx context.Context, clusterUUID string) ([]model.Error, error)
 }
 
@@ -22,11 +22,11 @@ func NewErrorRepository(mysqlInstance mysqldb.IMysqlInstance) *ErrorRepository {
 	}
 }
 
-func (e *ErrorRepository) CreateError(ctx context.Context, error *model.Error) error {
+func (e *ErrorRepository) CreateError(ctx context.Context, err *model.Error) error {
 	return e.mysqlInstance.
 		Database().
 		WithContext(ctx).
-		Create(error).
+		Create(err).
 		Error
 }
 
