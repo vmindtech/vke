@@ -25,6 +25,7 @@ func GenerateUserDataFromTemplate(
 	token,
 	vkeAgentVersion,
 	rke2NodeLabel,
+	rke2NodeTaints,
 	vkeCloudAuthURL,
 	clusterAutoscalerVersion,
 	cloudProviderVkeVersion,
@@ -61,6 +62,7 @@ func GenerateUserDataFromTemplate(
 		"applicationCredentialKey":      applicationCredentialKey,
 		"clusterAgentVersion":           clusterAgentVersion,
 		"loadBalancerFloatingNetworkID": loadBalancerFloatingNetworkID,
+		"rke2NodeTaints":                rke2NodeTaints,
 	}); err != nil {
 		return "", err
 	}

@@ -16,7 +16,6 @@ import (
 
 	di "github.com/vmindtech/vke"
 	"github.com/vmindtech/vke/internal/middleware"
-	"github.com/vmindtech/vke/internal/repository"
 	"github.com/vmindtech/vke/internal/route"
 )
 
@@ -58,9 +57,7 @@ func initApplication(a *application) *fiber.App {
 }
 
 func (a *application) addCommonMiddleware(app *fiber.App) {
-	errorRepo := repository.NewErrorRepository(a.MysqlInstance)
-
-	app.Use(middleware.RecoverMiddleware(a.Logger, errorRepo))
+	app.Use(middleware.RecoverMiddleware(a.Logger))
 	app.Use(requestid.New())
 	app.Use(middleware.LoggerMiddleware(a.Logger))
 	app.Use(middleware.LocalizerMiddleware(a.LanguageBundle))

@@ -12,6 +12,7 @@ type NodeGroups struct {
 	NodeGroupUUID          string         `json:"node_group_uuid" gorm:"type:varchar(36)"`
 	NodeGroupName          string         `json:"node_group_name" gorm:"type:varchar(255)"`
 	NodeGroupLabels        datatypes.JSON `json:"node_group_labels" gorm:"type:json"`
+	NodeGroupTaints        datatypes.JSON `json:"node_group_taints" gorm:"type:json"`
 	NodeGroupMinSize       int            `json:"node_group_min_size" gorm:"type:int(11)"`
 	NodeGroupMaxSize       int            `json:"node_group_max_size" gorm:"type:int(11)"`
 	NodeDiskSize           int            `json:"node_disk_size" gorm:"type:int(11)"`

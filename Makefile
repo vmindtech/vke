@@ -32,5 +32,13 @@ db-add-resources-table:
 	read -p "Enter database name: " DB_NAME; \
 	mysql -h $$MYSQL_HOST -u $$MYSQL_USER --password=$$MYSQL_PASS --database=$$DB_NAME < scripts/add_resources_table.sql
 
+db-add-node-groups-taints:
+	@echo "Adding taint support to node_groups table..."
+	@read -p "Enter MySQL host: " MYSQL_HOST; \
+	read -p "Enter MySQL user: " MYSQL_USER; \
+	read -p "Enter MySQL password: " MYSQL_PASS; \
+	read -p "Enter database name: " DB_NAME; \
+	mysql -h $$MYSQL_HOST -u $$MYSQL_USER --password=$$MYSQL_PASS --database=$$DB_NAME < scripts/add_node_groups_taints.sql
+
 generate-mock-all:
 	mockgen -source=./internal/repository/repository.go -destination=./internal/repository/mocks/repository_mock.go -package=mocks
