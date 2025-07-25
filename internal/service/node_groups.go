@@ -566,6 +566,10 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		}
 	}
 
+	if req.NodeGroupLabels == nil {
+		req.NodeGroupLabels = []string{"nodegroup-name=" + req.NodeGroupName}
+	}
+
 	nodeGroupLabelsJSON, err := json.Marshal(req.NodeGroupLabels)
 	if err != nil {
 		nodg.logger.WithFields(logrus.Fields{
