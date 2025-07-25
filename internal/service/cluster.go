@@ -702,6 +702,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		token,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		"",
+		"",
 		fmt.Sprintf("%s/v3/", config.GlobalConfig.GetEndpointsConfig().EnvoyEndpoint),
 		config.GlobalConfig.GetVkeAgentConfig().ClusterAutoscalerVersion,
 		config.GlobalConfig.GetVkeAgentConfig().CloudProviderVkeVersion,
@@ -1532,6 +1533,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		"",
 		"",
 		"",
+		"",
 		config.GlobalConfig.GetPublicNetworkIDConfig().PublicNetworkID,
 	)
 	if err != nil {
@@ -1881,6 +1883,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		token,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		strings.Join(defaultWorkerLabels, ","),
+		"",
 		"",
 		"",
 		"",

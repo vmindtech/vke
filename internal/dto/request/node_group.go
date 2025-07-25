@@ -12,6 +12,7 @@ type CreateNodeGroupRequest struct {
 	NodeFlavorUUID   string   `json:"nodeFlavorUUID"`
 	NodeDiskSize     int      `json:"nodeDiskSize"`
 	NodeGroupLabels  []string `json:"nodeGroupLabels"`
+	NodeGroupTaints  []string `json:"nodeGroupTaints"`
 	NodeGroupMinSize int      `json:"nodeGroupMinSize"`
 	NodeGroupMaxSize int      `json:"nodeGroupMaxSize"`
 }
