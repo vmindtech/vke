@@ -47,6 +47,9 @@ To run the application, follow these steps:
     
     # Add resources table
     mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_resources_table.sql
+    
+    # Add node groups taint support
+    mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_node_groups_taints.sql
     ```
 
 #### Logstash Setup (Optional - Recommended for Production)
@@ -268,6 +271,44 @@ When using Logstash, logs are automatically indexed in OpenSearch with the patte
 }
 // If Logstash is down, automatically falls back to console
 ```
+
+## Database Migrations
+
+The application includes several database migration scripts for updating existing installations:
+
+### Available Migration Commands
+
+```bash
+# Add errors table for cluster error logging
+make db-add-errors-table
+
+# Add resources table for cluster resource tracking
+make db-add-resources-table
+
+# Add taint support to node_groups table
+make db-add-node-groups-taints
+```
+
+### Manual Migration
+
+You can also run migrations manually:
+
+```bash
+# Add errors table
+mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_errors_table.sql
+
+# Add resources table
+mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_resources_table.sql
+
+# Add node groups taint support
+mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_node_groups_taints.sql
+```
+
+### Migration Details
+
+- **Errors Table**: Tracks cluster operation errors for monitoring and debugging
+- **Resources Table**: Stores cluster-related resources for tracking and management
+- **Node Groups Taints**: Adds Kubernetes taint support for node group scheduling
 
 <!-- LICENSE -->
 ## License

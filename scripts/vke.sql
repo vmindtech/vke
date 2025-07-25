@@ -116,6 +116,7 @@ CREATE TABLE `node_groups` (
   `cluster_uuid` varchar(36) DEFAULT NULL,
   `node_group_name` varchar(255) DEFAULT NULL,
   `node_group_labels` json DEFAULT NULL,
+  `node_group_taints` json DEFAULT NULL,
   `node_group_uuid` varchar(36) DEFAULT NULL,
   `node_group_min_size` int DEFAULT NULL,
   `node_group_max_size` int DEFAULT NULL,
