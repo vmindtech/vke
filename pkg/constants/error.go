@@ -20,6 +20,7 @@ const (
 	ErrClusterProjectInvalid = "Invalid project ID provided"
 	ErrClusterSubnetInvalid  = "Invalid subnet configuration"
 	ErrClusterKeypairInvalid = "Invalid node keypair name"
+	ErrClusterGetFailed      = "Failed to get cluster"
 
 	// Cluster Resource Errors
 	ErrLoadBalancerCreateFailed          = "Failed to create load balancer for cluster"

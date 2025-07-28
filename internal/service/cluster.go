@@ -144,7 +144,7 @@ func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string
 	waitIterator := 0
 	waitSeconds := 10
 	for {
-		if waitIterator < 30 {
+		if waitIterator < 60 {
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
 			c.logger.WithFields(logrus.Fields{
 				"ClusterUUID": clusterUUID,
@@ -153,6 +153,7 @@ func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string
 			waitIterator++
 		} else {
 			err := fmt.Errorf("failed to send kubeconfig for ClusterUUID: %s", clusterUUID)
+			c.logClusterErrorWithDetails(ctx, clusterUUID, constants.ErrKubeconfigCreateFailed, "CheckKubeConfig", err.Error())
 			return err
 		}
 		_, err := c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, clusterUUID)
@@ -2880,6 +2881,7 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": req.ClusterID,
 		}).Error("failed to get cluster")
+		c.logClusterErrorWithDetails(ctx, req.ClusterID, constants.ErrClusterGetFailed, "CreateKubeConfig", "failed to get cluster")
 		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
@@ -2888,6 +2890,7 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": req.ClusterID,
 		}).Error("failed to get cluster")
+		c.logClusterErrorWithDetails(ctx, req.ClusterID, constants.ErrClusterGetFailed, "CreateKubeConfig", err.Error())
 		return resource.CreateKubeconfigResponse{}, err
 	}
 
@@ -2895,6 +2898,7 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": req.ClusterID,
 		}).Error("failed to get cluster")
+		c.logClusterErrorWithDetails(ctx, req.ClusterID, constants.ErrClusterGetFailed, "CreateKubeConfig", "failed to get cluster")
 		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
@@ -2902,6 +2906,7 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": req.ClusterID,
 		}).Error("failed to get cluster")
+		c.logClusterErrorWithDetails(ctx, req.ClusterID, constants.ErrClusterGetFailed, "CreateKubeConfig", "failed to get cluster")
 		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
@@ -2910,6 +2915,7 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": req.ClusterID,
 		}).Error("failed to check auth token")
+		c.logClusterErrorWithDetails(ctx, req.ClusterID, constants.ErrAuthTokenCheckFailed, "CreateKubeConfig", err.Error())
 		return resource.CreateKubeconfigResponse{}, err
 	}
 
@@ -2923,6 +2929,7 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": req.ClusterID,
 		}).Error("failed to create kube config, invalid kube config")
+		c.logClusterErrorWithDetails(ctx, req.ClusterID, constants.ErrKubeconfigCreateFailed, "CreateKubeConfig", "failed to create kube config, invalid kube config")
 		return resource.CreateKubeconfigResponse{}, fmt.Errorf("failed to create kube config, invalid kube config")
 	}
 
@@ -2931,6 +2938,7 @@ func (c *clusterService) CreateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": req.ClusterID,
 		}).Error("failed to create kube config")
+		c.logClusterErrorWithDetails(ctx, req.ClusterID, constants.ErrKubeconfigCreateFailed, "CreateKubeConfig", err.Error())
 		return resource.CreateKubeconfigResponse{}, err
 	}
 
@@ -2947,6 +2955,7 @@ func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterID,
 		}).Error("failed to get cluster")
+		c.logClusterErrorSimple(ctx, clusterID, "failed to get cluster", "UpdateKubeConfig")
 		return resource.UpdateKubeconfigResponse{}, err
 	}
 
@@ -2954,6 +2963,7 @@ func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": clusterID,
 		}).Error("failed to get cluster")
+		c.logClusterErrorSimple(ctx, clusterID, "failed to get cluster", "UpdateKubeConfig")
 		return resource.UpdateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
@@ -2961,6 +2971,7 @@ func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": clusterID,
 		}).Error("failed to get cluster")
+		c.logClusterErrorSimple(ctx, clusterID, "failed to get cluster", "UpdateKubeConfig")
 		return resource.UpdateKubeconfigResponse{}, fmt.Errorf("failed to get cluster")
 	}
 
@@ -2969,6 +2980,7 @@ func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterID,
 		}).Error("failed to check auth token")
+		c.logClusterErrorSimple(ctx, clusterID, "failed to check auth token", "UpdateKubeConfig")
 		return resource.UpdateKubeconfigResponse{}, err
 	}
 
@@ -2976,6 +2988,7 @@ func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": clusterID,
 		}).Error("failed to update kube config, invalid kube config")
+		c.logClusterErrorSimple(ctx, clusterID, "failed to update kube config, invalid kube config", "UpdateKubeConfig")
 		return resource.UpdateKubeconfigResponse{}, fmt.Errorf("failed to update kube config, invalid kube config")
 	}
 
@@ -2984,6 +2997,7 @@ func (c *clusterService) UpdateKubeConfig(ctx context.Context, authToken string,
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterID,
 		}).Error("failed to update kube config")
+		c.logClusterErrorSimple(ctx, clusterID, "failed to update kube config", "UpdateKubeConfig")
 		return resource.UpdateKubeconfigResponse{}, err
 	}
 
