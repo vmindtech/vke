@@ -1,5 +1,10 @@
 package constants
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Cluster Error Messages
 const (
 	// Authentication Errors
@@ -15,6 +20,7 @@ const (
 	ErrClusterProjectInvalid = "Invalid project ID provided"
 	ErrClusterSubnetInvalid  = "Invalid subnet configuration"
 	ErrClusterKeypairInvalid = "Invalid node keypair name"
+	ErrClusterGetFailed      = "Failed to get cluster"
 
 	// Cluster Resource Errors
 	ErrLoadBalancerCreateFailed          = "Failed to create load balancer for cluster"
@@ -33,6 +39,13 @@ const (
 	ErrNodeGroupDeleteFailed  = "Failed to delete node groups"
 	ErrNodeGroupUpdateFailed  = "Failed to update node groups"
 	ErrNodeGroupScalingFailed = "Failed to scale node groups"
+
+	// Compute Errors
+	ErrComputeCreateFailed            = "Failed to create compute instance"
+	ErrComputeDeleteFailed            = "Failed to delete compute instance"
+	ErrComputeQuotaExceeded           = "Compute quota exceeded"
+	ErrComputeServerGroupCreateFailed = "Failed to create server group"
+	ErrComputeServerGroupDeleteFailed = "Failed to delete server group"
 
 	// Network Errors
 	ErrNetworkCreateFailed = "Failed to create network components"
@@ -95,7 +108,6 @@ const (
 	ErrorCategoryUnknown    = "unknown"
 )
 
-// GetErrorMessage returns a formatted error message with additional context
 func GetErrorMessage(baseMessage, operation, clusterUUID string) string {
 	if clusterUUID == "" {
 		clusterUUID = "unknown"
@@ -108,12 +120,60 @@ func GetErrorMessage(baseMessage, operation, clusterUUID string) string {
 	return baseMessage + " during " + operation + " for cluster: " + clusterUUID
 }
 
-// GetDetailedErrorMessage returns a detailed error message with all context
 func GetDetailedErrorMessage(baseMessage, operation, clusterUUID, details string) string {
 	msg := GetErrorMessage(baseMessage, operation, clusterUUID)
 
 	if details != "" {
 		msg += " - Details: " + details
+	}
+
+	return msg
+}
+
+func GetSafeErrorMessage(baseMessage, operation, clusterUUID string, err error) string {
+	msg := GetErrorMessage(baseMessage, operation, clusterUUID)
+
+	if err != nil {
+		// Sadece error type'ını al, tam mesajı alma
+		errorType := "unknown_error"
+		if err != nil {
+			errorType = fmt.Sprintf("%T", err)
+		}
+		msg += " - Error Type: " + errorType
+	}
+
+	return msg
+}
+
+func GetFilteredErrorMessage(baseMessage, operation, clusterUUID string, err error) string {
+	msg := GetErrorMessage(baseMessage, operation, clusterUUID)
+
+	if err != nil {
+		errMsg := err.Error()
+		if len(errMsg) > 100 {
+			errMsg = errMsg[:100] + "..."
+		}
+
+		errMsg = filterSensitiveInfo(errMsg)
+
+		msg += " - Details: " + errMsg
+	}
+
+	return msg
+}
+
+func filterSensitiveInfo(msg string) string {
+	sensitivePatterns := []string{
+		"password",
+		"token",
+		"key",
+		"secret",
+		"credential",
+		"auth",
+	}
+
+	for _, pattern := range sensitivePatterns {
+		msg = strings.ReplaceAll(msg, pattern, "[REDACTED]")
 	}
 
 	return msg

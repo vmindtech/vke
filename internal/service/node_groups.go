@@ -15,6 +15,7 @@ import (
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/internal/repository"
 	"github.com/vmindtech/vke/pkg/constants"
+	"gorm.io/datatypes"
 )
 
 type INodeGroupsService interface {
@@ -256,6 +257,16 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 			return resource.AddNodeResponse{}, err
 		}
 	}
+
+	nodeGroupTaintsArr := []string{}
+	if nodeGroup.NodeGroupTaints != nil {
+		err = json.Unmarshal(nodeGroup.NodeGroupTaints, &nodeGroupTaintsArr)
+		if err != nil {
+			nodg.logger.WithError(err).Error("failed to unmarshal node group taints")
+			return resource.AddNodeResponse{}, err
+		}
+	}
+
 	rke2InitScript, err := GenerateUserDataFromTemplate("false",
 		WorkerServerType,
 		cluster.ClusterRegisterToken,
@@ -268,6 +279,7 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 		token,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		strings.Join(nodeGroupLabelsArr, ","),
+		strings.Join(nodeGroupTaintsArr, ","),
 		"",
 		"",
 		"",
@@ -502,6 +514,9 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 
 func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, clusterID string, req request.CreateNodeGroupRequest) (resource.CreateNodeGroupResponse, error) {
 	token := strings.Clone(authToken)
+
+	var nodeGroupTaintsJSON datatypes.JSON
+
 	if len(req.NodeGroupName) > 20 {
 		return resource.CreateNodeGroupResponse{}, fmt.Errorf("node group name is too long")
 	}
@@ -535,6 +550,25 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
+	if req.NodeGroupTaints != nil {
+		for _, taint := range req.NodeGroupTaints {
+			if !strings.Contains(taint, "=") {
+				return resource.CreateNodeGroupResponse{}, fmt.Errorf("invalid taint format")
+			}
+		}
+
+		nodeGroupTaintsJSON, err = json.Marshal(req.NodeGroupTaints)
+		if err != nil {
+			nodg.logger.WithFields(logrus.Fields{
+				"nodeGroupTaints": req.NodeGroupTaints,
+			}).WithError(err).Error("failed to marshal node group taints")
+			return resource.CreateNodeGroupResponse{}, err
+		}
+	}
+
+	if len(req.NodeGroupLabels) == 0 {
+		req.NodeGroupLabels = []string{"nodegroup-name=" + req.NodeGroupName}
+	}
 	nodeGroupLabelsJSON, err := json.Marshal(req.NodeGroupLabels)
 	if err != nil {
 		nodg.logger.WithFields(logrus.Fields{
@@ -587,6 +621,7 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		token,
 		config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
 		strings.Join(req.NodeGroupLabels, ","),
+		strings.Join(req.NodeGroupTaints, ","),
 		"",
 		"",
 		"",
@@ -699,6 +734,7 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		NodeFlavorUUID:         req.NodeFlavorUUID,
 		NodeDiskSize:           req.NodeDiskSize,
 		NodeGroupLabels:        nodeGroupLabelsJSON,
+		NodeGroupTaints:        nodeGroupTaintsJSON,
 		NodeGroupMinSize:       req.NodeGroupMinSize,
 		NodeGroupMaxSize:       req.NodeGroupMaxSize,
 		NodeGroupsType:         NodeGroupWorkerType,
@@ -772,7 +808,8 @@ func (nodg *nodeGroupsService) DeleteNodeGroup(ctx context.Context, authToken, c
 		return err
 	}
 	for _, server := range computes {
-		getNetworkPortID, err := nodg.networkService.GetComputeNetworkPorts(ctx, token, server.Id)
+		serverUUID := strings.Split(server.Id, "/")[len(strings.Split(server.Id, "/"))-1]
+		getNetworkPortID, err := nodg.networkService.GetComputeNetworkPorts(ctx, token, serverUUID)
 		if err != nil {
 			nodg.logger.WithFields(logrus.Fields{
 				"instanceUUID": server.Id,
@@ -788,7 +825,7 @@ func (nodg *nodeGroupsService) DeleteNodeGroup(ctx context.Context, authToken, c
 				return err
 			}
 		}
-		err = nodg.computeService.DeleteCompute(ctx, token, server.Id)
+		err = nodg.computeService.DeleteCompute(ctx, token, serverUUID)
 		if err != nil {
 			nodg.logger.WithFields(logrus.Fields{
 				"instanceUUID": server.Id,
