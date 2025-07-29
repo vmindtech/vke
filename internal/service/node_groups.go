@@ -566,10 +566,9 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		}
 	}
 
-	if req.NodeGroupLabels == nil {
+	if len(req.NodeGroupLabels) == 0 {
 		req.NodeGroupLabels = []string{"nodegroup-name=" + req.NodeGroupName}
 	}
-
 	nodeGroupLabelsJSON, err := json.Marshal(req.NodeGroupLabels)
 	if err != nil {
 		nodg.logger.WithFields(logrus.Fields{
@@ -809,7 +808,8 @@ func (nodg *nodeGroupsService) DeleteNodeGroup(ctx context.Context, authToken, c
 		return err
 	}
 	for _, server := range computes {
-		getNetworkPortID, err := nodg.networkService.GetComputeNetworkPorts(ctx, token, server.Id)
+		serverUUID := strings.Split(server.Id, "/")[len(strings.Split(server.Id, "/"))-1]
+		getNetworkPortID, err := nodg.networkService.GetComputeNetworkPorts(ctx, token, serverUUID)
 		if err != nil {
 			nodg.logger.WithFields(logrus.Fields{
 				"instanceUUID": server.Id,
@@ -825,7 +825,7 @@ func (nodg *nodeGroupsService) DeleteNodeGroup(ctx context.Context, authToken, c
 				return err
 			}
 		}
-		err = nodg.computeService.DeleteCompute(ctx, token, server.Id)
+		err = nodg.computeService.DeleteCompute(ctx, token, serverUUID)
 		if err != nil {
 			nodg.logger.WithFields(logrus.Fields{
 				"instanceUUID": server.Id,
