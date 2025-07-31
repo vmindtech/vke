@@ -593,6 +593,19 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
+	addServerGroupResourceReq := &model.Resource{
+		ClusterUUID:  cluster.ClusterUUID,
+		ResourceType: "server_group",
+		ResourceUUID: serverGroupResp.ServerGroup.ID,
+	}
+	err = nodg.repository.Resources().CreateResource(ctx, addServerGroupResourceReq)
+	if err != nil {
+		nodg.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to create resource")
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
 	createSecurityGroupReq := &request.CreateSecurityGroupRequest{
 		SecurityGroup: request.SecurityGroup{
 			Name:        fmt.Sprintf("%v-%v-worker-sg", cluster.ClusterName, req.NodeGroupName),
@@ -606,6 +619,19 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 			"clusterName":   cluster.ClusterName,
 			"nodeGroupName": req.NodeGroupName,
 		}).WithError(err).Error("failed to create security group")
+		return resource.CreateNodeGroupResponse{}, err
+	}
+
+	addSecurityGroupResourceReq := &model.Resource{
+		ClusterUUID:  cluster.ClusterUUID,
+		ResourceType: "security_group",
+		ResourceUUID: securityGroupResp.SecurityGroup.ID,
+	}
+	err = nodg.repository.Resources().CreateResource(ctx, addSecurityGroupResourceReq)
+	if err != nil {
+		nodg.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to create resource")
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
