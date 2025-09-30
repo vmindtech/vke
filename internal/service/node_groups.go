@@ -711,7 +711,16 @@ func (nodg *nodeGroupsService) CreateNodeGroup(ctx context.Context, authToken, c
 		return resource.CreateNodeGroupResponse{}, err
 	}
 
-	getNetworkIdResp, err := nodg.networkService.GetNetworkID(ctx, token, subnetIDSArr[0])
+	if len(subnetIDSArr) == 0 || subnetIDSArr[0] == "" {
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterName": cluster.ClusterName,
+		}).Error("failed to get subnet ids")
+		return resource.CreateNodeGroupResponse{}, fmt.Errorf("failed to get subnet ids")
+	}
+
+	subnetID := subnetIDSArr[0]
+
+	getNetworkIdResp, err := nodg.networkService.GetNetworkID(ctx, token, subnetID)
 	if err != nil {
 		nodg.logger.WithFields(logrus.Fields{
 			"clusterName": cluster.ClusterName,
