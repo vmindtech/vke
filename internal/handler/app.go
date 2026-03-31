@@ -80,9 +80,41 @@ func (a *appHandler) ClusterInfo(c *fiber.Ctx) error {
 }
 
 func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
+	// Parse into a compatibility struct without duplicate JSON tags.
 	var req request.CreateClusterRequest
 	if err := c.BodyParser(&req); err != nil {
+		// fallback to legacy schema
+		var legacy struct {
+			Name         string   `json:"name"`
+			ProjectId    string   `json:"projectId"`
+			KubVersion   string   `json:"kubVersion"`
+			ApiAccess    string   `json:"apiAccess"`
+			Keypair      string   `json:"keypair"`
+			SubnetIds    []string `json:"subnetIds"`
+			MinSize      int      `json:"minSize"`
+			MaxSize      int      `json:"maxSize"`
+			WorkerFlavor string   `json:"workerFlavor"`
+			MasterFlavor string   `json:"masterFlavor"`
+			DiskSize     int      `json:"diskSize"`
+			AllowedCidrs []string `json:"allowedCidrs"`
+		}
+		if err2 := c.BodyParser(&legacy); err2 != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
+	}
+		req = request.CreateClusterRequest{
+			ClusterName:              legacy.Name,
+			ProjectID:                legacy.ProjectId,
+			KubernetesVersion:        legacy.KubVersion,
+			NodeKeyPairName:          legacy.Keypair,
+			ClusterAPIAccess:         legacy.ApiAccess,
+			SubnetIDs:                legacy.SubnetIds,
+			WorkerNodeGroupMinSize:   legacy.MinSize,
+			WorkerNodeGroupMaxSize:   legacy.MaxSize,
+			WorkerInstanceFlavorUUID: legacy.WorkerFlavor,
+			MasterInstanceFlavorUUID: legacy.MasterFlavor,
+			WorkerDiskSizeGB:         legacy.DiskSize,
+			AllowedCIDRS:             legacy.AllowedCidrs,
+		}
 	}
 
 	ctx := context.Background()
