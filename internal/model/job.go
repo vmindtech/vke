@@ -19,10 +19,10 @@ type Job struct {
 	Attempts   int       `json:"attempts" gorm:"type:int;default:0"`
 	MaxAttempts int      `json:"max_attempts" gorm:"type:int;default:10"`
 	LastError  string    `json:"last_error" gorm:"type:text"`
-	NextRunAt  time.Time `json:"next_run_at" gorm:"type:datetime;index"`
+	NextRunAt  *time.Time `json:"next_run_at" gorm:"type:datetime;index"`
 
 	LockedBy string    `json:"locked_by" gorm:"type:varchar(64);index"`
-	LockedAt time.Time `json:"locked_at" gorm:"type:datetime;index"`
+	LockedAt *time.Time `json:"locked_at" gorm:"type:datetime;index"`
 
 	CreatedAt time.Time `json:"created_at" gorm:"type:datetime;autoCreateTime"`
 	UpdatedAt time.Time `json:"updated_at" gorm:"type:datetime;autoUpdateTime"`

@@ -24,6 +24,19 @@ import (
 	"github.com/vmindtech/vke/pkg/utils"
 )
 
+func getAuthTokenFromHeaders(c *fiber.Ctx) string {
+	if t := c.Get("X-Auth-Token"); t != "" {
+		return t
+	}
+	if a := strings.TrimSpace(c.Get("Authorization")); a != "" {
+		if strings.HasPrefix(strings.ToLower(a), "bearer ") {
+			return strings.TrimSpace(a[7:])
+		}
+		return a
+	}
+	return ""
+}
+
 type IAppHandler interface {
 	App(c *fiber.Ctx) error
 	ClusterInfo(c *fiber.Ctx) error
@@ -80,46 +93,14 @@ func (a *appHandler) ClusterInfo(c *fiber.Ctx) error {
 }
 
 func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
-	// Parse into a compatibility struct without duplicate JSON tags.
 	var req request.CreateClusterRequest
 	if err := c.BodyParser(&req); err != nil {
-		// fallback to legacy schema
-		var legacy struct {
-			Name         string   `json:"name"`
-			ProjectId    string   `json:"projectId"`
-			KubVersion   string   `json:"kubVersion"`
-			ApiAccess    string   `json:"apiAccess"`
-			Keypair      string   `json:"keypair"`
-			SubnetIds    []string `json:"subnetIds"`
-			MinSize      int      `json:"minSize"`
-			MaxSize      int      `json:"maxSize"`
-			WorkerFlavor string   `json:"workerFlavor"`
-			MasterFlavor string   `json:"masterFlavor"`
-			DiskSize     int      `json:"diskSize"`
-			AllowedCidrs []string `json:"allowedCidrs"`
-		}
-		if err2 := c.BodyParser(&legacy); err2 != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
-	}
-		req = request.CreateClusterRequest{
-			ClusterName:              legacy.Name,
-			ProjectID:                legacy.ProjectId,
-			KubernetesVersion:        legacy.KubVersion,
-			NodeKeyPairName:          legacy.Keypair,
-			ClusterAPIAccess:         legacy.ApiAccess,
-			SubnetIDs:                legacy.SubnetIds,
-			WorkerNodeGroupMinSize:   legacy.MinSize,
-			WorkerNodeGroupMaxSize:   legacy.MaxSize,
-			WorkerInstanceFlavorUUID: legacy.WorkerFlavor,
-			MasterInstanceFlavorUUID: legacy.MasterFlavor,
-			WorkerDiskSizeGB:         legacy.DiskSize,
-			AllowedCIDRS:             legacy.AllowedCidrs,
-		}
 	}
 
 	ctx := context.Background()
 
-	authToken := c.Get("X-Auth-Token")
+	authToken := getAuthTokenFromHeaders(c)
 	if authToken == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, "", "", req.ProjectID))
@@ -152,7 +133,7 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 		Payload:        payload,
 		Attempts:       0,
 		MaxAttempts:    10,
-		NextRunAt:      time.Now(),
+		NextRunAt:      func() *time.Time { t := time.Now(); return &t }(),
 	}
 
 	if err := a.appService.Repository().Jobs().CreateJob(ctx, job); err != nil {
@@ -251,7 +232,7 @@ func (a *appHandler) GetClustersByProjectId(c *fiber.Ctx) error {
 func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 	clusterID := c.Params("cluster_id")
 	ctx := context.Background()
-	authToken := c.Get("X-Auth-Token")
+	authToken := getAuthTokenFromHeaders(c)
 	if authToken == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
@@ -274,7 +255,7 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 		Payload:        payload,
 		Attempts:       0,
 		MaxAttempts:    10,
-		NextRunAt:      time.Now(),
+		NextRunAt:      func() *time.Time { t := time.Now(); return &t }(),
 	}
 	if err := a.appService.Repository().Jobs().CreateJob(ctx, job); err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(
