@@ -189,6 +189,17 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 			ch := make(chan string, 1)
 			runCtx := context.WithValue(ctx, "cluster_uuid", clusterUUID)
 			c.CreateCluster(runCtx, token, createReq, ch)
+			// CreateCluster does not return an error; verify outcome.
+			created, chkErr := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
+			if chkErr != nil || created == nil || created.ClusterUUID == "" {
+				if chkErr != nil {
+					return chkErr
+				}
+				return fmt.Errorf("cluster create did not persist cluster record")
+			}
+			if created.ClusterStatus == ErrorClusterStatus {
+				return fmt.Errorf("cluster creation failed (status=Error)")
+			}
 			return nil
 		}
 		cluster.CreateState = constants.CreateStateKubeconfig
@@ -207,6 +218,16 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 		ch := make(chan string, 1)
 		runCtx := context.WithValue(ctx, "cluster_uuid", clusterUUID)
 		c.CreateCluster(runCtx, token, createReq, ch)
+		created, chkErr := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
+		if chkErr != nil || created == nil || created.ClusterUUID == "" {
+			if chkErr != nil {
+				return chkErr
+			}
+			return fmt.Errorf("cluster create did not persist cluster record")
+		}
+		if created.ClusterStatus == ErrorClusterStatus {
+			return fmt.Errorf("cluster creation failed (status=Error)")
+		}
 		return nil
 	}
 }

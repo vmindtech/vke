@@ -1,0 +1,7 @@
+ALTER TABLE `clusters`
+  MODIFY COLUMN `create_state` enum('INITIAL','LOADBALANCER','FLOATING_IP','SECURITY_GROUPS','SERVER_GROUPS','PORTS','COMPUTES','DNS','KUBECONFIG','COMPLETED') DEFAULT 'INITIAL';
+
+UPDATE `clusters`
+SET `create_state` = UPPER(`create_state`)
+WHERE `create_state` IS NOT NULL;
+

@@ -62,7 +62,7 @@ CREATE TABLE `clusters` (
   `cluster_shared_security_group` varchar(50) DEFAULT NULL,
   `application_credential_id` varchar(36) DEFAULT NULL,
   `application_credential_secret_enc` text DEFAULT NULL,
-  `create_state` enum('initial','loadbalancer','floating_ip','security_groups','server_groups','ports','computes','dns','kubeconfig','completed') DEFAULT 'initial',
+  `create_state` enum('INITIAL','LOADBALANCER','FLOATING_IP','SECURITY_GROUPS','SERVER_GROUPS','PORTS','COMPUTES','DNS','KUBECONFIG','COMPLETED') DEFAULT 'INITIAL',
   `delete_state` enum('initial', 'loadbalancer', 'dns', 'floating_ip', 'nodes', 'security_groups', 'credentials', 'completed') DEFAULT 'initial',
   `cluster_certificate_expire_date` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
