@@ -66,6 +66,73 @@ func (r *RabbitMQ) PublishJSON(ctx context.Context, body any) error {
 	)
 }
 
+func (r *RabbitMQ) PublishJSONWithDelay(ctx context.Context, body any, delay time.Duration) error {
+	conn, err := amqp.Dial(r.url)
+	if err != nil {
+		return fmt.Errorf("rabbitmq dial: %w", err)
+	}
+	defer conn.Close()
+
+	ch, err := conn.Channel()
+	if err != nil {
+		return fmt.Errorf("rabbitmq channel: %w", err)
+	}
+	defer ch.Close()
+
+	// main queue
+	_, err = ch.QueueDeclare(r.queueName, true, false, false, false, nil)
+	if err != nil {
+		return fmt.Errorf("rabbitmq declare queue: %w", err)
+	}
+
+	// retry queue with TTL+DLX back to main queue
+	retryQueue := r.queueName + ".retry"
+	_, err = ch.QueueDeclare(
+		retryQueue,
+		true,
+		false,
+		false,
+		false,
+		amqp.Table{
+			"x-dead-letter-exchange":    "",
+			"x-dead-letter-routing-key": r.queueName,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("rabbitmq declare retry queue: %w", err)
+	}
+
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal message: %w", err)
+	}
+	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	exp := fmt.Sprintf("%d", max(int64(delay/time.Millisecond), 0))
+	return ch.PublishWithContext(
+		pubCtx,
+		"",
+		retryQueue,
+		false,
+		false,
+		amqp.Publishing{
+			DeliveryMode: amqp.Persistent,
+			ContentType:  "application/json",
+			Body:         data,
+			Expiration:   exp,
+			Timestamp:    time.Now(),
+		},
+	)
+}
+
+func max(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (r *RabbitMQ) Consume(ctx context.Context, consumerName string, prefetch int) (<-chan amqp.Delivery, func() error, error) {
 	conn, err := amqp.Dial(r.url)
 	if err != nil {

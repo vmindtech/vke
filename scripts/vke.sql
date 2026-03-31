@@ -55,6 +55,7 @@ CREATE TABLE `clusters` (
   `create_request` json DEFAULT NULL,
   `cluster_node_keypair_name` varchar(140) DEFAULT NULL,
   `cluster_endpoint` varchar(144) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
+  `cluster_subdomain_hash` varchar(36) DEFAULT NULL,
   `cluster_api_access` enum('public','private') DEFAULT 'public',
   `cluster_agent_token` varchar(255) DEFAULT NULL,
   `floating_ip_uuid` varchar(255) DEFAULT NULL,

@@ -103,8 +103,9 @@ func main() {
 				_ = d.Ack(false)
 				continue
 			}
-			time.Sleep(2 * time.Second)
-			_ = d.Nack(false, true)
+			// move message to retry queue with TTL, then ack to avoid hot-loop
+			_ = rmq.PublishJSONWithDelay(ctx, json.RawMessage(d.Body), 5*time.Second)
+			_ = d.Ack(false)
 			continue
 		}
 		_ = d.Ack(false)

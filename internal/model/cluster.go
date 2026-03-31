@@ -24,6 +24,7 @@ type Cluster struct {
 	CreateRequest               datatypes.JSON `json:"-" gorm:"column:create_request;type:json"`
 	ClusterNodeKeypairName       string         `json:"cluster_node_keypair_name" gorm:"type:varchar(140)"`
 	ClusterEndpoint              string         `json:"cluster_endpoint" gorm:"type:varchar(144)"`
+	ClusterSubdomainHash         string         `json:"-" gorm:"column:cluster_subdomain_hash;type:varchar(36)"`
 	ClusterAPIAccess             string         `json:"cluster_api_access" gorm:"type:varchar(255)"`
 	FloatingIPUUID               string         `json:"floating_ip_uuid" gorm:"type:varchar(36)"`
 	ClusterCloudflareRecordID    string         `json:"cluster_cloudflare_record_id" gorm:"type:varchar(36)"`
