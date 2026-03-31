@@ -584,8 +584,8 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 				KeyName:          req.NodeKeyPairName,
 				AvailabilityZone: "nova",
 				SecurityGroups: []request.SecurityGroups{
-					{Name: "master"},
-					{Name: "shared"},
+					{Name: masterSGs[0].ResourceUUID},
+					{Name: sharedSGs[0].ResourceUUID},
 				},
 				BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
 					{
@@ -648,8 +648,8 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 				KeyName:          req.NodeKeyPairName,
 				AvailabilityZone: "nova",
 				SecurityGroups: []request.SecurityGroups{
-					{Name: "worker"},
-					{Name: "shared"},
+					{Name: workerSGs[0].ResourceUUID},
+					{Name: sharedSGs[0].ResourceUUID},
 				},
 				BlockDeviceMappingV2: []request.BlockDeviceMappingV2{
 					{
