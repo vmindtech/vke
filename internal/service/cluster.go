@@ -167,8 +167,9 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 	if err != nil {
 		return err
 	}
-	token, err := c.identityService.AuthenticateWithApplicationCredential(ctx, cluster.ApplicationCredentialID, appSecret)
+	_, err = c.identityService.AuthenticateWithApplicationCredential(ctx, cluster.ApplicationCredentialID, appSecret)
 	if err != nil {
+		_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: clusterUUID, ClusterStatus: ErrorClusterStatus})
 		return err
 	}
 
@@ -186,21 +187,11 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 		if len(lbs) == 0 {
 			// run the relevant section by calling existing CreateCluster but it will create all; avoid.
 			// Minimal safe path: call CreateCluster monolith if no LB yet.
-			ch := make(chan string, 1)
-			runCtx := context.WithValue(ctx, "cluster_uuid", clusterUUID)
-			c.CreateCluster(runCtx, token, createReq, ch)
-			// CreateCluster does not return an error; verify outcome.
-			created, chkErr := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
-			if chkErr != nil || created == nil || created.ClusterUUID == "" {
-				if chkErr != nil {
-					return chkErr
-				}
-				return fmt.Errorf("cluster create did not persist cluster record")
-			}
-			if created.ClusterStatus == ErrorClusterStatus {
-				return fmt.Errorf("cluster creation failed (status=Error)")
-			}
-			return nil
+			// We should never create a second cluster record here.
+			// If no LB exists yet, it's a retryable failure and we keep cluster in Creating, but mark Error on failure.
+			err := fmt.Errorf("load balancer not created yet")
+			_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: clusterUUID, ClusterStatus: ErrorClusterStatus})
+			return err
 		}
 		cluster.CreateState = constants.CreateStateKubeconfig
 		_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: clusterUUID, CreateState: cluster.CreateState})
@@ -214,21 +205,9 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 		_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: clusterUUID, CreateState: cluster.CreateState, ClusterStatus: cluster.ClusterStatus})
 		return nil
 	default:
-		// fallback to monolith for now
-		ch := make(chan string, 1)
-		runCtx := context.WithValue(ctx, "cluster_uuid", clusterUUID)
-		c.CreateCluster(runCtx, token, createReq, ch)
-		created, chkErr := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
-		if chkErr != nil || created == nil || created.ClusterUUID == "" {
-			if chkErr != nil {
-				return chkErr
-			}
-			return fmt.Errorf("cluster create did not persist cluster record")
-		}
-		if created.ClusterStatus == ErrorClusterStatus {
-			return fmt.Errorf("cluster creation failed (status=Error)")
-		}
-		return nil
+		err := fmt.Errorf("unsupported create_state: %s", cluster.CreateState)
+		_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: clusterUUID, ClusterStatus: ErrorClusterStatus})
+		return err
 	}
 }
 
@@ -383,6 +362,31 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
+	// If cluster record already exists (InitCreateCluster path), do not try to create it again.
+	clusterModel, getErr := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
+	if getErr != nil || clusterModel == nil || clusterModel.ClusterUUID == "" {
+		clusterModel = &model.Cluster{
+			ClusterUUID:                  clusterUUID,
+			ClusterName:                  req.ClusterName,
+			ClusterCreateDate:            time.Now(),
+			ClusterVersion:               req.KubernetesVersion,
+			ClusterStatus:                CreatingClusterStatus,
+			ClusterProjectUUID:           req.ProjectID,
+			ClusterLoadbalancerUUID:      "",
+			ClusterRegisterToken:         "",
+			ClusterAgentToken:            "",
+			ClusterSubnets:               subnetIdsJSON,
+			ClusterNodeKeypairName:       req.NodeKeyPairName,
+			ClusterAPIAccess:             req.ClusterAPIAccess,
+			FloatingIPUUID:               "",
+			ClusterSharedSecurityGroup:   "",
+			ApplicationCredentialID:      "",
+			CreateState:                  constants.CreateStateInitial,
+			ClusterCertificateExpireDate: time.Now().AddDate(0, 0, 365),
+			DeleteState:                  constants.DeleteStateInitial,
+		}
+	}
+
 	// Best practice: reuse existing application credential created during InitCreateCluster (do not create twice)
 	createApplicationCredentialReq := resource.CreateApplicationCredentialResponse{}
 	if existingCluster, getErr := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID); getErr == nil && existingCluster != nil && existingCluster.ApplicationCredentialID != "" && existingCluster.ApplicationCredentialSecretEnc != "" {
@@ -399,6 +403,7 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		}
 		createApplicationCredentialReq.Credential.ID = existingCluster.ApplicationCredentialID
 		createApplicationCredentialReq.Credential.Secret = secret
+		clusterModel.ApplicationCredentialID = existingCluster.ApplicationCredentialID
 	} else {
 		// Strict mode: never create a new credential here; must be created by InitCreateCluster.
 		err := fmt.Errorf("missing application credential for cluster (InitCreateCluster must run first)")
@@ -426,50 +431,58 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 			return
 		}
 	}
-	clusterModel := &model.Cluster{
-		ClusterUUID:                  clusterUUID,
-		ClusterName:                  req.ClusterName,
-		ClusterCreateDate:            time.Now(),
-		ClusterVersion:               req.KubernetesVersion,
-		ClusterStatus:                CreatingClusterStatus,
-		ClusterProjectUUID:           req.ProjectID,
-		ClusterLoadbalancerUUID:      "",
-		ClusterRegisterToken:         "",
-		ClusterAgentToken:            "",
-		ClusterSubnets:               subnetIdsJSON,
-		ClusterNodeKeypairName:       req.NodeKeyPairName,
-		ClusterAPIAccess:             req.ClusterAPIAccess,
-		FloatingIPUUID:               "",
-		ClusterSharedSecurityGroup:   "",
-		ApplicationCredentialID:      createApplicationCredentialReq.Credential.ID,
-		ClusterCertificateExpireDate: time.Now().AddDate(0, 0, 365),
-		DeleteState:                  constants.DeleteStateInitial,
+	// Fill required fields (even if cluster already exists, keep it consistent)
+	clusterModel.ClusterUUID = clusterUUID
+	clusterModel.ClusterName = req.ClusterName
+	if clusterModel.ClusterCreateDate.IsZero() {
+		clusterModel.ClusterCreateDate = time.Now()
+	}
+	clusterModel.ClusterVersion = req.KubernetesVersion
+	if clusterModel.ClusterStatus == "" {
+		clusterModel.ClusterStatus = CreatingClusterStatus
+	}
+	clusterModel.ClusterProjectUUID = req.ProjectID
+	clusterModel.ClusterSubnets = subnetIdsJSON
+	clusterModel.ClusterNodeKeypairName = req.NodeKeyPairName
+	clusterModel.ClusterAPIAccess = req.ClusterAPIAccess
+	clusterModel.ApplicationCredentialID = createApplicationCredentialReq.Credential.ID
+	if clusterModel.CreateState == "" {
+		clusterModel.CreateState = constants.CreateStateInitial
+	}
+	if clusterModel.DeleteState == "" {
+		clusterModel.DeleteState = constants.DeleteStateInitial
+	}
+	if clusterModel.ClusterCertificateExpireDate.IsZero() {
+		clusterModel.ClusterCertificateExpireDate = time.Now().AddDate(0, 0, 365)
 	}
 
-	err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create")
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": clusterUUID,
-		}).Error("failed to create audit log")
-		c.logClusterErrorWithDetails(ctx, clusterUUID, constants.ErrAuditLogCreateFailed, "cluster_creation", err.Error())
-		return
-	}
-
-	err = c.repository.Cluster().CreateCluster(ctx, clusterModel)
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": clusterUUID,
-		}).Error("failed to create cluster")
-		c.logClusterErrorWithDetails(ctx, clusterUUID, constants.ErrClusterCreateFailed, "cluster_creation", err.Error())
-
-		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
+	// If cluster record does not exist yet, create it once.
+	if getErr != nil {
+		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create")
 		if err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
 				"clusterUUID": clusterUUID,
 			}).Error("failed to create audit log")
 			c.logClusterErrorWithDetails(ctx, clusterUUID, constants.ErrAuditLogCreateFailed, "cluster_creation", err.Error())
+			return
 		}
-		return
+
+		err = c.repository.Cluster().CreateCluster(ctx, clusterModel)
+		if err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create cluster")
+			c.logClusterErrorWithDetails(ctx, clusterUUID, constants.ErrClusterCreateFailed, "cluster_creation", err.Error())
+
+			err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
+			if err != nil {
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+				}).Error("failed to create audit log")
+				c.logClusterErrorWithDetails(ctx, clusterUUID, constants.ErrAuditLogCreateFailed, "cluster_creation", err.Error())
+			}
+			return
+		}
 	}
 
 	floatingIPUUID := ""
