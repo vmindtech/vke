@@ -52,6 +52,7 @@ CREATE TABLE `clusters` (
   `cluster_loadbalancer_uuid` varchar(255) DEFAULT NULL,
   `cluster_register_token` varchar(255) DEFAULT NULL,
   `cluster_subnets` json DEFAULT NULL,
+  `create_request` json DEFAULT NULL,
   `cluster_node_keypair_name` varchar(140) DEFAULT NULL,
   `cluster_endpoint` varchar(144) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
   `cluster_api_access` enum('public','private') DEFAULT 'public',
@@ -60,6 +61,8 @@ CREATE TABLE `clusters` (
   `cluster_cloudflare_record_id` varchar(36) DEFAULT NULL,
   `cluster_shared_security_group` varchar(50) DEFAULT NULL,
   `application_credential_id` varchar(36) DEFAULT NULL,
+  `application_credential_secret_enc` text DEFAULT NULL,
+  `create_state` enum('initial','loadbalancer','floating_ip','security_groups','server_groups','ports','computes','dns','kubeconfig','completed') DEFAULT 'initial',
   `delete_state` enum('initial', 'loadbalancer', 'dns', 'floating_ip', 'nodes', 'security_groups', 'credentials', 'completed') DEFAULT 'initial',
   `cluster_certificate_expire_date` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -82,6 +85,39 @@ CREATE TABLE `errors` (
   PRIMARY KEY (`id`),
   KEY `idx_cluster_uuid` (`cluster_uuid`),
   KEY `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `jobs`
+--
+
+DROP TABLE IF EXISTS `jobs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `jobs` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `job_uuid` varchar(36) NOT NULL,
+  `job_type` varchar(64) NOT NULL,
+  `status` varchar(24) NOT NULL,
+  `idempotency_key` varchar(128) NOT NULL,
+  `cluster_uuid` varchar(36) DEFAULT NULL,
+  `project_uuid` varchar(36) DEFAULT NULL,
+  `payload` json DEFAULT NULL,
+  `attempts` int NOT NULL DEFAULT 0,
+  `max_attempts` int NOT NULL DEFAULT 10,
+  `last_error` text,
+  `next_run_at` datetime DEFAULT NULL,
+  `locked_by` varchar(64) DEFAULT NULL,
+  `locked_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_job_uuid` (`job_uuid`),
+  UNIQUE KEY `uq_idempotency_key` (`idempotency_key`),
+  KEY `idx_status_next` (`status`,`next_run_at`),
+  KEY `idx_cluster_uuid` (`cluster_uuid`),
+  KEY `idx_project_uuid` (`project_uuid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 

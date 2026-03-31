@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -15,9 +16,12 @@ import (
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/internal/repository"
 	"github.com/vmindtech/vke/pkg/constants"
+	"github.com/vmindtech/vke/pkg/utils"
 )
 
 type IClusterService interface {
+	InitCreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest, clusterUUID string) error
+	RunCreateCluster(ctx context.Context, clusterUUID string) error
 	CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest, clUUID chan string)
 	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
 	GetClusterDetails(ctx context.Context, authToken, clusterID string) (resource.GetClusterDetailsResponse, error)
@@ -52,6 +56,158 @@ func NewClusterService(l *logrus.Logger, cf ICloudflareService, lbc ILoadbalance
 		logger:              l,
 		identityService:     i,
 		repository:          r,
+	}
+}
+
+func (c *clusterService) InitCreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest, clusterUUID string) error {
+	// if already exists, treat as success (idempotent)
+	if existing, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID); err == nil && existing != nil && existing.ClusterUUID != "" {
+		return nil
+	}
+
+	token := strings.Clone(authToken)
+	if err := c.identityService.CheckAuthToken(ctx, token, req.ProjectID); err != nil {
+		return err
+	}
+
+	subnetIdsJSON, err := json.Marshal(req.SubnetIDs)
+	if err != nil {
+		return err
+	}
+
+	createReqJSON, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	createApplicationCredentialResp, err := c.identityService.CreateApplicationCredential(ctx, clusterUUID, token)
+	if err != nil {
+		return err
+	}
+
+	encKey := config.GlobalConfig.GetEncryptionConfig().Key
+	if encKey == "" {
+		return fmt.Errorf("VKE_ENCRYPTION_KEY must be set")
+	}
+	// derive 32 bytes from config (sha256 for simplicity/compat)
+	derived := sha256Sum(encKey)
+	secretEnc, err := utils.EncryptAESGCM(derived, createApplicationCredentialResp.Credential.Secret)
+	if err != nil {
+		return err
+	}
+
+	// track app credential resource
+	_ = c.repository.Resources().CreateResource(ctx, &model.Resource{
+		ClusterUUID:  clusterUUID,
+		ResourceType: "application_credential",
+		ResourceUUID: createApplicationCredentialResp.Credential.ID,
+	})
+
+	clusterModel := &model.Cluster{
+		ClusterUUID:                    clusterUUID,
+		ClusterName:                    req.ClusterName,
+		ClusterCreateDate:              time.Now(),
+		ClusterVersion:                 req.KubernetesVersion,
+		ClusterStatus:                  CreatingClusterStatus,
+		ClusterProjectUUID:             req.ProjectID,
+		ClusterSubnets:                 subnetIdsJSON,
+		CreateRequest:                  createReqJSON,
+		ClusterNodeKeypairName:         req.NodeKeyPairName,
+		ClusterAPIAccess:               req.ClusterAPIAccess,
+		ApplicationCredentialID:        createApplicationCredentialResp.Credential.ID,
+		ApplicationCredentialSecretEnc: secretEnc,
+		CreateState:                    constants.CreateStateInitial,
+		DeleteState:                    constants.DeleteStateInitial,
+		ClusterCertificateExpireDate:   time.Now().AddDate(0, 0, 365),
+	}
+
+	if err := c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create"); err != nil {
+		// non-fatal; still try to create cluster record
+		c.logger.WithError(err).WithField("clusterUUID", clusterUUID).Error("failed to create audit log")
+	}
+
+	return c.repository.Cluster().CreateCluster(ctx, clusterModel)
+}
+
+// sha256Sum returns 32 bytes from key string.
+func sha256Sum(s string) []byte {
+	h := sha256.New()
+	_, _ = h.Write([]byte(s))
+	return h.Sum(nil)
+}
+
+func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID string) error {
+	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
+	if err != nil {
+		return err
+	}
+
+	if cluster.CreateState == "" {
+		cluster.CreateState = constants.CreateStateInitial
+	}
+	if cluster.CreateState == constants.CreateStateCompleted || cluster.ClusterStatus == ActiveClusterStatus {
+		return nil
+	}
+
+	var createReq request.CreateClusterRequest
+	if len(cluster.CreateRequest) > 0 {
+		if err := json.Unmarshal(cluster.CreateRequest, &createReq); err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("missing create_request for cluster %s", clusterUUID)
+	}
+
+	encKey := config.GlobalConfig.GetEncryptionConfig().Key
+	if encKey == "" {
+		return fmt.Errorf("VKE_ENCRYPTION_KEY must be set")
+	}
+	derived := sha256Sum(encKey)
+	appSecret, err := utils.DecryptAESGCM(derived, cluster.ApplicationCredentialSecretEnc)
+	if err != nil {
+		return err
+	}
+	token, err := c.identityService.AuthenticateWithApplicationCredential(ctx, cluster.ApplicationCredentialID, appSecret)
+	if err != nil {
+		return err
+	}
+
+	// For now, reuse the existing monolith but make it resume-safe at coarse granularity:
+	// If we crash mid-way, we re-enter and will skip already-created resources via resources table checks.
+	// This is incrementally improved by step-wise updates below.
+	switch cluster.CreateState {
+	case constants.CreateStateInitial:
+		cluster.CreateState = constants.CreateStateLoadBalancer
+		_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: clusterUUID, CreateState: cluster.CreateState})
+		fallthrough
+	case constants.CreateStateLoadBalancer:
+		// Create LB if not exists
+		lbs, _ := c.repository.Resources().GetResourceByClusterUUID(ctx, clusterUUID, "load_balancer")
+		if len(lbs) == 0 {
+			// run the relevant section by calling existing CreateCluster but it will create all; avoid.
+			// Minimal safe path: call CreateCluster monolith if no LB yet.
+			ch := make(chan string, 1)
+			runCtx := context.WithValue(ctx, "cluster_uuid", clusterUUID)
+			c.CreateCluster(runCtx, token, createReq, ch)
+			return nil
+		}
+		cluster.CreateState = constants.CreateStateKubeconfig
+		_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: clusterUUID, CreateState: cluster.CreateState})
+		fallthrough
+	case constants.CreateStateKubeconfig:
+		if err := c.CheckKubeConfig(ctx, clusterUUID); err != nil {
+			return err
+		}
+		cluster.CreateState = constants.CreateStateCompleted
+		cluster.ClusterStatus = ActiveClusterStatus
+		_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: clusterUUID, CreateState: cluster.CreateState, ClusterStatus: cluster.ClusterStatus})
+		return nil
+	default:
+		// fallback to monolith for now
+		ch := make(chan string, 1)
+		runCtx := context.WithValue(ctx, "cluster_uuid", clusterUUID)
+		c.CreateCluster(runCtx, token, createReq, ch)
+		return nil
 	}
 }
 
@@ -179,7 +335,15 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	clusterUUID := uuid.New().String()
+	clusterUUID := ""
+	if v := ctx.Value("cluster_uuid"); v != nil {
+		if s, ok := v.(string); ok && s != "" {
+			clusterUUID = s
+		}
+	}
+	if clusterUUID == "" {
+		clusterUUID = uuid.New().String()
+	}
 	clUUID <- clusterUUID
 
 	subnetIdsJSON, err := json.Marshal(req.SubnetIDs)
@@ -198,34 +362,48 @@ func (c *clusterService) CreateCluster(ctx context.Context, authToken string, re
 		return
 	}
 
-	createApplicationCredentialReq, err := c.identityService.CreateApplicationCredential(ctx, clusterUUID, token)
-	if err != nil {
+	// Best practice: reuse existing application credential created during InitCreateCluster (do not create twice)
+	createApplicationCredentialReq := resource.CreateApplicationCredentialResponse{}
+	if existingCluster, getErr := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID); getErr == nil && existingCluster != nil && existingCluster.ApplicationCredentialID != "" && existingCluster.ApplicationCredentialSecretEnc != "" {
+		encKey := config.GlobalConfig.GetEncryptionConfig().Key
+		if encKey == "" {
+			c.logger.WithFields(logrus.Fields{"clusterUUID": clusterUUID}).Error("VKE_ENCRYPTION_KEY must be set")
+			return
+		}
+		derived := sha256Sum(encKey)
+		secret, decErr := utils.DecryptAESGCM(derived, existingCluster.ApplicationCredentialSecretEnc)
+		if decErr != nil {
+			c.logger.WithError(decErr).WithFields(logrus.Fields{"clusterUUID": clusterUUID}).Error("failed to decrypt application credential secret")
+			return
+		}
+		createApplicationCredentialReq.Credential.ID = existingCluster.ApplicationCredentialID
+		createApplicationCredentialReq.Credential.Secret = secret
+	} else {
+		// Strict mode: never create a new credential here; must be created by InitCreateCluster.
+		err := fmt.Errorf("missing application credential for cluster (InitCreateCluster must run first)")
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": clusterUUID,
-		}).Error("failed to create application credential")
+		}).Error("application credential missing")
 		c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrApplicationCredentialCreateFailed, "cluster_creation", err)
-		err = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": clusterUUID,
-			}).Error("failed to create audit log")
-			c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrAuditLogCreateFailed, "cluster_creation", err)
-		}
+		_ = c.CreateAuditLog(ctx, clusterUUID, req.ProjectID, "Cluster Create Failed")
 		return
 	}
 
-	resourceModel := &model.Resource{
-		ClusterUUID:  clusterUUID,
-		ResourceType: "application_credential",
-		ResourceUUID: createApplicationCredentialReq.Credential.ID,
-	}
-	err = c.repository.Resources().CreateResource(ctx, resourceModel)
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": clusterUUID,
-		}).Error("failed to create resource")
-		c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrResourceCreateFailed, "cluster_creation", err)
-		return
+	// create resource row only if missing
+	if creds, _ := c.repository.Resources().GetResourceByClusterUUID(ctx, clusterUUID, "application_credential"); len(creds) == 0 {
+		resourceModel := &model.Resource{
+			ClusterUUID:  clusterUUID,
+			ResourceType: "application_credential",
+			ResourceUUID: createApplicationCredentialReq.Credential.ID,
+		}
+		err = c.repository.Resources().CreateResource(ctx, resourceModel)
+		if err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": clusterUUID,
+			}).Error("failed to create resource")
+			c.logClusterErrorFiltered(ctx, clusterUUID, constants.ErrResourceCreateFailed, "cluster_creation", err)
+			return
+		}
 	}
 	clusterModel := &model.Cluster{
 		ClusterUUID:                  clusterUUID,

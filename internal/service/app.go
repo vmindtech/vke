@@ -9,6 +9,7 @@ type IAppService interface {
 	Cluster() IClusterService
 	Compute() IComputeService
 	NodeGroups() INodeGroupsService
+	Repository() repository.IRepository
 }
 
 type appService struct {
@@ -37,4 +38,8 @@ func (a *appService) Compute() IComputeService {
 }
 func (a *appService) NodeGroups() INodeGroupsService {
 	return a.nodeGroupsService
+}
+
+func (a *appService) Repository() repository.IRepository {
+	return a.repository
 }

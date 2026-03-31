@@ -30,6 +30,15 @@ type MysqlDBConfig struct {
 	URL string
 }
 
+type RabbitMQConfig struct {
+	URL       string
+	QueueName string
+}
+
+type EncryptionConfig struct {
+	Key string
+}
+
 type APIEndpointsConfig struct {
 	ComputeEndpoint      string
 	NetworkEndpoint      string

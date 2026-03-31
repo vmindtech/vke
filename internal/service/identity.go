@@ -21,6 +21,7 @@ type IIdentityService interface {
 	CheckAuthToken(ctx context.Context, authToken, projectID string) error
 	CreateApplicationCredential(ctx context.Context, clusterUUID, authToken string) (resource.CreateApplicationCredentialResponse, error)
 	DeleteApplicationCredential(ctx context.Context, authToken, projectID string) error
+	AuthenticateWithApplicationCredential(ctx context.Context, applicationCredentialID, applicationCredentialSecret string) (string, error)
 }
 
 type identityService struct {
@@ -195,4 +196,47 @@ func (i *identityService) DeleteApplicationCredential(ctx context.Context, authT
 		return fmt.Errorf("failed to delete application credential, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 	return nil
+}
+
+func (i *identityService) AuthenticateWithApplicationCredential(ctx context.Context, applicationCredentialID, applicationCredentialSecret string) (string, error) {
+	reqBody := &request.AuthenticateWithApplicationCredentialRequest{
+		Auth: request.AuthWrapper{
+			Identity: request.Identity{
+				Methods: []string{"application_credential"},
+				ApplicationCredential: request.ApplicationCredentialRef{
+					ID:     applicationCredentialID,
+					Secret: applicationCredentialSecret,
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		i.logger.WithError(err).Error("failed to marshal auth request")
+		return "", err
+	}
+
+	r, err := http.NewRequest("POST", fmt.Sprintf("%s/v3/auth/tokens", config.GlobalConfig.GetEndpointsConfig().IdentityEndpoint), bytes.NewBuffer(data))
+	if err != nil {
+		i.logger.WithError(err).Error("failed to create request")
+		return "", err
+	}
+	r.Header = make(http.Header)
+	r.Header.Add("Content-Type", "application/json")
+
+	resp, err := i.client.Do(r)
+	if err != nil {
+		i.logger.WithError(err).Error("failed to send request")
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to authenticate with application credential, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	token := resp.Header.Get("X-Subject-Token")
+	if token == "" {
+		return "", fmt.Errorf("missing X-Subject-Token in response")
+	}
+	return token, nil
 }

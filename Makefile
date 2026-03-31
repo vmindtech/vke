@@ -1,3 +1,42 @@
+.PHONY: migrate-up migrate-down migrate-force
+
+# Usage:
+#   make migrate-up DATABASE_URL='mysql://user:pass@tcp(host:3306)/db?charset=utf8&parseTime=true&loc=UTC'
+#
+# For CI/CD: run migrate-up before deploying API/worker.
+
+MIGRATE_IMAGE ?= migrate/migrate:v4.17.1
+MIGRATIONS_DIR ?= $(CURDIR)/migrations
+
+migrate-up:
+	@test -n "$(DATABASE_URL)" || (echo "DATABASE_URL is required"; exit 1)
+	docker run --rm \
+	  -v "$(MIGRATIONS_DIR)":/migrations \
+	  "$(MIGRATE_IMAGE)" \
+	  -path=/migrations \
+	  -database "$(DATABASE_URL)" \
+	  up
+
+migrate-down:
+	@test -n "$(DATABASE_URL)" || (echo "DATABASE_URL is required"; exit 1)
+	docker run --rm \
+	  -v "$(MIGRATIONS_DIR)":/migrations \
+	  "$(MIGRATE_IMAGE)" \
+	  -path=/migrations \
+	  -database "$(DATABASE_URL)" \
+	  down 1
+
+# Dangerous: use only if you know what you're doing
+migrate-force:
+	@test -n "$(DATABASE_URL)" || (echo "DATABASE_URL is required"; exit 1)
+	@test -n "$(VERSION)" || (echo "VERSION is required"; exit 1)
+	docker run --rm \
+	  -v "$(MIGRATIONS_DIR)":/migrations \
+	  "$(MIGRATE_IMAGE)" \
+	  -path=/migrations \
+	  -database "$(DATABASE_URL)" \
+	  force "$(VERSION)"
+
 lint:
 	golangci-lint run
 

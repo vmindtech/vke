@@ -21,6 +21,7 @@ type Cluster struct {
 	ClusterRegisterToken         string         `json:"cluster_register_token" gorm:"type:varchar(255)"`
 	ClusterAgentToken            string         `json:"cluster_agent_token" gorm:"type:varchar(255)"`
 	ClusterSubnets               datatypes.JSON `json:"cluster_subnets" gorm:"type:json"`
+	CreateRequest               datatypes.JSON `json:"-" gorm:"column:create_request;type:json"`
 	ClusterNodeKeypairName       string         `json:"cluster_node_keypair_name" gorm:"type:varchar(140)"`
 	ClusterEndpoint              string         `json:"cluster_endpoint" gorm:"type:varchar(144)"`
 	ClusterAPIAccess             string         `json:"cluster_api_access" gorm:"type:varchar(255)"`
@@ -28,6 +29,8 @@ type Cluster struct {
 	ClusterCloudflareRecordID    string         `json:"cluster_cloudflare_record_id" gorm:"type:varchar(36)"`
 	ClusterSharedSecurityGroup   string         `json:"cluster_shared_security_group" gorm:"type:varchar(50)"`
 	ApplicationCredentialID      string         `json:"application_credential_id" gorm:"type:varchar(36)"`
+	ApplicationCredentialSecretEnc string       `json:"-" gorm:"column:application_credential_secret_enc;type:text"`
+	CreateState                  string         `json:"create_state" gorm:"column:create_state;type:enum('INITIAL','LOADBALANCER','FLOATING_IP','SECURITY_GROUPS','SERVER_GROUPS','PORTS','COMPUTES','DNS','KUBECONFIG','COMPLETED')"`
 	DeleteState                  string         `json:"delete_state" gorm:"column:delete_state;type:enum('INITIAL','LOADBALANCER','DNS','FLOATING_IP','NODES','PORTS','SECURITY_GROUPS','CREDENTIALS','COMPLETED')"`
 }
 

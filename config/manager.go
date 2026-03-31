@@ -17,6 +17,8 @@ var GlobalConfig IConfigureManager
 type IConfigureManager interface {
 	GetWebConfig() WebConfig
 	GetMysqlDBConfig() MysqlDBConfig
+	GetRabbitMQConfig() RabbitMQConfig
+	GetEncryptionConfig() EncryptionConfig
 	GetCloudflareConfig() CloudflareConfig
 	GetImageRefConfig() ImageRef
 	GetPublicNetworkIDConfig() PublicNetworkID
@@ -31,6 +33,8 @@ type IConfigureManager interface {
 type configureManager struct {
 	Web                  WebConfig
 	Mysql                MysqlDBConfig
+	RabbitMQ             RabbitMQConfig
+	Encryption           EncryptionConfig
 	APIEndpoints         APIEndpointsConfig
 	ImageRef             ImageRef
 	PublicNetworkID      PublicNetworkID
@@ -59,6 +63,8 @@ func NewConfigureManager() IConfigureManager {
 		Web:                  loadWebConfig(),
 		Language:             loadLanguageConfig(),
 		Mysql:                loadMysqlDBConfig(),
+		RabbitMQ:             loadRabbitMQConfig(),
+		Encryption:           loadEncryptionConfig(),
 		Cloudflare:           loadCloudflareConfig(),
 		ImageRef:             loadImageRefConfig(),
 		PublicNetworkID:      loadPublicNetworkIDConfig(),
@@ -117,6 +123,19 @@ func loadMysqlDBConfig() MysqlDBConfig {
 	}
 }
 
+func loadRabbitMQConfig() RabbitMQConfig {
+	return RabbitMQConfig{
+		URL:       viper.GetString("RABBITMQ_URL"),
+		QueueName: viper.GetString("RABBITMQ_QUEUE"),
+	}
+}
+
+func loadEncryptionConfig() EncryptionConfig {
+	return EncryptionConfig{
+		Key: viper.GetString("VKE_ENCRYPTION_KEY"),
+	}
+}
+
 func loadAPIEndpointsConfig() APIEndpointsConfig {
 	return APIEndpointsConfig{
 		ComputeEndpoint:      viper.GetString("COMPUTE_ENDPOINT"),
@@ -166,6 +185,14 @@ func (c *configureManager) GetLanguageConfig() LanguageConfig {
 
 func (c *configureManager) GetMysqlDBConfig() MysqlDBConfig {
 	return c.Mysql
+}
+
+func (c *configureManager) GetRabbitMQConfig() RabbitMQConfig {
+	return c.RabbitMQ
+}
+
+func (c *configureManager) GetEncryptionConfig() EncryptionConfig {
+	return c.Encryption
 }
 
 func (c *configureManager) GetCloudflareConfig() CloudflareConfig {

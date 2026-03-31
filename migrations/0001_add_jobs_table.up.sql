@@ -1,0 +1,25 @@
+CREATE TABLE IF NOT EXISTS `jobs` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `job_uuid` varchar(36) NOT NULL,
+  `job_type` varchar(64) NOT NULL,
+  `status` varchar(24) NOT NULL,
+  `idempotency_key` varchar(128) NOT NULL,
+  `cluster_uuid` varchar(36) DEFAULT NULL,
+  `project_uuid` varchar(36) DEFAULT NULL,
+  `payload` json DEFAULT NULL,
+  `attempts` int NOT NULL DEFAULT 0,
+  `max_attempts` int NOT NULL DEFAULT 10,
+  `last_error` text,
+  `next_run_at` datetime DEFAULT NULL,
+  `locked_by` varchar(64) DEFAULT NULL,
+  `locked_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_job_uuid` (`job_uuid`),
+  UNIQUE KEY `uq_idempotency_key` (`idempotency_key`),
+  KEY `idx_status_next` (`status`,`next_run_at`),
+  KEY `idx_cluster_uuid` (`cluster_uuid`),
+  KEY `idx_project_uuid` (`project_uuid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
