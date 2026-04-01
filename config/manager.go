@@ -124,9 +124,17 @@ func loadMysqlDBConfig() MysqlDBConfig {
 }
 
 func loadRabbitMQConfig() RabbitMQConfig {
+	conc := viper.GetInt("WORKER_CONCURRENCY")
+	if conc <= 0 {
+		conc = 8
+	}
+	if conc > 64 {
+		conc = 64
+	}
 	return RabbitMQConfig{
-		URL:       viper.GetString("RABBITMQ_URL"),
-		QueueName: viper.GetString("RABBITMQ_QUEUE"),
+		URL:         viper.GetString("RABBITMQ_URL"),
+		QueueName:   viper.GetString("RABBITMQ_QUEUE"),
+		Concurrency: conc,
 	}
 }
 

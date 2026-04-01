@@ -33,6 +33,8 @@ type MysqlDBConfig struct {
 type RabbitMQConfig struct {
 	URL       string
 	QueueName string
+	// Concurrency is how many jobs the worker processes in parallel (delete/create can overlap across clusters).
+	Concurrency int
 }
 
 type EncryptionConfig struct {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -78,7 +79,16 @@ func main() {
 	defer cancel()
 
 	rmq := queue.NewRabbitMQ(rmqCfg.URL, rmqCfg.QueueName)
-	deliveries, closeFn, err := rmq.Consume(ctx, "vke-worker", 1)
+	conc := rmqCfg.Concurrency
+	if conc <= 0 {
+		conc = 8
+	}
+	// Prefetch must allow multiple unacked deliveries so another cluster's job can run while one delete is slow.
+	prefetch := conc
+	if prefetch < 8 {
+		prefetch = 8
+	}
+	deliveries, closeFn, err := rmq.Consume(ctx, "vke-worker", prefetch)
 	if err != nil {
 		logger.WithError(err).Fatal("failed to start consumer")
 	}
@@ -91,25 +101,36 @@ func main() {
 		cancel()
 	}()
 
+	sem := make(chan struct{}, conc)
+	var ackMu sync.Mutex // amqp Channel is not safe for concurrent Ack
+
 	logger.WithFields(logrus.Fields{
-		"queue": rmqCfg.QueueName,
+		"queue":       rmqCfg.QueueName,
+		"concurrency": conc,
+		"prefetch":    prefetch,
 	}).Info("worker started")
 
 	for d := range deliveries {
-		requeue, err := handleDelivery(ctx, logger, iRepository, iClusterService, d)
-		if err != nil {
-			logger.WithError(err).Error("job failed")
-			// if not requeueing, ack to drop (job status is FAILED)
-			if !requeue {
+		d := d
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem }()
+
+			requeue, err := handleDelivery(ctx, logger, iRepository, iClusterService, d)
+			ackMu.Lock()
+			defer ackMu.Unlock()
+			if err != nil {
+				logger.WithError(err).Error("job failed")
+				if !requeue {
+					_ = d.Ack(false)
+					return
+				}
+				_ = rmq.PublishJSONWithDelay(ctx, json.RawMessage(d.Body), 5*time.Second)
 				_ = d.Ack(false)
-				continue
+				return
 			}
-			// move message to retry queue with TTL, then ack to avoid hot-loop
-			_ = rmq.PublishJSONWithDelay(ctx, json.RawMessage(d.Body), 5*time.Second)
 			_ = d.Ack(false)
-			continue
-		}
-		_ = d.Ack(false)
+		}()
 	}
 }
 
