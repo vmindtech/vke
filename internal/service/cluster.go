@@ -173,6 +173,7 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 	} else {
 		return fmt.Errorf("missing create_request for cluster %s", clusterUUID)
 	}
+	request.ApplyAlternateCreateClusterKeys(cluster.CreateRequest, &createReq)
 	request.NormalizeCreateClusterRequest(&createReq)
 
 	encKey := config.GlobalConfig.GetEncryptionConfig().Key

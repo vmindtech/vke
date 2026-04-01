@@ -97,6 +97,7 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
 	}
+	request.ApplyAlternateCreateClusterKeys(c.Body(), &req)
 
 	ctx := context.Background()
 
