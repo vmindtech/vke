@@ -18,10 +18,12 @@ type CreateNetworkPortResponse struct {
 }
 type Port struct {
 	ID       string    `json:"id"`
+	Name     string    `json:"name"`
 	FixedIps []FixedIp `json:"fixed_ips"`
 }
 
 type FixedIp struct {
+	SubnetID  string `json:"subnet_id"`
 	IpAddress string `json:"ip_address"`
 }
 

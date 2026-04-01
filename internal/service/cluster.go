@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +26,20 @@ import (
 // ErrKubeconfigTimeout is returned when the agent never pushed kubeconfig within the max wait window.
 // CLUSTER_CREATE jobs must not retry on this (likely network/agent unreachable); retrying only spams logs.
 var ErrKubeconfigTimeout = errors.New("kubeconfig not received within max wait")
+
+// Octavia LB child resources (resources.resource_type), for idempotent create + pool member tracking.
+const (
+	resLBListenerAPI = "lb_listener_api"
+	resLBListenerReg = "lb_listener_reg"
+	resLBPoolAPI     = "lb_pool_api"
+	resLBPoolReg     = "lb_pool_reg"
+	resLBHealthAPI   = "lb_health_api"
+	resLBHealthReg   = "lb_health_reg"
+	resLBMemberAPI   = "lb_mem_api"
+	resLBMemberReg   = "lb_mem_reg"
+)
+
+var reMasterPortIndex = regexp.MustCompile(`(?i)master-(\d+)-port`)
 
 type IClusterService interface {
 	InitCreateCluster(ctx context.Context, authToken string, req *request.CreateClusterRequest, clusterUUID string) error
@@ -320,41 +337,358 @@ func (c *clusterService) enrichCreateRequestFromNodeGroups(ctx context.Context, 
 }
 
 func (c *clusterService) stepEnsureLoadBalancer(ctx context.Context, authToken string, req *request.CreateClusterRequest, cluster *model.Cluster) error {
-	// idempotency via resources table
 	existing, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "load_balancer")
 	if err != nil {
 		return err
 	}
-	if len(existing) > 0 {
-		return nil
+	var lbID string
+	if len(existing) == 0 {
+		createLBReq := &request.CreateLoadBalancerRequest{
+			LoadBalancer: request.LoadBalancer{
+				Name:         fmt.Sprintf("%v-lb", req.ClusterName),
+				Description:  fmt.Sprintf("%v-lb", req.ClusterName),
+				AdminStateUp: true,
+				VIPSubnetID:  req.SubnetIDs[0],
+				Provider:     config.GlobalConfig.GetOpenStackApiConfig().LoadbalancerProvider,
+			},
+		}
+		lbResp, err := c.loadbalancerService.CreateLoadBalancer(ctx, authToken, *createLBReq)
+		if err != nil {
+			return err
+		}
+		lbID = lbResp.LoadBalancer.ID
+		if err := c.repository.Resources().CreateResource(ctx, &model.Resource{
+			ClusterUUID:  cluster.ClusterUUID,
+			ResourceType: "load_balancer",
+			ResourceUUID: lbID,
+		}); err != nil {
+			return err
+		}
+		if _, err := c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbID); err != nil {
+			return err
+		}
+		_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: cluster.ClusterUUID, ClusterLoadbalancerUUID: lbID})
+	} else {
+		lbID = existing[0].ResourceUUID
+		if _, err := c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbID); err != nil {
+			return err
+		}
+		if cluster.ClusterLoadbalancerUUID == "" {
+			_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: cluster.ClusterUUID, ClusterLoadbalancerUUID: lbID})
+		}
 	}
+	return c.ensureLoadBalancerListenersPoolsAndMonitors(ctx, authToken, req, cluster, lbID)
+}
 
-	createLBReq := &request.CreateLoadBalancerRequest{
-		LoadBalancer: request.LoadBalancer{
-			Name:         fmt.Sprintf("%v-lb", req.ClusterName),
-			Description:  fmt.Sprintf("%v-lb", req.ClusterName),
-			AdminStateUp: true,
-			VIPSubnetID:  req.SubnetIDs[0],
-			Provider:     config.GlobalConfig.GetOpenStackApiConfig().LoadbalancerProvider,
-		},
-	}
-	lbResp, err := c.loadbalancerService.CreateLoadBalancer(ctx, authToken, *createLBReq)
+// ensureLoadBalancerListenersPoolsAndMonitors creates API/register listeners, pools and health monitors (matches legacy CreateCluster).
+func (c *clusterService) ensureLoadBalancerListenersPoolsAndMonitors(ctx context.Context, authToken string, req *request.CreateClusterRequest, cluster *model.Cluster, lbID string) error {
+	var apiListenerID, regListenerID string
+	lisAPI, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, resLBListenerAPI)
 	if err != nil {
 		return err
 	}
-	if err := c.repository.Resources().CreateResource(ctx, &model.Resource{
-		ClusterUUID:  cluster.ClusterUUID,
-		ResourceType: "load_balancer",
-		ResourceUUID: lbResp.LoadBalancer.ID,
-	}); err != nil {
+	if len(lisAPI) == 0 {
+		apiLis, err := c.loadbalancerService.CreateListener(ctx, authToken, request.CreateListenerRequest{
+			Listener: request.Listener{
+				Name:           fmt.Sprintf("%v-api-listener", req.ClusterName),
+				AdminStateUp:   true,
+				Protocol:       "TCP",
+				ProtocolPort:   6443,
+				LoadbalancerID: lbID,
+			},
+		})
+		if err != nil {
+			return err
+		}
+		apiListenerID = apiLis.Listener.ID
+		if err := c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: resLBListenerAPI, ResourceUUID: apiListenerID}); err != nil {
+			return err
+		}
+		if _, err := c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbID); err != nil {
+			return err
+		}
+	} else {
+		apiListenerID = lisAPI[0].ResourceUUID
+	}
+
+	lisReg, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, resLBListenerReg)
+	if err != nil {
 		return err
 	}
-	if _, err := c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbResp.LoadBalancer.ID); err != nil {
+	if len(lisReg) == 0 {
+		regLis, err := c.loadbalancerService.CreateListener(ctx, authToken, request.CreateListenerRequest{
+			Listener: request.Listener{
+				Name:           fmt.Sprintf("%v-register-listener", req.ClusterName),
+				AdminStateUp:   true,
+				Protocol:       "TCP",
+				ProtocolPort:   9345,
+				LoadbalancerID: lbID,
+			},
+		})
+		if err != nil {
+			return err
+		}
+		regListenerID = regLis.Listener.ID
+		if err := c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: resLBListenerReg, ResourceUUID: regListenerID}); err != nil {
+			return err
+		}
+		if _, err := c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbID); err != nil {
+			return err
+		}
+	} else {
+		regListenerID = lisReg[0].ResourceUUID
+	}
+
+	var apiPoolID, regPoolID string
+	poolAPI, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, resLBPoolAPI)
+	if err != nil {
 		return err
 	}
-	// update cluster loadbalancer UUID
-	_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: cluster.ClusterUUID, ClusterLoadbalancerUUID: lbResp.LoadBalancer.ID})
+	if len(poolAPI) == 0 {
+		apiPool, err := c.loadbalancerService.CreatePool(ctx, authToken, request.CreatePoolRequest{
+			Pool: request.Pool{
+				Protocol:     "TCP",
+				AdminStateUp: true,
+				ListenerID:   apiListenerID,
+				Name:         fmt.Sprintf("%v-api-pool", req.ClusterName),
+				LBAlgorithm:  "SOURCE_IP_PORT",
+			},
+		})
+		if err != nil {
+			return err
+		}
+		apiPoolID = apiPool.Pool.ID
+		if err := c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: resLBPoolAPI, ResourceUUID: apiPoolID}); err != nil {
+			return err
+		}
+		if _, err := c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbID); err != nil {
+			return err
+		}
+	} else {
+		apiPoolID = poolAPI[0].ResourceUUID
+	}
+
+	poolReg, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, resLBPoolReg)
+	if err != nil {
+		return err
+	}
+	if len(poolReg) == 0 {
+		regPool, err := c.loadbalancerService.CreatePool(ctx, authToken, request.CreatePoolRequest{
+			Pool: request.Pool{
+				Protocol:     "TCP",
+				AdminStateUp: true,
+				ListenerID:   regListenerID,
+				Name:         fmt.Sprintf("%v-register-pool", req.ClusterName),
+				LBAlgorithm:  "SOURCE_IP_PORT",
+			},
+		})
+		if err != nil {
+			return err
+		}
+		regPoolID = regPool.Pool.ID
+		if err := c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: resLBPoolReg, ResourceUUID: regPoolID}); err != nil {
+			return err
+		}
+		if _, err := c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbID); err != nil {
+			return err
+		}
+	} else {
+		regPoolID = poolReg[0].ResourceUUID
+	}
+
+	healthAPI, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, resLBHealthAPI)
+	if err != nil {
+		return err
+	}
+	if len(healthAPI) == 0 {
+		if err := c.loadbalancerService.CreateHealthTCPMonitor(ctx, authToken, request.CreateHealthMonitorTCPRequest{
+			HealthMonitor: request.HealthMonitorTCP{
+				Name:           fmt.Sprintf("%v-api-healthmonitor", req.ClusterName),
+				AdminStateUp:   true,
+				PoolID:         apiPoolID,
+				MaxRetries:     "10",
+				Delay:          "10",
+				TimeOut:        "10",
+				Type:           "TCP",
+				MaxRetriesDown: 3,
+			},
+		}); err != nil {
+			return err
+		}
+		if err := c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: resLBHealthAPI, ResourceUUID: apiPoolID}); err != nil {
+			return err
+		}
+	}
+
+	healthReg, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, resLBHealthReg)
+	if err != nil {
+		return err
+	}
+	if len(healthReg) == 0 {
+		if err := c.loadbalancerService.CreateHealthHTTPMonitor(ctx, authToken, request.CreateHealthMonitorHTTPRequest{
+			HealthMonitor: request.HealthMonitorHTTP{
+				Name:           fmt.Sprintf("%v-register-healthmonitor", req.ClusterName),
+				AdminStateUp:   true,
+				PoolID:         regPoolID,
+				MaxRetries:     "10",
+				Delay:          "30",
+				TimeOut:        "10",
+				Type:           "TCP",
+				MaxRetriesDown: 3,
+			},
+		}); err != nil {
+			return err
+		}
+		if err := c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: resLBHealthReg, ResourceUUID: regPoolID}); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func (c *clusterService) hasLBMemberMarker(ctx context.Context, clusterUUID, markerType, portID string) (bool, error) {
+	rows, err := c.repository.Resources().GetResourceByClusterUUID(ctx, clusterUUID, markerType)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range rows {
+		if r.ResourceUUID == portID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (c *clusterService) loadBalancerUUIDForCluster(ctx context.Context, cluster *model.Cluster) (string, error) {
+	if cluster.ClusterLoadbalancerUUID != "" {
+		return cluster.ClusterLoadbalancerUUID, nil
+	}
+	lbs, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "load_balancer")
+	if err != nil || len(lbs) == 0 {
+		return "", fmt.Errorf("load balancer not found for cluster %s", cluster.ClusterUUID)
+	}
+	return lbs[0].ResourceUUID, nil
+}
+
+func (c *clusterService) ensureLBPoolMembersForMasterPort(ctx context.Context, authToken string, req *request.CreateClusterRequest, cluster *model.Cluster, portID string, masterIndex int) error {
+	hasAPI, err := c.hasLBMemberMarker(ctx, cluster.ClusterUUID, resLBMemberAPI, portID)
+	if err != nil {
+		return err
+	}
+	hasReg, err := c.hasLBMemberMarker(ctx, cluster.ClusterUUID, resLBMemberReg, portID)
+	if err != nil {
+		return err
+	}
+	if hasAPI && hasReg {
+		return nil
+	}
+
+	poolsAPI, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, resLBPoolAPI)
+	if err != nil {
+		return err
+	}
+	poolsReg, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, resLBPoolReg)
+	if err != nil {
+		return err
+	}
+	if len(poolsAPI) == 0 || len(poolsReg) == 0 {
+		return fmt.Errorf("LB pools missing for cluster %s (run LB step)", cluster.ClusterUUID)
+	}
+	apiPoolID := poolsAPI[0].ResourceUUID
+	regPoolID := poolsReg[0].ResourceUUID
+
+	lbUUID, err := c.loadBalancerUUIDForCluster(ctx, cluster)
+	if err != nil {
+		return err
+	}
+
+	portShow, err := c.networkService.GetNetworkPort(ctx, authToken, portID)
+	if err != nil {
+		return err
+	}
+	if len(portShow.Port.FixedIps) == 0 {
+		return fmt.Errorf("port %s has no fixed IPs", portID)
+	}
+	ip := portShow.Port.FixedIps[0].IpAddress
+	subnetID := portShow.Port.FixedIps[0].SubnetID
+	if subnetID == "" {
+		subnetID = GetRandomStringFromArray(req.SubnetIDs)
+	}
+
+	memberName := fmt.Sprintf("%v-master-%d", req.ClusterName, masterIndex)
+	if !hasAPI {
+		if _, err := c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbUUID); err != nil {
+			return err
+		}
+		if err := c.loadbalancerService.CreateMember(ctx, authToken, apiPoolID, request.AddMemberRequest{
+			Member: request.Member{
+				Name:         memberName,
+				AdminStateUp: true,
+				SubnetID:     subnetID,
+				Address:      ip,
+				ProtocolPort: 6443,
+				Backup:       false,
+			},
+		}); err != nil {
+			return err
+		}
+		if err := c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: resLBMemberAPI, ResourceUUID: portID}); err != nil {
+			return err
+		}
+	}
+	if !hasReg {
+		if _, err := c.loadbalancerService.CheckLoadBalancerStatus(ctx, authToken, lbUUID); err != nil {
+			return err
+		}
+		if err := c.loadbalancerService.CreateMember(ctx, authToken, regPoolID, request.AddMemberRequest{
+			Member: request.Member{
+				Name:         memberName,
+				AdminStateUp: true,
+				SubnetID:     subnetID,
+				Address:      ip,
+				ProtocolPort: 9345,
+				Backup:       false,
+			},
+		}); err != nil {
+			return err
+		}
+		if err := c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: resLBMemberReg, ResourceUUID: portID}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *clusterService) sortMasterPortResources(ctx context.Context, authToken string, cluster *model.Cluster) ([]model.Resource, error) {
+	raw, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "network_port_master")
+	if err != nil {
+		return nil, err
+	}
+	type idxPort struct {
+		idx int
+		res model.Resource
+	}
+	var withIdx []idxPort
+	for _, r := range raw {
+		show, err := c.networkService.GetNetworkPort(ctx, authToken, r.ResourceUUID)
+		if err != nil {
+			return nil, err
+		}
+		idx := 999
+		if m := reMasterPortIndex.FindStringSubmatch(show.Port.Name); len(m) == 2 {
+			if n, err := strconv.Atoi(m[1]); err == nil {
+				idx = n
+			}
+		}
+		withIdx = append(withIdx, idxPort{idx: idx, res: r})
+	}
+	sort.Slice(withIdx, func(i, j int) bool { return withIdx[i].idx < withIdx[j].idx })
+	out := make([]model.Resource, 0, len(withIdx))
+	for _, x := range withIdx {
+		out = append(out, x.res)
+	}
+	return out, nil
 }
 
 func (c *clusterService) stepEnsureFloatingIPIfPublic(ctx context.Context, authToken string, req *request.CreateClusterRequest, cluster *model.Cluster) error {
@@ -687,6 +1021,16 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 		return fmt.Errorf("server groups not ready")
 	}
 
+	lbs, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "load_balancer")
+	if err != nil {
+		return err
+	}
+	if len(lbs) > 0 {
+		if err := c.ensureLoadBalancerListenersPoolsAndMonitors(ctx, authToken, req, cluster, lbs[0].ResourceUUID); err != nil {
+			return err
+		}
+	}
+
 	// decrypt app cred secret for template
 	encKey := config.GlobalConfig.GetEncryptionConfig().Key
 	if encKey == "" {
@@ -705,10 +1049,26 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 		return fmt.Errorf("security groups not ready")
 	}
 
+	masterPortsSorted, err := c.sortMasterPortResources(ctx, authToken, cluster)
+	if err != nil {
+		return err
+	}
+
 	// Masters
 	existingMasters, _ := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "server_master")
-	masterPorts, _ := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "network_port_master")
-	for i := len(existingMasters); i < 3 && i < len(masterPorts); i++ {
+	for idx, p := range masterPortsSorted {
+		wantName := fmt.Sprintf("%v-master-%d", req.ClusterName, idx+1)
+		for _, s := range existingMasters {
+			if s.ResourceUUID == wantName {
+				if err := c.ensureLBPoolMembersForMasterPort(ctx, authToken, req, cluster, p.ResourceUUID, idx+1); err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
+
+	for i := len(existingMasters); i < 3 && i < len(masterPortsSorted); i++ {
 		rke2InitScript, err := GenerateUserDataFromTemplate("true",
 			MasterServerType,
 			cluster.ClusterRegisterToken,
@@ -755,7 +1115,7 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 					},
 				},
 				Networks: []request.Networks{
-					{Port: masterPorts[i].ResourceUUID},
+					{Port: masterPortsSorted[i].ResourceUUID},
 				},
 				UserData: Base64Encoder(rke2InitScript),
 			},
@@ -767,6 +1127,9 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 			return err
 		}
 		_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_master", ResourceUUID: masterRequest.Server.Name})
+		if err := c.ensureLBPoolMembersForMasterPort(ctx, authToken, req, cluster, masterPortsSorted[i].ResourceUUID, i+1); err != nil {
+			return err
+		}
 	}
 
 	// Workers
@@ -831,6 +1194,25 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 			return err
 		}
 		_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_worker", ResourceUUID: workerRequest.Server.Name})
+	}
+
+	ngs, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "", "")
+	if err != nil {
+		return err
+	}
+	for _, ng := range ngs {
+		if ng.NodeGroupsStatus == constants.DeletedNodeGroupStatus {
+			continue
+		}
+		if ng.NodeGroupsType != NodeGroupMasterType && ng.NodeGroupsType != NodeGroupWorkerType {
+			continue
+		}
+		upd := ng
+		upd.NodeGroupsStatus = NodeGroupActiveStatus
+		upd.NodeGroupUpdateDate = time.Now()
+		if err := c.repository.NodeGroups().UpdateNodeGroups(ctx, &upd); err != nil {
+			return err
+		}
 	}
 
 	_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: cluster.ClusterUUID, ClusterRegisterToken: cluster.ClusterRegisterToken, ClusterAgentToken: cluster.ClusterAgentToken})

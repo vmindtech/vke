@@ -33,6 +33,7 @@ type INetworkService interface {
 	GetSubnetByID(ctx context.Context, authToken, subnetID string) (resource.SubnetResponse, error)
 	GetComputeNetworkPorts(ctx context.Context, authToken, instanceID string) (resource.NetworkPortsResponse, error)
 	GetSecurityGroupPorts(ctx context.Context, authToken, securityGroupID string) (resource.NetworkPortsResponse, error)
+	GetNetworkPort(ctx context.Context, authToken, portID string) (resource.CreateNetworkPortResponse, error)
 }
 
 type networkService struct {
@@ -162,6 +163,35 @@ func (ns *networkService) CreateSecurityGroup(ctx context.Context, authToken str
 	}
 
 	return respDecoder, nil
+}
+
+func (ns *networkService) GetNetworkPort(ctx context.Context, authToken, portID string) (resource.CreateNetworkPortResponse, error) {
+	token := strings.Clone(authToken)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.NetworkPort, portID), nil)
+	if err != nil {
+		return resource.CreateNetworkPortResponse{}, err
+	}
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		return resource.CreateNetworkPortResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return resource.CreateNetworkPortResponse{}, fmt.Errorf("failed to get network port, status code: %v, body: %v", resp.StatusCode, string(b))
+	}
+
+	var out resource.CreateNetworkPortResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return resource.CreateNetworkPortResponse{}, err
+	}
+	return out, nil
 }
 
 func (ns *networkService) CreateNetworkPort(ctx context.Context, authToken string, req request.CreateNetworkPortRequest) (resource.CreateNetworkPortResponse, error) {
