@@ -26,7 +26,7 @@ type IClusterService interface {
 	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
 	GetClusterDetails(ctx context.Context, authToken, clusterID string) (resource.GetClusterDetailsResponse, error)
 	GetClustersByProjectId(ctx context.Context, authToken, projectID string) ([]resource.GetClusterResponse, error)
-	DestroyCluster(ctx context.Context, authToken string, clusterID string)
+	DestroyCluster(ctx context.Context, authToken string, clusterID string) error
 	UpdateCluster(ctx context.Context, authToken, clusterID string, req request.UpdateClusterRequest) (resource.UpdateClusterResponse, error)
 	GetClusterErrors(ctx context.Context, authToken, clusterID string) ([]resource.GetClusterErrorsResponse, error)
 	GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error)
@@ -148,6 +148,9 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 	if cluster.CreateState == "" {
 		cluster.CreateState = constants.CreateStateInitial
 	}
+	if cluster.ClusterStatus == DeletingClusterStatus || cluster.ClusterStatus == DeletedClusterStatus {
+		return nil
+	}
 	if cluster.CreateState == constants.CreateStateCompleted || cluster.ClusterStatus == ActiveClusterStatus {
 		return nil
 	}
@@ -182,6 +185,9 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 		cluster, err = c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
 		if err != nil {
 			return err
+		}
+		if cluster.ClusterStatus == DeletingClusterStatus || cluster.ClusterStatus == DeletedClusterStatus {
+			return nil
 		}
 		if cluster.CreateState == "" {
 			cluster.CreateState = constants.CreateStateInitial
@@ -2990,14 +2996,14 @@ func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, 
 	return clustersResp, nil
 }
 
-func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, clusterID string) {
+func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, clusterID string) error {
 	token := strings.Clone(authToken)
 
 	cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
 	if err != nil {
 		c.logger.WithError(err).WithField("clusterUUID", clusterID).Error("failed to get cluster")
 		c.logClusterErrorWithDetails(ctx, clusterID, constants.ErrDatabaseQueryFailed, "cluster_deletion", err.Error())
-		return
+		return err
 	}
 
 	err = c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID)
@@ -3006,14 +3012,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 			"clusterUUID": clusterID,
 		}).Error("failed to check auth token")
 		c.logClusterErrorSimple(ctx, clusterID, constants.ErrAuthTokenCheckFailed, "cluster_deletion")
-		return
-	}
-
-	if cluster.ClusterStatus == CreatingClusterStatus {
-		c.logger.WithFields(logrus.Fields{
-			"clusterUUID": clusterID,
-		}).Info("cluster is being created, cannot delete")
-		return
+		return err
 	}
 
 	err = c.repository.Cluster().DeleteUpdateCluster(ctx, &model.Cluster{
@@ -3024,7 +3023,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 	if err != nil {
 		c.logger.WithError(err).WithField("clusterUUID", clusterID).Error("failed to update cluster status")
 		c.logClusterErrorWithDetails(ctx, clusterID, constants.ErrDatabaseQueryFailed, "cluster_deletion", err.Error())
-		return
+		return err
 	}
 
 	cluster.DeleteState = constants.DeleteStateInitial
@@ -3130,6 +3129,7 @@ func (c *clusterService) DestroyCluster(ctx context.Context, authToken string, c
 			c.logClusterErrorFiltered(ctx, cluster.ClusterUUID, constants.ErrAuditLogCreateFailed, "cluster_deletion", err)
 		}
 	}
+	return nil
 }
 
 func (c *clusterService) updateClusterDeleteState(ctx context.Context, cluster *model.Cluster) {

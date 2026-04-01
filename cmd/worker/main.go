@@ -176,7 +176,19 @@ func handleDelivery(
 			return true, err
 		}
 		entry = entry.WithField("clusterUUID", payload.ClusterID)
-		clusterSvc.DestroyCluster(ctx, payload.AuthToken, payload.ClusterID)
+		if err := clusterSvc.DestroyCluster(ctx, payload.AuthToken, payload.ClusterID); err != nil {
+			attempts := job.Attempts + 1
+			backoff := time.Duration(attempts*attempts) * 10 * time.Second
+			next := time.Now().Add(backoff)
+			if attempts >= job.MaxAttempts {
+				_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), next, attempts)
+				entry.WithField("attempts", attempts).Error("cluster delete job failed permanently")
+				return false, err
+			}
+			_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), next, attempts)
+			entry.WithFields(logrus.Fields{"attempts": attempts, "nextRunAt": next}).Warn("cluster delete job failed; will retry")
+			return true, err
+		}
 		_ = repo.Jobs().MarkJobSucceeded(ctx, job.JobUUID)
 		entry.Info("cluster delete job succeeded")
 		return false, nil

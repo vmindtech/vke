@@ -258,8 +258,13 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 		NextRunAt:      func() *time.Time { t := time.Now(); return &t }(),
 	}
 	if err := a.appService.Repository().Jobs().CreateJob(ctx, job); err != nil {
-		return c.Status(fiber.StatusUnprocessableEntity).JSON(
-			response.NewErrorResponseWithDetails(err, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+		// idempotent retry: if same delete already queued/running/failed, return success anyway
+		if existing, getErr := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey); getErr == nil {
+			jobUUID = existing.JobUUID
+		} else {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(
+				response.NewErrorResponseWithDetails(err, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+		}
 	}
 	rmqCfg := config.GlobalConfig.GetRabbitMQConfig()
 	if rmqCfg.URL != "" && rmqCfg.QueueName != "" {
