@@ -115,13 +115,14 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 
 	jobUUID := uuid.New().String()
 	clusterUUID := uuid.New().String()
-	payload, _ := json.Marshal(&request.CreateClusterJobPayload{Request: req, ClusterUUID: clusterUUID})
 
-	// init cluster record + application credential (token is NOT stored)
-	if err := a.appService.Cluster().InitCreateCluster(ctx, authToken, req, clusterUUID); err != nil {
+	// init cluster record + application credential (token is NOT stored); mutates req (normalize api access, etc.)
+	if err := a.appService.Cluster().InitCreateCluster(ctx, authToken, &req, clusterUUID); err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(
 			response.NewErrorResponseWithDetails(err, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
 	}
+
+	payload, _ := json.Marshal(&request.CreateClusterJobPayload{Request: req, ClusterUUID: clusterUUID})
 
 	job := &model.Job{
 		JobUUID:        jobUUID,
@@ -142,7 +143,7 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 			clusterUUID = existing.ClusterUUID
 			jobUUID = existing.JobUUID
 			// ensure cluster exists (if init was skipped due to idempotency)
-			_ = a.appService.Cluster().InitCreateCluster(ctx, authToken, req, clusterUUID)
+			_ = a.appService.Cluster().InitCreateCluster(ctx, authToken, &req, clusterUUID)
 			// best-effort ensure it's queued
 			rmqCfg := config.GlobalConfig.GetRabbitMQConfig()
 			if rmqCfg.URL != "" && rmqCfg.QueueName != "" {

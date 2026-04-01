@@ -25,7 +25,7 @@ import (
 var ErrKubeconfigTimeout = errors.New("kubeconfig not received within max wait")
 
 type IClusterService interface {
-	InitCreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest, clusterUUID string) error
+	InitCreateCluster(ctx context.Context, authToken string, req *request.CreateClusterRequest, clusterUUID string) error
 	RunCreateCluster(ctx context.Context, clusterUUID string) error
 	CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest, clUUID chan string)
 	GetCluster(ctx context.Context, authToken, clusterID string) (resource.GetClusterResponse, error)
@@ -64,11 +64,16 @@ func NewClusterService(l *logrus.Logger, cf ICloudflareService, lbc ILoadbalance
 	}
 }
 
-func (c *clusterService) InitCreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest, clusterUUID string) error {
+func (c *clusterService) InitCreateCluster(ctx context.Context, authToken string, req *request.CreateClusterRequest, clusterUUID string) error {
+	if req == nil {
+		return fmt.Errorf("nil create cluster request")
+	}
 	// if already exists, treat as success (idempotent)
 	if existing, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID); err == nil && existing != nil && existing.ClusterUUID != "" {
 		return nil
 	}
+
+	request.NormalizeCreateClusterRequest(req)
 
 	token := strings.Clone(authToken)
 	if err := c.identityService.CheckAuthToken(ctx, token, req.ProjectID); err != nil {
@@ -168,6 +173,7 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 	} else {
 		return fmt.Errorf("missing create_request for cluster %s", clusterUUID)
 	}
+	request.NormalizeCreateClusterRequest(&createReq)
 
 	encKey := config.GlobalConfig.GetEncryptionConfig().Key
 	if encKey == "" {
