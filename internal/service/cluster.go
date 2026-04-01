@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -18,6 +19,10 @@ import (
 	"github.com/vmindtech/vke/pkg/constants"
 	"github.com/vmindtech/vke/pkg/utils"
 )
+
+// ErrKubeconfigTimeout is returned when the agent never pushed kubeconfig within the max wait window.
+// CLUSTER_CREATE jobs must not retry on this (likely network/agent unreachable); retrying only spams logs.
+var ErrKubeconfigTimeout = errors.New("kubeconfig not received within max wait")
 
 type IClusterService interface {
 	InitCreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest, clusterUUID string) error
@@ -816,31 +821,34 @@ func (c *clusterService) logClusterErrorFiltered(ctx context.Context, clusterUUI
 }
 
 func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string) error {
-	waitIterator := 0
-	waitSeconds := 10
-	for {
-		if waitIterator < 60 {
-			time.Sleep(time.Duration(waitSeconds) * time.Second)
-			c.logger.WithFields(logrus.Fields{
-				"ClusterUUID": clusterUUID,
-				"Waited":      waitSeconds,
-			}).Info("Waiting for Kubeconfig to be ACTIVE")
-			waitIterator++
-		} else {
-			err := fmt.Errorf("failed to send kubeconfig for ClusterUUID: %s", clusterUUID)
-			c.logClusterErrorWithDetails(ctx, clusterUUID, constants.ErrKubeconfigCreateFailed, "CheckKubeConfig", err.Error())
-			return err
+	const maxWait = 10 * time.Minute
+	const poll = 30 * time.Second
+	deadline := time.Now().Add(maxWait)
+	for time.Now().Before(deadline) {
+		remaining := time.Until(deadline)
+		sleep := poll
+		if sleep > remaining {
+			sleep = remaining
 		}
-		_, err := c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, clusterUUID)
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"ClusterUUID": clusterUUID,
-			}).Error("failed to get kubeconfig")
-		} else {
+		if sleep <= 0 {
 			break
 		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(sleep):
+		}
+		_, err := c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, clusterUUID)
+		if err == nil {
+			return nil
+		}
+		c.logger.WithFields(logrus.Fields{
+			"ClusterUUID": clusterUUID,
+		}).Info("waiting for kubeconfig in DB (agent push)")
 	}
-	return nil
+	err := fmt.Errorf("%w: %s", ErrKubeconfigTimeout, clusterUUID)
+	c.logClusterErrorWithDetails(ctx, clusterUUID, constants.ErrKubeconfigCreateFailed, "CheckKubeConfig", err.Error())
+	return err
 }
 func (c *clusterService) CreateCluster(ctx context.Context, authToken string, req request.CreateClusterRequest, clUUID chan string) {
 	token := strings.Clone(authToken)

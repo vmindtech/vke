@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -154,6 +155,12 @@ func handleDelivery(
 		}
 		entry = entry.WithField("clusterUUID", payload.ClusterUUID)
 		if err := clusterSvc.RunCreateCluster(ctx, payload.ClusterUUID); err != nil {
+			// Kubeconfig never arrived: retrying the whole job every N minutes is harmful (log spam, no benefit).
+			if errors.Is(err, service.ErrKubeconfigTimeout) {
+				_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), time.Now(), job.MaxAttempts)
+				entry.Error("cluster create: kubeconfig wait exceeded; job failed without retry")
+				return false, err
+			}
 			attempts := job.Attempts + 1
 			backoff := time.Duration(attempts*attempts) * 10 * time.Second
 			next := time.Now().Add(backoff)
