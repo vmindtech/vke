@@ -75,6 +75,10 @@ func (c *clusterService) InitCreateCluster(ctx context.Context, authToken string
 
 	request.NormalizeCreateClusterRequest(req)
 
+	if strings.TrimSpace(req.WorkerInstanceFlavorUUID) == "" || strings.TrimSpace(req.MasterInstanceFlavorUUID) == "" {
+		return fmt.Errorf("workerInstanceFlavorUUID and masterInstanceFlavorUUID are required (got worker=%q master=%q)", req.WorkerInstanceFlavorUUID, req.MasterInstanceFlavorUUID)
+	}
+
 	token := strings.Clone(authToken)
 	if err := c.identityService.CheckAuthToken(ctx, token, req.ProjectID); err != nil {
 		return err
@@ -165,17 +169,6 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 		return nil
 	}
 
-	var createReq request.CreateClusterRequest
-	if len(cluster.CreateRequest) > 0 {
-		if err := json.Unmarshal(cluster.CreateRequest, &createReq); err != nil {
-			return err
-		}
-	} else {
-		return fmt.Errorf("missing create_request for cluster %s", clusterUUID)
-	}
-	request.ApplyAlternateCreateClusterKeys(cluster.CreateRequest, &createReq)
-	request.NormalizeCreateClusterRequest(&createReq)
-
 	encKey := config.GlobalConfig.GetEncryptionConfig().Key
 	if encKey == "" {
 		return fmt.Errorf("VKE_ENCRYPTION_KEY must be set")
@@ -207,6 +200,17 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 		}
 		if cluster.CreateState == constants.CreateStateCompleted || cluster.ClusterStatus == ActiveClusterStatus {
 			return nil
+		}
+
+		// Reload original API payload from DB every step (single source of truth) + merge node_groups (flavor/disk/size) when present.
+		createReq, err := c.loadCreateClusterRequest(ctx, cluster)
+		if err != nil {
+			return err
+		}
+		if cluster.CreateState == constants.CreateStateComputes {
+			if strings.TrimSpace(createReq.MasterInstanceFlavorUUID) == "" || strings.TrimSpace(createReq.WorkerInstanceFlavorUUID) == "" {
+				return fmt.Errorf("missing master/worker flavor UUID (check clusters.create_request and node_groups for cluster %s)", clusterUUID)
+			}
 		}
 
 		var stepErr error
@@ -263,6 +267,54 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 		if stepErr != nil {
 			_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: clusterUUID, ClusterStatus: ErrorClusterStatus})
 			return stepErr
+		}
+	}
+}
+
+// loadCreateClusterRequest reads clusters.create_request (canonical copy of the first HTTP body) and merges node_groups when fields are still empty (worker fills after SERVER_GROUPS).
+func (c *clusterService) loadCreateClusterRequest(ctx context.Context, cluster *model.Cluster) (request.CreateClusterRequest, error) {
+	if len(cluster.CreateRequest) == 0 {
+		return request.CreateClusterRequest{}, fmt.Errorf("missing create_request for cluster %s", cluster.ClusterUUID)
+	}
+	req, err := request.ParseCreateClusterRequestJSON(cluster.CreateRequest)
+	if err != nil {
+		return req, err
+	}
+	request.NormalizeCreateClusterRequest(&req)
+	c.enrichCreateRequestFromNodeGroups(ctx, cluster.ClusterUUID, &req)
+	return req, nil
+}
+
+func (c *clusterService) enrichCreateRequestFromNodeGroups(ctx context.Context, clusterUUID string, req *request.CreateClusterRequest) {
+	if req == nil {
+		return
+	}
+	rows, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, clusterUUID, "", "")
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	for _, ng := range rows {
+		if ng.NodeGroupsStatus == constants.DeletedNodeGroupStatus {
+			continue
+		}
+		switch ng.NodeGroupsType {
+		case NodeGroupMasterType:
+			if strings.TrimSpace(req.MasterInstanceFlavorUUID) == "" && strings.TrimSpace(ng.NodeFlavorUUID) != "" {
+				req.MasterInstanceFlavorUUID = ng.NodeFlavorUUID
+			}
+		case NodeGroupWorkerType:
+			if strings.TrimSpace(req.WorkerInstanceFlavorUUID) == "" && strings.TrimSpace(ng.NodeFlavorUUID) != "" {
+				req.WorkerInstanceFlavorUUID = ng.NodeFlavorUUID
+			}
+			if req.WorkerNodeGroupMinSize == 0 && ng.NodeGroupMinSize > 0 {
+				req.WorkerNodeGroupMinSize = ng.NodeGroupMinSize
+			}
+			if req.WorkerNodeGroupMaxSize == 0 && ng.NodeGroupMaxSize > 0 {
+				req.WorkerNodeGroupMaxSize = ng.NodeGroupMaxSize
+			}
+			if req.WorkerDiskSizeGB == 0 && ng.NodeDiskSize > 0 {
+				req.WorkerDiskSizeGB = ng.NodeDiskSize
+			}
 		}
 	}
 }
@@ -422,35 +474,122 @@ func (c *clusterService) stepEnsureSecurityGroupsAndRules(ctx context.Context, a
 }
 
 func (c *clusterService) stepEnsureServerGroupsAndNodeGroups(ctx context.Context, authToken string, req *request.CreateClusterRequest, cluster *model.Cluster) error {
-	existing, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "server_group")
+	masterRes, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "server_group_master")
 	if err != nil {
 		return err
 	}
-	if len(existing) >= 2 {
-		return nil
-	}
-	createServerGroupReq := &request.CreateServerGroupRequest{
-		ServerGroup: request.ServerGroup{
-			Name:   fmt.Sprintf("%v-master-server-group", req.ClusterName),
-			Policy: "soft-anti-affinity",
-		},
-	}
-	masterSG, err := c.computeService.CreateServerGroup(ctx, authToken, *createServerGroupReq)
+	workerRes, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "server_group_worker")
 	if err != nil {
 		return err
 	}
-	_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_group", ResourceUUID: masterSG.ServerGroup.ID})
-	_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_group_master", ResourceUUID: masterSG.ServerGroup.ID})
+	if len(masterRes) == 0 || len(workerRes) == 0 {
+		createServerGroupReq := &request.CreateServerGroupRequest{
+			ServerGroup: request.ServerGroup{
+				Name:   fmt.Sprintf("%v-master-server-group", req.ClusterName),
+				Policy: "soft-anti-affinity",
+			},
+		}
+		masterSG, err := c.computeService.CreateServerGroup(ctx, authToken, *createServerGroupReq)
+		if err != nil {
+			return err
+		}
+		_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_group", ResourceUUID: masterSG.ServerGroup.ID})
+		_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_group_master", ResourceUUID: masterSG.ServerGroup.ID})
 
-	createServerGroupReq.ServerGroup.Name = fmt.Sprintf("%v-default-worker-server-group", req.ClusterName)
-	workerSG, err := c.computeService.CreateServerGroup(ctx, authToken, *createServerGroupReq)
+		createServerGroupReq.ServerGroup.Name = fmt.Sprintf("%v-default-worker-server-group", req.ClusterName)
+		workerSG, err := c.computeService.CreateServerGroup(ctx, authToken, *createServerGroupReq)
+		if err != nil {
+			return err
+		}
+		_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_group", ResourceUUID: workerSG.ServerGroup.ID})
+		_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_group_worker", ResourceUUID: workerSG.ServerGroup.ID})
+
+		masterRes, err = c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "server_group_master")
+		if err != nil {
+			return err
+		}
+		workerRes, err = c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "server_group_worker")
+		if err != nil {
+			return err
+		}
+	}
+	if len(masterRes) == 0 || len(workerRes) == 0 {
+		return fmt.Errorf("server group resources missing after ensure")
+	}
+	masterServerGroupID := masterRes[0].ResourceUUID
+	workerServerGroupID := workerRes[0].ResourceUUID
+
+	masterSec, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "security_group_master")
 	if err != nil {
 		return err
 	}
-	_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_group", ResourceUUID: workerSG.ServerGroup.ID})
-	_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_group_worker", ResourceUUID: workerSG.ServerGroup.ID})
+	workerSec, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "security_group_worker")
+	if err != nil {
+		return err
+	}
+	if len(masterSec) == 0 || len(workerSec) == 0 {
+		return fmt.Errorf("security groups not ready for node_groups")
+	}
 
-	// node_groups rows are created in monolith; for now rely on existing create path if needed.
+	return c.ensureDefaultNodeGroupsInDB(ctx, req, cluster, masterServerGroupID, workerServerGroupID, masterSec[0].ResourceUUID, workerSec[0].ResourceUUID)
+}
+
+// ensureDefaultNodeGroupsInDB inserts master + default worker rows into node_groups (same contract as legacy CreateCluster), idempotent.
+func (c *clusterService) ensureDefaultNodeGroupsInDB(ctx context.Context, req *request.CreateClusterRequest, cluster *model.Cluster, masterServerGroupID, workerServerGroupID, masterSecGroupID, workerSecGroupID string) error {
+	rows, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "", "")
+	if err != nil {
+		return err
+	}
+	var hasMaster, hasWorker bool
+	for _, ng := range rows {
+		if ng.NodeGroupsStatus == constants.DeletedNodeGroupStatus {
+			continue
+		}
+		if ng.NodeGroupsType == NodeGroupMasterType {
+			hasMaster = true
+		}
+		if ng.NodeGroupsType == NodeGroupWorkerType {
+			hasWorker = true
+		}
+	}
+	if !hasMaster {
+		masterNG := &model.NodeGroups{
+			ClusterUUID:            cluster.ClusterUUID,
+			NodeGroupUUID:          masterServerGroupID,
+			NodeGroupName:          fmt.Sprintf("%v-master", req.ClusterName),
+			NodeGroupMinSize:       3,
+			NodeGroupMaxSize:       3,
+			NodeDiskSize:           80,
+			NodeFlavorUUID:         req.MasterInstanceFlavorUUID,
+			NodeGroupsStatus:       NodeGroupCreatingStatus,
+			NodeGroupsType:         NodeGroupMasterType,
+			NodeGroupSecurityGroup: masterSecGroupID,
+			IsHidden:               true,
+			NodeGroupCreateDate:    time.Now(),
+		}
+		if err := c.repository.NodeGroups().CreateNodeGroups(ctx, masterNG); err != nil {
+			return err
+		}
+	}
+	if !hasWorker {
+		workerNG := &model.NodeGroups{
+			ClusterUUID:            cluster.ClusterUUID,
+			NodeGroupUUID:          workerServerGroupID,
+			NodeGroupName:          cluster.ClusterName + "-default-wg",
+			NodeGroupMinSize:       req.WorkerNodeGroupMinSize,
+			NodeGroupMaxSize:       req.WorkerNodeGroupMaxSize,
+			NodeDiskSize:           req.WorkerDiskSizeGB,
+			NodeFlavorUUID:         req.WorkerInstanceFlavorUUID,
+			NodeGroupsStatus:       NodeGroupCreatingStatus,
+			NodeGroupsType:         NodeGroupWorkerType,
+			NodeGroupSecurityGroup: workerSecGroupID,
+			IsHidden:               false,
+			NodeGroupCreateDate:    time.Now(),
+		}
+		if err := c.repository.NodeGroups().CreateNodeGroups(ctx, workerNG); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

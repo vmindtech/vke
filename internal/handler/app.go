@@ -93,11 +93,10 @@ func (a *appHandler) ClusterInfo(c *fiber.Ctx) error {
 }
 
 func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
-	var req request.CreateClusterRequest
-	if err := c.BodyParser(&req); err != nil {
+	req, err := request.ParseCreateClusterRequestJSON(c.Body())
+	if err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
 	}
-	request.ApplyAlternateCreateClusterKeys(c.Body(), &req)
 
 	ctx := context.Background()
 
