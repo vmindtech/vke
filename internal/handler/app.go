@@ -2,9 +2,7 @@ package handler
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -106,11 +104,25 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, "", "", req.ProjectID))
 	}
 
-	// Idempotency key (client can override via header)
-	idemKey := c.Get("Idempotency-Key")
+	// Idempotency: client may send Idempotency-Key header for safe retries. Default is unique per request (cluster UUID–centric),
+	// not cluster name — same name after delete must not reuse the old jobs row / RabbitMQ job id.
+	idemKey := strings.TrimSpace(c.Get("Idempotency-Key"))
 	if idemKey == "" {
-		sum := sha256.Sum256([]byte(req.ProjectID + ":" + req.ClusterName))
-		idemKey = "create_cluster:" + hex.EncodeToString(sum[:])
+		idemKey = "create_cluster:" + uuid.New().String()
+	}
+
+	// If this key still maps to a job whose cluster is gone or terminal, free the unique idempotency_key for a new create.
+	if ej, je := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey); je == nil && ej != nil {
+		cl, ce := a.appService.Repository().Cluster().GetClusterByUUID(ctx, ej.ClusterUUID)
+		if ce != nil || cl == nil ||
+			cl.ClusterStatus == service.DeletedClusterStatus ||
+			cl.ClusterStatus == service.DeletingClusterStatus ||
+			cl.ClusterStatus == service.ErrorClusterStatus {
+			if rerr := a.appService.Repository().Jobs().RetireIdempotencyKey(ctx, ej.JobUUID); rerr != nil {
+				return c.Status(fiber.StatusUnprocessableEntity).JSON(
+					response.NewErrorResponseWithDetails(fmt.Errorf("stale idempotency key could not be cleared: %w", rerr), utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+			}
+		}
 	}
 
 	jobUUID := uuid.New().String()
@@ -138,20 +150,30 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 	}
 
 	if err := a.appService.Repository().Jobs().CreateJob(ctx, job); err != nil {
-		// idempotent retry: return existing job/cluster if already created
-		if existing, getErr := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey); getErr == nil {
-			clusterUUID = existing.ClusterUUID
-			jobUUID = existing.JobUUID
-			// ensure cluster exists (if init was skipped due to idempotency)
-			_ = a.appService.Cluster().InitCreateCluster(ctx, authToken, &req, clusterUUID)
-			// best-effort ensure it's queued
-			rmqCfg := config.GlobalConfig.GetRabbitMQConfig()
-			if rmqCfg.URL != "" && rmqCfg.QueueName != "" {
-				_ = queue.NewRabbitMQ(rmqCfg.URL, rmqCfg.QueueName).PublishJSON(ctx, &request.JobMessage{JobUUID: jobUUID})
-			}
-		} else {
+		existing, getErr := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey)
+		if getErr != nil {
 			return c.Status(fiber.StatusUnprocessableEntity).JSON(
 				response.NewErrorResponseWithDetails(err, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+		}
+		cl, ce := a.appService.Repository().Cluster().GetClusterByUUID(ctx, existing.ClusterUUID)
+		// Same idempotency key but old cluster is gone/failed: retire old job row and insert this new job (do not republish stale job UUID).
+		if ce != nil || cl == nil ||
+			cl.ClusterStatus == service.DeletedClusterStatus ||
+			cl.ClusterStatus == service.DeletingClusterStatus ||
+			cl.ClusterStatus == service.ErrorClusterStatus {
+			if rerr := a.appService.Repository().Jobs().RetireIdempotencyKey(ctx, existing.JobUUID); rerr != nil {
+				return c.Status(fiber.StatusUnprocessableEntity).JSON(
+					response.NewErrorResponseWithDetails(fmt.Errorf("could not retire stale job for idempotency key: %w", rerr), utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+			}
+			if err2 := a.appService.Repository().Jobs().CreateJob(ctx, job); err2 != nil {
+				return c.Status(fiber.StatusUnprocessableEntity).JSON(
+					response.NewErrorResponseWithDetails(err2, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+			}
+		} else {
+			// True in-flight duplicate: same logical create, reuse job + cluster
+			clusterUUID = existing.ClusterUUID
+			jobUUID = existing.JobUUID
+			_ = a.appService.Cluster().InitCreateCluster(ctx, authToken, &req, clusterUUID)
 		}
 	}
 
@@ -161,9 +183,11 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 	}
 
 	resp := &resource.CreateClusterResponse{
-		ClusterUUID:   clusterUUID,
-		ClusterName:   req.ClusterName,
-		ClusterStatus: "CREATING",
+		ClusterUUID:      clusterUUID,
+		ClusterName:      req.ClusterName,
+		ClusterStatus:    "CREATING",
+		JobUUID:          jobUUID,
+		IdempotencyKey:   idemKey,
 	}
 
 	return c.JSON(response.NewSuccessResponse(resp))

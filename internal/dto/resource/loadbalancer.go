@@ -4,6 +4,11 @@ type ListLoadBalancerResponse struct {
 	LoadBalancer ListLoadBalancer `json:"loadbalancer"`
 }
 
+// ListLoadBalancersCollectionResponse is the Octavia list API body (GET .../loadbalancers?name=...).
+type ListLoadBalancersCollectionResponse struct {
+	Loadbalancers []ListLoadBalancer `json:"loadbalancers"`
+}
+
 type ListLoadBalancer struct {
 	ID                 string `json:"id"`
 	Name               string `json:"name"`
@@ -29,6 +34,23 @@ type ListListener struct {
 	ID                 string `json:"id"`
 	Name               string `json:"name"`
 	ProvisioningStatus string `json:"provisioning_status"`
+	Protocol           string `json:"protocol"`
+	ProtocolPort       int    `json:"protocol_port"`
+	LoadbalancerID     string `json:"loadbalancer_id"`
+}
+
+// PoolDetail is a subset of Octavia GET /pools/{id} for idempotent create recovery.
+type PoolDetail struct {
+	ID         string `json:"id"`
+	ListenerID string `json:"listener_id"`
+	Listeners  []struct {
+		ID string `json:"id"`
+	} `json:"listeners"`
+	Name string `json:"name"`
+}
+
+type GetPoolResponse struct {
+	Pool PoolDetail `json:"pool"`
 }
 
 type CreateLoadBalancerResponse struct {

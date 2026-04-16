@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/vmindtech/vke/internal/model"
@@ -13,6 +14,8 @@ type IJobsRepository interface {
 	CreateJob(ctx context.Context, job *model.Job) error
 	GetJobByIdempotencyKey(ctx context.Context, key string) (*model.Job, error)
 	GetJobByUUID(ctx context.Context, jobUUID string) (*model.Job, error)
+	// RetireIdempotencyKey renames idempotency_key so a new job can reuse the same logical key (e.g. after cluster deleted).
+	RetireIdempotencyKey(ctx context.Context, jobUUID string) error
 	MarkJobQueued(ctx context.Context, jobUUID string, nextRunAt time.Time) error
 	MarkJobStarted(ctx context.Context, jobUUID, lockedBy string) error
 	MarkJobSucceeded(ctx context.Context, jobUUID string) error
@@ -53,6 +56,15 @@ func (j *JobsRepository) GetJobByUUID(ctx context.Context, jobUUID string) (*mod
 		return nil, err
 	}
 	return &job, nil
+}
+
+func (j *JobsRepository) RetireIdempotencyKey(ctx context.Context, jobUUID string) error {
+	newKey := fmt.Sprintf("retired:%s:%d", jobUUID, time.Now().UnixNano())
+	return j.mysqlInstance.Database().WithContext(ctx).
+		Model(&model.Job{}).
+		Where(&model.Job{JobUUID: jobUUID}).
+		Update("idempotency_key", newKey).
+		Error
 }
 
 func (j *JobsRepository) MarkJobQueued(ctx context.Context, jobUUID string, nextRunAt time.Time) error {

@@ -26,6 +26,7 @@ type INetworkService interface {
 	CreateSecurityGroupRuleForIP(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForIpRequest) error
 	CreateSecurityGroupRuleForSG(ctx context.Context, authToken string, req request.CreateSecurityGroupRuleForSgRequest) error
 	CreateFloatingIP(ctx context.Context, authToken string, req request.CreateFloatingIPRequest) (resource.CreateFloatingIPResponse, error)
+	GetFloatingIP(ctx context.Context, authToken, floatingIPID string) (resource.CreateFloatingIPResponse, error)
 	DeleteSecurityGroup(ctx context.Context, authToken, clusterSecurityGroupId string) error
 	DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error
 	DeleteNetworkPort(ctx context.Context, authToken string, portID string) error
@@ -356,6 +357,42 @@ func (ns *networkService) CreateFloatingIP(ctx context.Context, authToken string
 	err = json.NewDecoder(resp.Body).Decode(&respDecoder)
 	if err != nil {
 		ns.logger.WithError(err).Error("failed to decode response")
+		return resource.CreateFloatingIPResponse{}, err
+	}
+	return respDecoder, nil
+}
+
+func (ns *networkService) GetFloatingIP(ctx context.Context, authToken, floatingIPID string) (resource.CreateFloatingIPResponse, error) {
+	token := strings.Clone(authToken)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.FloatingIPPath, floatingIPID), nil)
+	if err != nil {
+		ns.logger.WithError(err).Error("failed to create request")
+		return resource.CreateFloatingIPResponse{}, err
+	}
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
+	r.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		ns.logger.WithError(err).Error("failed to send request")
+		return resource.CreateFloatingIPResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		ns.logger.WithFields(logrus.Fields{
+			"floatingIPID": floatingIPID,
+			"status_code":  resp.StatusCode,
+		}).Error("failed to get floating ip")
+		return resource.CreateFloatingIPResponse{}, fmt.Errorf("failed to get floating ip: status %d: %s", resp.StatusCode, string(b))
+	}
+
+	var respDecoder resource.CreateFloatingIPResponse
+	if err := json.NewDecoder(resp.Body).Decode(&respDecoder); err != nil {
+		ns.logger.WithError(err).Error("failed to decode floating ip response")
 		return resource.CreateFloatingIPResponse{}, err
 	}
 	return respDecoder, nil
