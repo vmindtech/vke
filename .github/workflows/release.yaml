@@ -5,6 +5,8 @@ on:
     tags:
       - 'v*.*.*'
       - 'v*.*.*-*'
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -12,10 +14,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v5
       with:
         go-version: '1.23'
 
@@ -24,8 +26,8 @@ jobs:
       with:
         version: latest
         args: release --clean
-      env:
-        GITHUB_TOKEN: ${{ secrets.ACTION_SECRET}}
+      # env:
+      #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Docker login
       uses: docker/login-action@v2
