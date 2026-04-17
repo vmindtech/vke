@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"strings"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -214,7 +214,7 @@ func handleDelivery(
 				entry.WithField("clusterStatus", cl.ClusterStatus).Info("delete job succeeded and cluster removed; ack duplicate queue message")
 				return false, nil
 			}
-			entry.WithFields(logrus.Fields{"clusterStatus": cl.ClusterStatus, "deleteState": cl.DeleteState}).Info("job marked succeeded but cluster not fully deleted; reconciling destroy")
+			entry.WithFields(logrus.Fields{"clusterStatus": cl.ClusterStatus, "deleteState": cl.DeleteState}).Info("job marked succeeded but cluster not fully deleted; reconciling RunDestroyCluster")
 		default:
 			entry.Info("job already succeeded; ack duplicate queue message")
 			return false, nil
@@ -263,7 +263,8 @@ func handleDelivery(
 		return false, nil
 
 	case "CLUSTER_DELETE":
-		if err := clusterSvc.DestroyCluster(ctx, deletePayload.AuthToken, deletePayload.ClusterID); err != nil {
+		// RunDestroyCluster: delete_state machine until COMPLETED; idempotent for queue retries.
+		if err := clusterSvc.RunDestroyCluster(ctx, deletePayload.AuthToken, deletePayload.ClusterID); err != nil {
 			attempts := job.Attempts + 1
 			backoff := time.Duration(attempts*attempts) * 10 * time.Second
 			next := time.Now().Add(backoff)
@@ -285,4 +286,3 @@ func handleDelivery(
 		return false, nil
 	}
 }
-
