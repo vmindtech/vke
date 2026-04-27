@@ -2156,6 +2156,13 @@ func (c *clusterService) deleteDNSRecord(ctx context.Context, cluster *model.Clu
 		if err == nil {
 			return nil
 		}
+		if strings.Contains(err.Error(), "404") {
+			c.logger.WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+				"recordID":    cluster.ClusterCloudflareRecordID,
+			}).Info("dns record not found on Cloudflare; treating as deleted")
+			return nil
+		}
 
 		if attempt == maxRetries {
 			c.logger.WithError(err).WithFields(logrus.Fields{
