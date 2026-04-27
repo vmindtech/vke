@@ -1852,7 +1852,6 @@ func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, 
 // each step is persisted so retries / redelivery resume from delete_state.
 func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string, clusterID string) error {
 	ctx = ctxutil.WithClusterUUID(ctx, clusterID)
-	token := strings.Clone(authToken)
 
 	for {
 		cluster, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterID)
@@ -1867,12 +1866,42 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 			return nil
 		}
 
-		if err := c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID); err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": clusterID,
-			}).Error("failed to check auth token")
-			c.logClusterErrorSimple(ctx, clusterID, constants.ErrAuthTokenCheckFailed, "cluster_deletion")
-			return err
+		var token string
+		if cluster.DeleteState == constants.DeleteStateCredentials {
+			token = ""
+		} else if strings.TrimSpace(cluster.ApplicationCredentialID) != "" && strings.TrimSpace(cluster.ApplicationCredentialSecretEnc) != "" {
+			encKey := config.GlobalConfig.GetEncryptionConfig().Key
+			if encKey == "" {
+				return fmt.Errorf("VKE_ENCRYPTION_KEY must be set")
+			}
+			derived := sha256Sum(encKey)
+			appSecret, derr := utils.DecryptAESGCM(derived, cluster.ApplicationCredentialSecretEnc)
+			if derr != nil {
+				c.logger.WithError(derr).WithField("clusterUUID", clusterID).Error("failed to decrypt application credential secret")
+				return derr
+			}
+			token, err = c.identityService.AuthenticateWithApplicationCredential(ctx, cluster.ApplicationCredentialID, appSecret)
+			if err != nil {
+				c.logger.WithError(err).WithField("clusterUUID", clusterID).Error("failed to authenticate with application credential for cluster deletion")
+				c.logClusterErrorSimple(ctx, clusterID, constants.ErrAuthTokenCheckFailed, "cluster_deletion")
+				return err
+			}
+		} else {
+			token = strings.Clone(authToken)
+			if strings.TrimSpace(token) == "" {
+				c.logger.WithField("clusterUUID", clusterID).Error("cluster has no application credential and no auth token for deletion")
+				return fmt.Errorf("missing credentials for cluster destruction")
+			}
+		}
+
+		if token != "" {
+			if err := c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID); err != nil {
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterID,
+				}).Error("failed to check auth token")
+				c.logClusterErrorSimple(ctx, clusterID, constants.ErrAuthTokenCheckFailed, "cluster_deletion")
+				return err
+			}
 		}
 
 		if cluster.ClusterStatus != DeletingClusterStatus {
