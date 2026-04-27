@@ -2206,6 +2206,13 @@ func (c *clusterService) deleteFloatingIP(ctx context.Context, authToken string,
 		if err == nil {
 			return nil
 		}
+		if strings.Contains(err.Error(), "404") {
+			c.logger.WithFields(logrus.Fields{
+				"clusterUUID":    cluster.ClusterUUID,
+				"floatingIPUUID": getFloatingIP[0].ResourceUUID,
+			}).Info("floating IP not found on Neutron; treating as deleted")
+			return nil
+		}
 
 		if attempt == maxRetries {
 			c.logger.WithError(err).WithFields(logrus.Fields{
