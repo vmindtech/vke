@@ -1975,7 +1975,7 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 			c.updateClusterDeleteState(ctx, cluster)
 
 		case constants.DeleteStateSecurityGroups:
-			stepErr = c.deleteApplicationCredentials(ctx, token, cluster)
+			stepErr = c.deleteApplicationCredentials(ctx, token, authToken, cluster)
 			if stepErr != nil {
 				c.logClusterErrorFiltered(ctx, cluster.ClusterUUID, constants.ErrApplicationCredentialDeleteFailed, "cluster_deletion", stepErr)
 				return stepErr
@@ -2430,17 +2430,14 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 	return nil
 }
 
-func (c *clusterService) deleteApplicationCredentials(ctx context.Context, authToken string, cluster *model.Cluster) error {
-	token := strings.Clone(authToken)
+func applicationCredentialNotFoundOnKeystone(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "404")
+}
 
-	err := c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID)
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to check auth token")
-		return err
-	}
-
+// deleteApplicationCredentials removes the VKE application credential from Keystone.
+// identityToken is typically from AuthenticateWithApplicationCredential; callerJobAuthToken is the optional
+// X-Auth-Token from the delete job (often required by policy to DELETE /v3/users/.../application_credentials/...).
+func (c *clusterService) deleteApplicationCredentials(ctx context.Context, identityToken, callerJobAuthToken string, cluster *model.Cluster) error {
 	getApplicationCredential, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "application_credential")
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
@@ -2451,14 +2448,38 @@ func (c *clusterService) deleteApplicationCredentials(ctx context.Context, authT
 	if len(getApplicationCredential) == 0 {
 		return nil
 	}
-	err = c.identityService.DeleteApplicationCredential(ctx, token, getApplicationCredential[0].ResourceUUID)
-	if err != nil {
+	credID := getApplicationCredential[0].ResourceUUID
+
+	tryDelete := func(tok string) error {
+		return c.identityService.DeleteApplicationCredential(ctx, tok, credID)
+	}
+
+	if ct := strings.TrimSpace(callerJobAuthToken); ct != "" {
+		err := tryDelete(ct)
+		if err == nil {
+			return nil
+		}
+		if applicationCredentialNotFoundOnKeystone(err) {
+			return nil
+		}
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to delete application credential")
-		return err
+		}).Warn("caller token did not delete application credential; retrying with cluster identity token")
 	}
-	return nil
+
+	if err := tryDelete(strings.Clone(identityToken)); err == nil {
+		return nil
+	}
+	if applicationCredentialNotFoundOnKeystone(err) {
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Info("application credential not found on Keystone; treating as deleted")
+		return nil
+	}
+	c.logger.WithError(err).WithFields(logrus.Fields{
+		"clusterUUID": cluster.ClusterUUID,
+	}).Error("failed to delete application credential")
+	return err
 }
 
 func (c *clusterService) GetKubeConfig(ctx context.Context, authToken, clusterID string) (resource.GetKubeConfigResponse, error) {
