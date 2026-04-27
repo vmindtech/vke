@@ -2331,8 +2331,9 @@ func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string,
 func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken string, cluster *model.Cluster) error {
 	token := strings.Clone(authToken)
 
-	sgUUIDs := []string{
-		cluster.ClusterSharedSecurityGroup,
+	var sgUUIDs []string
+	if s := strings.TrimSpace(cluster.ClusterSharedSecurityGroup); s != "" {
+		sgUUIDs = append(sgUUIDs, s)
 	}
 
 	getSecurityGroups, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "security_group")
@@ -2343,7 +2344,13 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 		return err
 	}
 	for _, nodeGroup := range getSecurityGroups {
-		sgUUIDs = append(sgUUIDs, nodeGroup.ResourceUUID)
+		if s := strings.TrimSpace(nodeGroup.ResourceUUID); s != "" {
+			sgUUIDs = append(sgUUIDs, s)
+		}
+	}
+
+	if len(sgUUIDs) == 0 {
+		return nil
 	}
 
 	ports := []resource.NetworkPortsResponse{}
@@ -2392,6 +2399,7 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 					"clusterUUID": cluster.ClusterUUID,
 					"sgUUID":      sgUUID,
 				}).Info("security group not found, skipping deletion")
+				successCount++
 				continue
 			}
 
