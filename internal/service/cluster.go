@@ -1066,10 +1066,16 @@ func (c *clusterService) ensureDefaultNodeGroupsInDB(ctx context.Context, req *r
 		}
 	}
 	if !hasWorker {
+		defaultWorkerLabels := []string{"type=default-worker"}
+		nodeGroupLabelsJSON, err := json.Marshal(defaultWorkerLabels)
+		if err != nil {
+			return fmt.Errorf("marshal default worker node group labels: %w", err)
+		}
 		workerNG := &model.NodeGroups{
 			ClusterUUID:            cluster.ClusterUUID,
 			NodeGroupUUID:          workerServerGroupID,
 			NodeGroupName:          cluster.ClusterName + "-default-wg",
+			NodeGroupLabels:        nodeGroupLabelsJSON,
 			NodeGroupMinSize:       req.WorkerNodeGroupMinSize,
 			NodeGroupMaxSize:       req.WorkerNodeGroupMaxSize,
 			NodeDiskSize:           req.WorkerDiskSizeGB,

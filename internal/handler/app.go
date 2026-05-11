@@ -134,7 +134,11 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 			response.NewErrorResponseWithDetails(err, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
 	}
 
-	payload, _ := json.Marshal(&request.CreateClusterJobPayload{Request: req, ClusterUUID: clusterUUID})
+	payload, marshalErr := json.Marshal(&request.CreateClusterJobPayload{Request: req, ClusterUUID: clusterUUID})
+	if marshalErr != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(
+			response.NewErrorResponseWithDetails(marshalErr, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
+	}
 
 	job := &model.Job{
 		JobUUID:        jobUUID,
@@ -173,21 +177,27 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 			// True in-flight duplicate: same logical create, reuse job + cluster
 			clusterUUID = existing.ClusterUUID
 			jobUUID = existing.JobUUID
-			_ = a.appService.Cluster().InitCreateCluster(ctx, authToken, &req, clusterUUID)
+			if err := a.appService.Cluster().InitCreateCluster(ctx, authToken, &req, clusterUUID); err != nil {
+				return c.Status(fiber.StatusUnprocessableEntity).JSON(
+					response.NewErrorResponseWithDetails(err, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
+			}
 		}
 	}
 
 	rmqCfg := config.GlobalConfig.GetRabbitMQConfig()
 	if rmqCfg.URL != "" && rmqCfg.QueueName != "" {
-		_ = queue.NewRabbitMQ(rmqCfg.URL, rmqCfg.QueueName).PublishJSON(ctx, &request.JobMessage{JobUUID: jobUUID})
+		if pubErr := queue.NewRabbitMQ(rmqCfg.URL, rmqCfg.QueueName).PublishJSON(ctx, &request.JobMessage{JobUUID: jobUUID}); pubErr != nil {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(
+				response.NewErrorResponseWithDetails(pubErr, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
+		}
 	}
 
 	resp := &resource.CreateClusterResponse{
-		ClusterUUID:      clusterUUID,
-		ClusterName:      req.ClusterName,
-		ClusterStatus:    "CREATING",
-		JobUUID:          jobUUID,
-		IdempotencyKey:   idemKey,
+		ClusterUUID:    clusterUUID,
+		ClusterName:    req.ClusterName,
+		ClusterStatus:  "CREATING",
+		JobUUID:        jobUUID,
+		IdempotencyKey: idemKey,
 	}
 
 	return c.JSON(response.NewSuccessResponse(resp))
