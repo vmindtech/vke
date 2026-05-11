@@ -351,6 +351,47 @@ func (c *clusterService) enrichCreateRequestFromNodeGroups(ctx context.Context, 
 	}
 }
 
+// findExistingOpenStackLoadBalancerID looks up an Octavia LB for this cluster when the resources row is missing.
+func (c *clusterService) findExistingOpenStackLoadBalancerID(ctx context.Context, authToken string, cluster *model.Cluster, lbName string) (string, error) {
+	id, err := c.loadbalancerService.FindLoadBalancerIDByName(ctx, authToken, lbName)
+	if err != nil {
+		return "", err
+	}
+	if id != "" {
+		return id, nil
+	}
+	return c.loadbalancerService.FindLoadBalancerIDByName(ctx, authToken, cluster.ClusterUUID)
+}
+
+func (c *clusterService) persistClusterLoadBalancerResource(ctx context.Context, cluster *model.Cluster, lbID string) error {
+	if err := c.repository.Resources().CreateResource(ctx, &model.Resource{
+		ClusterUUID:  cluster.ClusterUUID,
+		ResourceType: "load_balancer",
+		ResourceUUID: lbID,
+	}); err != nil {
+		return err
+	}
+	_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{
+		ClusterUUID:             cluster.ClusterUUID,
+		ClusterLoadbalancerUUID: lbID,
+	})
+	return nil
+}
+
+func (c *clusterService) warnIfDuplicateLoadBalancersByName(ctx context.Context, authToken, clusterUUID, lbName, chosenLbID string) {
+	ids, err := c.loadbalancerService.ListLoadBalancerIDsByName(ctx, authToken, lbName)
+	if err != nil || len(ids) < 2 {
+		return
+	}
+	c.logger.WithFields(logrus.Fields{
+		"clusterUUID": clusterUUID,
+		"lbName":      lbName,
+		"chosenLbID":  chosenLbID,
+		"lbCount":     len(ids),
+		"lbIDs":       strings.Join(ids, ","),
+	}).Warn("multiple Octavia load balancers share the VKE name; reconciling with one id; remove orphan LBs in OpenStack if needed")
+}
+
 func (c *clusterService) stepEnsureLoadBalancer(ctx context.Context, authToken string, req *request.CreateClusterRequest, cluster *model.Cluster) error {
 	existing, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "load_balancer")
 	if err != nil {
@@ -367,60 +408,71 @@ func (c *clusterService) stepEnsureLoadBalancer(ctx context.Context, authToken s
 	case strings.TrimSpace(cluster.ClusterLoadbalancerUUID) != "":
 		// DB row has VIP LB id but resources row missing (partial write / crash after cluster update).
 		lbID = cluster.ClusterLoadbalancerUUID
-		if err := c.repository.Resources().CreateResource(ctx, &model.Resource{
-			ClusterUUID:  cluster.ClusterUUID,
-			ResourceType: "load_balancer",
-			ResourceUUID: lbID,
-		}); err != nil {
+		if err := c.persistClusterLoadBalancerResource(ctx, cluster, lbID); err != nil {
 			return err
 		}
 	default:
 		// Orphan LB in OpenStack: worker died after CreateLoadBalancer but before resources insert.
-		adoptID, err := c.loadbalancerService.FindLoadBalancerIDByName(ctx, authToken, lbName)
+		adoptID, err := c.findExistingOpenStackLoadBalancerID(ctx, authToken, cluster, lbName)
 		if err != nil {
 			return err
 		}
-		if adoptID == "" {
-			adoptID, err = c.loadbalancerService.FindLoadBalancerIDByName(ctx, authToken, cluster.ClusterUUID)
-			if err != nil {
-				return err
-			}
-		}
 		if adoptID != "" {
 			lbID = adoptID
-			if err := c.repository.Resources().CreateResource(ctx, &model.Resource{
-				ClusterUUID:  cluster.ClusterUUID,
-				ResourceType: "load_balancer",
-				ResourceUUID: lbID,
-			}); err != nil {
+			if err := c.persistClusterLoadBalancerResource(ctx, cluster, lbID); err != nil {
 				return err
 			}
-			_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: cluster.ClusterUUID, ClusterLoadbalancerUUID: lbID})
 		} else {
-			createLBReq := &request.CreateLoadBalancerRequest{
-				LoadBalancer: request.LoadBalancer{
-					Name:         lbName,
-					Description:  lbDescription,
-					AdminStateUp: true,
-					VIPSubnetID:  req.SubnetIDs[0],
-					Provider:     config.GlobalConfig.GetOpenStackApiConfig().LoadbalancerProvider,
-				},
-			}
-			lbResp, err := c.loadbalancerService.CreateLoadBalancer(ctx, authToken, *createLBReq)
+			// Second list immediately before POST: another worker may have created the LB after our first list.
+			preCreateAdopt, err := c.findExistingOpenStackLoadBalancerID(ctx, authToken, cluster, lbName)
 			if err != nil {
 				return err
 			}
-			lbID = lbResp.LoadBalancer.ID
-			if err := c.repository.Resources().CreateResource(ctx, &model.Resource{
-				ClusterUUID:  cluster.ClusterUUID,
-				ResourceType: "load_balancer",
-				ResourceUUID: lbID,
-			}); err != nil {
-				return err
+			if preCreateAdopt != "" {
+				lbID = preCreateAdopt
+				if err := c.persistClusterLoadBalancerResource(ctx, cluster, lbID); err != nil {
+					return err
+				}
+			} else {
+				createLBReq := &request.CreateLoadBalancerRequest{
+					LoadBalancer: request.LoadBalancer{
+						Name:         lbName,
+						Description:  lbDescription,
+						AdminStateUp: true,
+						VIPSubnetID:  req.SubnetIDs[0],
+						Provider:     config.GlobalConfig.GetOpenStackApiConfig().LoadbalancerProvider,
+					},
+				}
+				lbResp, err := c.loadbalancerService.CreateLoadBalancer(ctx, authToken, *createLBReq)
+				if err != nil {
+					// Concurrent create may have succeeded while we got a transport/API error; adopt by name.
+					adoptAfter, ferr := c.findExistingOpenStackLoadBalancerID(ctx, authToken, cluster, lbName)
+					if ferr != nil {
+						return ferr
+					}
+					if adoptAfter == "" {
+						return err
+					}
+					c.logger.WithFields(logrus.Fields{
+						"clusterUUID": cluster.ClusterUUID,
+						"lbName":      lbName,
+						"lbID":        adoptAfter,
+					}).Warn("CreateLoadBalancer failed but an LB with the expected name exists; adopting (likely concurrent or partial failure)")
+					lbID = adoptAfter
+					if err := c.persistClusterLoadBalancerResource(ctx, cluster, lbID); err != nil {
+						return err
+					}
+				} else {
+					lbID = lbResp.LoadBalancer.ID
+					if err := c.persistClusterLoadBalancerResource(ctx, cluster, lbID); err != nil {
+						return err
+					}
+				}
 			}
-			_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: cluster.ClusterUUID, ClusterLoadbalancerUUID: lbID})
 		}
 	}
+
+	c.warnIfDuplicateLoadBalancersByName(ctx, authToken, cluster.ClusterUUID, lbName, lbID)
 
 	if err := c.waitLoadBalancerReadyForMutation(ctx, authToken, lbID); err != nil {
 		return err
@@ -2042,106 +2094,185 @@ func (c *clusterService) updateClusterDeleteState(ctx context.Context, cluster *
 	}
 }
 
-func (c *clusterService) deleteLoadBalancerComponents(ctx context.Context, authToken string, cluster *model.Cluster) error {
-	token := strings.Clone(authToken)
-	getLoadBalancer, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "load_balancer")
+func appendUniqueLoadBalancerID(ids *[]string, seen map[string]struct{}, id string) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	if _, ok := seen[id]; ok {
+		return
+	}
+	seen[id] = struct{}{}
+	*ids = append(*ids, id)
+}
+
+// collectLoadBalancerIDsForDeletion merges DB-tracked LBs, clusters.cluster_loadbalancer_uuid, and Octavia list-by-name
+// (canonical `<uuid>_vke_cluster` plus legacy name = raw cluster UUID) so orphan duplicates are removed.
+func (c *clusterService) collectLoadBalancerIDsForDeletion(ctx context.Context, authToken string, cluster *model.Cluster) ([]string, error) {
+	seen := make(map[string]struct{})
+	var out []string
+
+	rows, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "load_balancer")
 	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to get load balancer")
-		return err
+		return nil, err
 	}
-
-	if len(getLoadBalancer) == 0 {
-		return nil
+	for _, r := range rows {
+		appendUniqueLoadBalancerID(&out, seen, r.ResourceUUID)
 	}
+	appendUniqueLoadBalancerID(&out, seen, cluster.ClusterLoadbalancerUUID)
 
-	pools, err := c.loadbalancerService.GetLoadBalancerPools(ctx, token, getLoadBalancer[0].ResourceUUID)
-	if err != nil {
-		if strings.Contains(err.Error(), "404") {
-			c.logger.WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-			}).Info("loadbalancer not found, skipping deletion")
-			return nil
+	for _, name := range []string{loadBalancerOpenStackName(cluster.ClusterUUID), cluster.ClusterUUID} {
+		if strings.TrimSpace(name) == "" {
+			continue
 		}
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to get load balancer pools")
-		return err
-	}
-
-	for _, pool := range pools.Pools {
-		err = c.loadbalancerService.DeleteLoadbalancerPools(ctx, token, pool)
+		lst, err := c.loadbalancerService.ListLoadBalancerIDsByName(ctx, authToken, name)
 		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-				"poolID":      pool,
-			}).Error("failed to delete pool")
-			return err
+			return nil, err
+		}
+		for _, id := range lst {
+			appendUniqueLoadBalancerID(&out, seen, id)
 		}
 	}
+	return out, nil
+}
 
-	listeners, err := c.loadbalancerService.GetLoadBalancerListeners(ctx, token, getLoadBalancer[0].ResourceUUID)
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to get load balancer listeners")
-		return err
-	}
-
-	for _, listener := range listeners.Listeners {
-		err = c.loadbalancerService.DeleteLoadbalancerListeners(ctx, token, listener)
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-				"listenerID":  listener,
-			}).Error("failed to delete listener")
-			return err
-		}
-		// Wait for listener deletion
-		err = c.loadbalancerService.CheckLoadBalancerDeletingListeners(ctx, token, listener)
-		if err != nil {
-			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID": cluster.ClusterUUID,
-				"listenerID":  listener,
-			}).Error("failed to check listener deletion status")
-			return err
-		}
-	}
-
-	// Finally delete the loadbalancer
+func (c *clusterService) deleteOpenStackLoadBalancerWithWait(ctx context.Context, token, clusterUUID, lbID string) error {
 	maxRetries := 10
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := c.loadbalancerService.DeleteLoadbalancer(ctx, token, getLoadBalancer[0].ResourceUUID)
+		err := c.loadbalancerService.DeleteLoadbalancer(ctx, token, lbID)
 		if err == nil {
-			if werr := c.loadbalancerService.WaitForLoadBalancerDeleted(ctx, token, getLoadBalancer[0].ResourceUUID); werr != nil {
+			if werr := c.loadbalancerService.WaitForLoadBalancerDeleted(ctx, token, lbID); werr != nil {
 				c.logger.WithError(werr).WithFields(logrus.Fields{
-					"clusterUUID":      cluster.ClusterUUID,
-					"loadbalancerUUID": getLoadBalancer[0].ResourceUUID,
+					"clusterUUID":      clusterUUID,
+					"loadbalancerUUID": lbID,
 				}).Error("failed to wait for load balancer deletion")
 				return werr
 			}
 			return nil
 		}
+		if strings.Contains(err.Error(), "404") {
+			c.logger.WithFields(logrus.Fields{
+				"clusterUUID":      clusterUUID,
+				"loadbalancerUUID": lbID,
+			}).Info("load balancer delete returned 404; already removed")
+			return nil
+		}
 
 		if attempt == maxRetries {
 			c.logger.WithError(err).WithFields(logrus.Fields{
-				"clusterUUID":      cluster.ClusterUUID,
-				"loadbalancerUUID": getLoadBalancer[0].ResourceUUID,
+				"clusterUUID":      clusterUUID,
+				"loadbalancerUUID": lbID,
 				"attempt":          attempt,
 			}).Error("failed to delete load balancer after all retries")
 			return err
 		}
 
 		c.logger.WithFields(logrus.Fields{
-			"clusterUUID":      cluster.ClusterUUID,
-			"loadbalancerUUID": getLoadBalancer[0].ResourceUUID,
+			"clusterUUID":      clusterUUID,
+			"loadbalancerUUID": lbID,
 			"attempt":          attempt,
 		}).Warn("retrying load balancer deletion")
 
 		time.Sleep(time.Duration(attempt) * 5 * time.Second)
 	}
+	return nil
+}
 
+func (c *clusterService) deleteSingleLoadBalancer(ctx context.Context, authToken, clusterUUID, lbID string) error {
+	token := strings.Clone(authToken)
+
+	pools, err := c.loadbalancerService.GetLoadBalancerPools(ctx, token, lbID)
+	skipChildResources := false
+	if err != nil {
+		if strings.Contains(err.Error(), "404") {
+			c.logger.WithFields(logrus.Fields{
+				"clusterUUID":      clusterUUID,
+				"loadbalancerUUID": lbID,
+			}).Info("load balancer not found when listing pools; attempting direct delete")
+			skipChildResources = true
+		} else {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID":      clusterUUID,
+				"loadbalancerUUID": lbID,
+			}).Error("failed to get load balancer pools")
+			return err
+		}
+	}
+
+	if !skipChildResources {
+		for _, pool := range pools.Pools {
+			err = c.loadbalancerService.DeleteLoadbalancerPools(ctx, token, pool)
+			if err != nil {
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+					"poolID":      pool,
+				}).Error("failed to delete pool")
+				return err
+			}
+		}
+
+		listeners, lerr := c.loadbalancerService.GetLoadBalancerListeners(ctx, token, lbID)
+		if lerr != nil {
+			if !strings.Contains(lerr.Error(), "404") {
+				c.logger.WithError(lerr).WithFields(logrus.Fields{
+					"clusterUUID":      clusterUUID,
+					"loadbalancerUUID": lbID,
+				}).Error("failed to get load balancer listeners")
+				return lerr
+			}
+			c.logger.WithFields(logrus.Fields{
+				"clusterUUID":      clusterUUID,
+				"loadbalancerUUID": lbID,
+			}).Info("load balancer not found when listing listeners; proceeding to delete load balancer")
+			listeners.Listeners = nil
+		}
+
+		for _, listener := range listeners.Listeners {
+			err = c.loadbalancerService.DeleteLoadbalancerListeners(ctx, token, listener)
+			if err != nil {
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+					"listenerID":  listener,
+				}).Error("failed to delete listener")
+				return err
+			}
+			err = c.loadbalancerService.CheckLoadBalancerDeletingListeners(ctx, token, listener)
+			if err != nil {
+				c.logger.WithError(err).WithFields(logrus.Fields{
+					"clusterUUID": clusterUUID,
+					"listenerID":  listener,
+				}).Error("failed to check listener deletion status")
+				return err
+			}
+		}
+	}
+
+	return c.deleteOpenStackLoadBalancerWithWait(ctx, token, clusterUUID, lbID)
+}
+
+func (c *clusterService) deleteLoadBalancerComponents(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	lbIDs, err := c.collectLoadBalancerIDsForDeletion(ctx, authToken, cluster)
+	if err != nil {
+		c.logger.WithError(err).WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+		}).Error("failed to resolve load balancer ids for deletion")
+		return err
+	}
+	if len(lbIDs) == 0 {
+		return nil
+	}
+	if len(lbIDs) > 1 {
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID": cluster.ClusterUUID,
+			"lbCount":     len(lbIDs),
+			"lbIDs":       strings.Join(lbIDs, ","),
+		}).Info("deleting multiple load balancers for cluster")
+	}
+	for _, lbID := range lbIDs {
+		if err := c.deleteSingleLoadBalancer(ctx, authToken, cluster.ClusterUUID, lbID); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

@@ -24,6 +24,8 @@ type ILoadbalancerService interface {
 	ListLoadBalancer(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error)
 	// FindLoadBalancerIDByName lists load balancers by exact name (Octavia filter). Returns empty string if none.
 	FindLoadBalancerIDByName(ctx context.Context, authToken, name string) (string, error)
+	// ListLoadBalancerIDsByName returns all LB ids matching the name (Octavia may briefly show duplicates during races).
+	ListLoadBalancerIDsByName(ctx context.Context, authToken, name string) ([]string, error)
 	CreateLoadBalancer(ctx context.Context, authToken string, req request.CreateLoadBalancerRequest) (resource.CreateLoadBalancerResponse, error)
 	CreateListener(ctx context.Context, authToken string, req request.CreateListenerRequest) (resource.CreateListenerResponse, error)
 	CreatePool(ctx context.Context, authToken string, req request.CreatePoolRequest) (resource.CreatePoolResponse, error)
@@ -175,6 +177,41 @@ func (lbc *loadbalancerService) FindLoadBalancerIDByName(ctx context.Context, au
 		return "", nil
 	}
 	return out.Loadbalancers[0].ID, nil
+}
+
+func (lbc *loadbalancerService) ListLoadBalancerIDsByName(ctx context.Context, authToken, name string) ([]string, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, nil
+	}
+	token := strings.Clone(authToken)
+	u := fmt.Sprintf("%s/%s?name=%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.LoadBalancerPath, url.QueryEscape(name))
+	r, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
+	r.Header.Add("Content-Type", "application/json")
+	resp, err := lbc.client.Do(r)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("list load balancers by name: status %d: %s", resp.StatusCode, string(b))
+	}
+	var out resource.ListLoadBalancersCollectionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, lb := range out.Loadbalancers {
+		if id := strings.TrimSpace(lb.ID); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 func (lbc *loadbalancerService) CreateLoadBalancer(ctx context.Context, authToken string, req request.CreateLoadBalancerRequest) (resource.CreateLoadBalancerResponse, error) {
