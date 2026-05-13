@@ -2050,7 +2050,7 @@ func (c *clusterService) stepEnsurePostKubeconfigComputes(ctx context.Context, a
 		}
 		workerRequest := &request.CreateComputeRequest{
 			Server: request.Server{
-				Name:             fmt.Sprintf("%v-worker-%d", req.ClusterName, i+1),
+				Name:             fmt.Sprintf("%v-%v-%d", req.ClusterName, "default-wg", i+1),
 				ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
 				FlavorRef:        req.WorkerInstanceFlavorUUID,
 				KeyName:          req.NodeKeyPairName,
