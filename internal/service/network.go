@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -31,6 +32,7 @@ type INetworkService interface {
 	DeleteFloatingIP(ctx context.Context, authToken, floatingIPID string) error
 	DeleteNetworkPort(ctx context.Context, authToken string, portID string) error
 	GetSecurityGroupByID(ctx context.Context, authToken, securityGroupID string) (resource.GetSecurityGroupResponse, error)
+	ListSecurityGroupsByName(ctx context.Context, authToken, name string) (resource.ListSecurityGroupsResponse, error)
 	GetSubnetByID(ctx context.Context, authToken, subnetID string) (resource.SubnetResponse, error)
 	GetComputeNetworkPorts(ctx context.Context, authToken, instanceID string) (resource.NetworkPortsResponse, error)
 	GetSecurityGroupPorts(ctx context.Context, authToken, securityGroupID string) (resource.NetworkPortsResponse, error)
@@ -489,6 +491,49 @@ func (ns *networkService) GetSecurityGroupByID(ctx context.Context, authToken, s
 	}
 
 	return respData, nil
+}
+
+func (ns *networkService) ListSecurityGroupsByName(ctx context.Context, authToken, name string) (resource.ListSecurityGroupsResponse, error) {
+	token := strings.Clone(authToken)
+	base := fmt.Sprintf("%s/%s", config.GlobalConfig.GetEndpointsConfig().NetworkEndpoint, constants.SecurityGroupPath)
+	u, err := url.Parse(base)
+	if err != nil {
+		return resource.ListSecurityGroupsResponse{}, err
+	}
+	q := u.Query()
+	q.Set("name", strings.TrimSpace(name))
+	u.RawQuery = q.Encode()
+
+	r, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	if err != nil {
+		ns.logger.WithError(err).Error("failed to create request")
+		return resource.ListSecurityGroupsResponse{}, err
+	}
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
+
+	client := &http.Client{}
+	resp, err := client.Do(r)
+	if err != nil {
+		ns.logger.WithError(err).Error("failed to send request")
+		return resource.ListSecurityGroupsResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return resource.ListSecurityGroupsResponse{}, fmt.Errorf("failed to list security groups by name, status code: %v, body: %v", resp.StatusCode, string(b))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resource.ListSecurityGroupsResponse{}, err
+	}
+	var out resource.ListSecurityGroupsResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return resource.ListSecurityGroupsResponse{}, err
+	}
+	return out, nil
 }
 
 func (ns *networkService) GetSubnetByID(ctx context.Context, authToken, subnetID string) (resource.SubnetResponse, error) {

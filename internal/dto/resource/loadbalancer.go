@@ -41,9 +41,10 @@ type ListListener struct {
 
 // PoolDetail is a subset of Octavia GET /pools/{id} for idempotent create recovery.
 type PoolDetail struct {
-	ID         string `json:"id"`
-	ListenerID string `json:"listener_id"`
-	Listeners  []struct {
+	ID              string `json:"id"`
+	ListenerID      string `json:"listener_id"`
+	HealthmonitorID string `json:"healthmonitor_id"`
+	Listeners       []struct {
 		ID string `json:"id"`
 	} `json:"listeners"`
 	Name string `json:"name"`

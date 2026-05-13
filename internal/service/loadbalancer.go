@@ -35,9 +35,17 @@ type ILoadbalancerService interface {
 	CreateHealthHTTPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorHTTPRequest) error
 	CreateHealthTCPMonitor(ctx context.Context, authToken string, req request.CreateHealthMonitorTCPRequest) error
 	CheckLoadBalancerOperationStatus(ctx context.Context, authToken, loadBalancerID string) (resource.ListLoadBalancerResponse, error)
+	// FindListenerIDByLoadBalancerAndPort returns an existing listener on the LB for protocol:port (Octavia reconciliation).
+	FindListenerIDByLoadBalancerAndPort(ctx context.Context, authToken, lbID, protocol string, port int) (string, error)
+	// FindPoolIDForListener returns the pool bound to the given listener (default pool after listener create).
+	FindPoolIDForListener(ctx context.Context, authToken, listenerID string) (string, error)
+	// GetPoolDetail is Octavia GET /pools/{id} (subset) for reconciliation after worker restarts.
+	GetPoolDetail(ctx context.Context, authToken, poolID string) (resource.PoolDetail, error)
 	DeleteLoadbalancer(ctx context.Context, authToken, loadBalancerID string) error
 	// WaitForLoadBalancerDeleted polls until GET load balancer returns 404 (async delete completed).
 	WaitForLoadBalancerDeleted(ctx context.Context, authToken, loadBalancerID string) error
+	// LoadBalancerAbsent returns true if Octavia GET /loadbalancers/{id} returns 404 (resource gone).
+	LoadBalancerAbsent(ctx context.Context, authToken, loadBalancerID string) (bool, error)
 	GetLoadBalancerPools(ctx context.Context, authToken, loadBalancerID string) (resource.GetLoadBalancerPoolsResponse, error)
 	CheckLoadBalancerDeletingPools(ctx context.Context, authToken, poolID string) error
 	DeleteLoadbalancerPools(ctx context.Context, authToken, poolID string) error
@@ -310,7 +318,7 @@ func (lbc *loadbalancerService) CreateListener(ctx context.Context, authToken st
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	bodyStr := string(bodyBytes)
 	if isOctaviaDuplicateResourceConflict(resp.StatusCode, bodyStr) {
-		lid, ferr := lbc.findListenerIDByLoadBalancerAndPort(ctx, token, req.Listener.LoadbalancerID, req.Listener.Protocol, req.Listener.ProtocolPort)
+		lid, ferr := lbc.FindListenerIDByLoadBalancerAndPort(ctx, token, req.Listener.LoadbalancerID, req.Listener.Protocol, req.Listener.ProtocolPort)
 		if ferr != nil {
 			return resource.CreateListenerResponse{}, fmt.Errorf("create listener conflict but could not resolve existing listener: %w (body: %s)", ferr, bodyStr)
 		}
@@ -374,7 +382,7 @@ func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	bodyStr := string(bodyBytes)
 	if isOctaviaDuplicateResourceConflict(resp.StatusCode, bodyStr) {
-		pid, ferr := lbc.findPoolIDForListener(ctx, token, req.Pool.ListenerID)
+		pid, ferr := lbc.FindPoolIDForListener(ctx, token, req.Pool.ListenerID)
 		if ferr != nil {
 			return resource.CreatePoolResponse{}, fmt.Errorf("create pool conflict but could not resolve existing pool: %w (body: %s)", ferr, bodyStr)
 		}
@@ -511,6 +519,10 @@ func poolDetailMatchesListener(p resource.PoolDetail, listenerID string) bool {
 	return false
 }
 
+func (lbc *loadbalancerService) GetPoolDetail(ctx context.Context, authToken, poolID string) (resource.PoolDetail, error) {
+	return lbc.getPool(ctx, strings.Clone(authToken), poolID)
+}
+
 func (lbc *loadbalancerService) getPool(ctx context.Context, authToken, poolID string) (resource.PoolDetail, error) {
 	token := strings.Clone(authToken)
 	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.ListenerPoolPath, poolID), nil)
@@ -536,7 +548,7 @@ func (lbc *loadbalancerService) getPool(ctx context.Context, authToken, poolID s
 	return out.Pool, nil
 }
 
-func (lbc *loadbalancerService) findListenerIDByLoadBalancerAndPort(ctx context.Context, authToken, lbID, protocol string, port int) (string, error) {
+func (lbc *loadbalancerService) FindListenerIDByLoadBalancerAndPort(ctx context.Context, authToken, lbID, protocol string, port int) (string, error) {
 	ids, err := lbc.GetLoadBalancerListeners(ctx, authToken, lbID)
 	if err != nil {
 		return "", err
@@ -553,7 +565,7 @@ func (lbc *loadbalancerService) findListenerIDByLoadBalancerAndPort(ctx context.
 	return "", fmt.Errorf("no listener on load balancer %s for %s:%d", lbID, protocol, port)
 }
 
-func (lbc *loadbalancerService) findPoolIDForListener(ctx context.Context, authToken, listenerID string) (string, error) {
+func (lbc *loadbalancerService) FindPoolIDForListener(ctx context.Context, authToken, listenerID string) (string, error) {
 	lr, err := lbc.ListListener(ctx, authToken, listenerID)
 	if err != nil {
 		return "", err
@@ -605,6 +617,10 @@ func isOctaviaDuplicateResourceConflict(statusCode int, body string) bool {
 		return false
 	}
 	if strings.Contains(b, "already has a health monitor") {
+		return true
+	}
+	// Octavia: POST pool when listener already has default pool from prior attempt (worker retry).
+	if strings.Contains(b, "already has a default pool") {
 		return true
 	}
 	if strings.Contains(b, "member") && (strings.Contains(b, "already") || strings.Contains(b, "duplicate")) {
@@ -1175,5 +1191,33 @@ func (lbc *loadbalancerService) WaitForLoadBalancerDeleted(ctx context.Context, 
 				interval = n
 			}
 		}
+	}
+}
+
+func (lbc *loadbalancerService) LoadBalancerAbsent(ctx context.Context, authToken, loadBalancerID string) (bool, error) {
+	token := strings.Clone(authToken)
+	r, err := http.NewRequest("GET", fmt.Sprintf("%s/%s/%s", config.GlobalConfig.GetEndpointsConfig().LoadBalancerEndpoint, constants.LoadBalancerPath, loadBalancerID), nil)
+	if err != nil {
+		return false, err
+	}
+	r.Header = make(http.Header)
+	r.Header.Add("X-Auth-Token", token)
+
+	resp, err := lbc.client.Do(r)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
+
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		return true, nil
+	case http.StatusOK:
+		return false, nil
+	default:
+		return false, fmt.Errorf("load balancer absence check: unexpected HTTP %d", resp.StatusCode)
 	}
 }

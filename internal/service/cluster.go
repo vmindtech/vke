@@ -495,8 +495,99 @@ func (c *clusterService) waitLoadBalancerReadyForMutation(ctx context.Context, a
 	return nil
 }
 
+// reconcileOctaviaLBChildResourcesToDB backfills resources rows from Octavia when OpenStack already has
+// listeners/pools/health monitors but the worker died before persisting (avoids duplicate POST conflicts on retry).
+func (c *clusterService) reconcileOctaviaLBChildResourcesToDB(ctx context.Context, authToken string, req *request.CreateClusterRequest, cluster *model.Cluster, lbID string) error {
+	if err := c.waitLoadBalancerReadyForMutation(ctx, authToken, lbID); err != nil {
+		return err
+	}
+	log := c.logger.WithFields(logrus.Fields{"clusterUUID": cluster.ClusterUUID, "lbID": lbID})
+
+	adoptListener := func(resType, protocol string, port int) error {
+		rows, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, resType)
+		if err != nil {
+			return err
+		}
+		if len(rows) > 0 {
+			return nil
+		}
+		lid, ferr := c.loadbalancerService.FindListenerIDByLoadBalancerAndPort(ctx, authToken, lbID, protocol, port)
+		if ferr != nil || lid == "" {
+			return nil
+		}
+		log.WithFields(logrus.Fields{"resourceType": resType, "listenerID": lid, "port": port}).Info("reconcile: adopting existing Octavia listener into resources table")
+		return c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: resType, ResourceUUID: lid})
+	}
+	if err := adoptListener(resLBListenerAPI, "TCP", 6443); err != nil {
+		return err
+	}
+	if err := adoptListener(resLBListenerReg, "TCP", 9345); err != nil {
+		return err
+	}
+
+	adoptPool := func(poolResType, listenerResType string) error {
+		pRows, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, poolResType)
+		if err != nil {
+			return err
+		}
+		if len(pRows) > 0 {
+			return nil
+		}
+		lRows, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, listenerResType)
+		if err != nil || len(lRows) == 0 {
+			return nil
+		}
+		listenerID := lRows[0].ResourceUUID
+		pid, perr := c.loadbalancerService.FindPoolIDForListener(ctx, authToken, listenerID)
+		if perr != nil || pid == "" {
+			return nil
+		}
+		log.WithFields(logrus.Fields{"resourceType": poolResType, "poolID": pid}).Info("reconcile: adopting existing Octavia pool into resources table")
+		return c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: poolResType, ResourceUUID: pid})
+	}
+	if err := adoptPool(resLBPoolAPI, resLBListenerAPI); err != nil {
+		return err
+	}
+	if err := adoptPool(resLBPoolReg, resLBListenerReg); err != nil {
+		return err
+	}
+
+	// Health rows use pool UUID as resource_uuid (marker that monitor exists for that pool).
+	adoptHealth := func(healthResType, poolResType string) error {
+		hRows, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, healthResType)
+		if err != nil {
+			return err
+		}
+		if len(hRows) > 0 {
+			return nil
+		}
+		pRows, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, poolResType)
+		if err != nil || len(pRows) == 0 {
+			return nil
+		}
+		poolID := pRows[0].ResourceUUID
+		pd, derr := c.loadbalancerService.GetPoolDetail(ctx, authToken, poolID)
+		if derr != nil || strings.TrimSpace(pd.HealthmonitorID) == "" {
+			return nil
+		}
+		log.WithFields(logrus.Fields{"resourceType": healthResType, "poolID": poolID, "healthmonitorID": pd.HealthmonitorID}).Info("reconcile: Octavia pool already has health monitor; persisting marker row")
+		return c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: healthResType, ResourceUUID: poolID})
+	}
+	if err := adoptHealth(resLBHealthAPI, resLBPoolAPI); err != nil {
+		return err
+	}
+	if err := adoptHealth(resLBHealthReg, resLBPoolReg); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ensureLoadBalancerListenersPoolsAndMonitors creates API/register listeners, pools and health monitors.
 func (c *clusterService) ensureLoadBalancerListenersPoolsAndMonitors(ctx context.Context, authToken string, req *request.CreateClusterRequest, cluster *model.Cluster, lbID string) error {
+	if err := c.reconcileOctaviaLBChildResourcesToDB(ctx, authToken, req, cluster, lbID); err != nil {
+		return err
+	}
+
 	var apiListenerID, regListenerID string
 	lisAPI, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, resLBListenerAPI)
 	if err != nil {
@@ -896,74 +987,429 @@ func (c *clusterService) stepEnsureFloatingIPIfPublic(ctx context.Context, authT
 	return nil
 }
 
-func (c *clusterService) stepEnsureSecurityGroupsAndRules(ctx context.Context, authToken string, req *request.CreateClusterRequest, cluster *model.Cluster) error {
-	// If security groups exist in resources, assume rules were created too (idempotent enough for now).
-	existing, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "security_group")
+func inferEthertypeFromRemoteCIDR(cidr string) string {
+	if strings.Contains(strings.TrimSpace(cidr), ":") {
+		return "IPv6"
+	}
+	return "IPv4"
+}
+
+func sgRulesContainIngressTCPPortRangeFromCIDR(rules []resource.SecurityGroupRuleDTO, portMin, portMax int, wantCIDR, ethertype string) bool {
+	wantCIDR = strings.TrimSpace(wantCIDR)
+	ethertype = strings.TrimSpace(ethertype)
+	if wantCIDR == "" || ethertype == "" {
+		return false
+	}
+	for _, r := range rules {
+		if !strings.EqualFold(strings.TrimSpace(r.Direction), "ingress") {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(r.Ethertype), ethertype) {
+			continue
+		}
+		if r.Protocol == nil || *r.Protocol != "tcp" {
+			continue
+		}
+		if r.PortRangeMin == nil || r.PortRangeMax == nil || *r.PortRangeMin != portMin || *r.PortRangeMax != portMax {
+			continue
+		}
+		if strings.TrimSpace(r.RemoteIPPrefix) == wantCIDR {
+			return true
+		}
+	}
+	return false
+}
+
+func sgRulesContainIngressTCP6443FromCIDR(rules []resource.SecurityGroupRuleDTO, wantCIDR string) bool {
+	return sgRulesContainIngressTCPPortRangeFromCIDR(rules, 6443, 6443, wantCIDR, inferEthertypeFromRemoteCIDR(wantCIDR))
+}
+
+func sgRulesContainIngressFromRemoteGroup(rules []resource.SecurityGroupRuleDTO, sgID, remoteGroupID string) bool {
+	sgID = strings.TrimSpace(sgID)
+	remoteGroupID = strings.TrimSpace(remoteGroupID)
+	if sgID == "" || remoteGroupID == "" {
+		return false
+	}
+	for _, r := range rules {
+		if !strings.EqualFold(strings.TrimSpace(r.Direction), "ingress") {
+			continue
+		}
+		if strings.TrimSpace(r.Ethertype) != "" && r.Ethertype != "IPv4" {
+			continue
+		}
+		if strings.TrimSpace(r.RemoteGroupID) != remoteGroupID {
+			continue
+		}
+		// Rule is attached to this SG (Neutron includes security_group_id on each rule).
+		if strings.TrimSpace(r.SecurityGroupID) != sgID {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func (c *clusterService) persistTypedSecurityGroupUUID(ctx context.Context, clusterUUID, typedResourceType, sgID string) error {
+	rows, err := c.repository.Resources().GetResourceByClusterUUID(ctx, clusterUUID, typedResourceType)
 	if err != nil {
 		return err
 	}
-	if len(existing) >= 3 {
+	if len(rows) == 0 {
+		return c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: clusterUUID, ResourceType: typedResourceType, ResourceUUID: sgID})
+	}
+	if strings.TrimSpace(rows[0].ResourceUUID) == sgID {
 		return nil
 	}
-	// Create security groups and rules (deterministic names per cluster).
-	createSecurityGroupReq := &request.CreateSecurityGroupRequest{
-		SecurityGroup: request.SecurityGroup{
-			Name:        fmt.Sprintf("%v-master-sg", req.ClusterName),
-			Description: fmt.Sprintf("%v-master-sg", req.ClusterName),
-		},
-	}
-	masterSG, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+	return c.repository.Resources().SetResourceUUIDByClusterAndType(ctx, clusterUUID, typedResourceType, sgID)
+}
+
+func (c *clusterService) ensureGenericSecurityGroupResourceRow(ctx context.Context, clusterUUID, sgID string) error {
+	rows, err := c.repository.Resources().GetResourceByClusterUUID(ctx, clusterUUID, "security_group")
 	if err != nil {
 		return err
 	}
-	_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "security_group", ResourceUUID: masterSG.SecurityGroup.ID})
-	_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "security_group_master", ResourceUUID: masterSG.SecurityGroup.ID})
-
-	createSecurityGroupReq.SecurityGroup.Name = fmt.Sprintf("%v-worker-sg", req.ClusterName)
-	createSecurityGroupReq.SecurityGroup.Description = fmt.Sprintf("%v-worker-sg", req.ClusterName)
-	workerSG, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
-	if err != nil {
-		return err
+	for _, r := range rows {
+		if strings.TrimSpace(r.ResourceUUID) == sgID {
+			return nil
+		}
 	}
-	_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "security_group", ResourceUUID: workerSG.SecurityGroup.ID})
-	_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "security_group_worker", ResourceUUID: workerSG.SecurityGroup.ID})
+	return c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: clusterUUID, ResourceType: "security_group", ResourceUUID: sgID})
+}
 
-	createSecurityGroupReq.SecurityGroup.Name = fmt.Sprintf("%v-cluster-shared-sg", req.ClusterName)
-	createSecurityGroupReq.SecurityGroup.Description = fmt.Sprintf("%v-cluster-shared-sg", req.ClusterName)
-	sharedSG, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createSecurityGroupReq)
+// resolveClusterBootstrapSecurityGroup returns the Neutron security group id for one of the three fixed cluster SGs (master/worker/shared),
+// reconciling DB rows with OpenStack by id or deterministic name after interruptions.
+func (c *clusterService) resolveClusterBootstrapSecurityGroup(ctx context.Context, authToken, clusterUUID, expectedName, description, typedResourceType string) (string, error) {
+	expectedName = strings.TrimSpace(expectedName)
+	rows, err := c.repository.Resources().GetResourceByClusterUUID(ctx, clusterUUID, typedResourceType)
 	if err != nil {
-		return err
+		return "", err
 	}
-	_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "security_group", ResourceUUID: sharedSG.SecurityGroup.ID})
-	_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "security_group_shared", ResourceUUID: sharedSG.SecurityGroup.ID})
-	_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: cluster.ClusterUUID, ClusterSharedSecurityGroup: sharedSG.SecurityGroup.ID})
+	if len(rows) > 0 {
+		id := strings.TrimSpace(rows[0].ResourceUUID)
+		if id != "" {
+			det, gerr := c.networkService.GetSecurityGroupByID(ctx, authToken, id)
+			if gerr == nil && strings.TrimSpace(det.SecurityGroup.Name) == expectedName {
+				if err := c.persistTypedSecurityGroupUUID(ctx, clusterUUID, typedResourceType, id); err != nil {
+					return "", err
+				}
+				if err := c.ensureGenericSecurityGroupResourceRow(ctx, clusterUUID, id); err != nil {
+					return "", err
+				}
+				return id, nil
+			}
+			if gerr != nil && !strings.Contains(strings.ToLower(gerr.Error()), "404") {
+				return "", gerr
+			}
+		}
+	}
 
-	// Create minimal required rules: 6443 from allowed CIDRs on master SG, and shared->shared ingress.
-	createRuleIP := &request.CreateSecurityGroupRuleForIpRequest{
-		SecurityGroupRule: request.SecurityGroupRuleForIP{
-			Direction:       "ingress",
-			PortRangeMin:    "6443",
-			Ethertype:       "IPv4",
-			PortRangeMax:    "6443",
-			Protocol:        "tcp",
-			SecurityGroupID: masterSG.SecurityGroup.ID,
-			RemoteIPPrefix:  "0.0.0.0/0",
-		},
+	listed, err := c.networkService.ListSecurityGroupsByName(ctx, authToken, expectedName)
+	if err != nil {
+		return "", err
+	}
+	if len(listed.SecurityGroups) > 0 {
+		id := strings.TrimSpace(listed.SecurityGroups[0].ID)
+		if id == "" {
+			return "", fmt.Errorf("security group list for name %q returned empty id", expectedName)
+		}
+		if err := c.persistTypedSecurityGroupUUID(ctx, clusterUUID, typedResourceType, id); err != nil {
+			return "", err
+		}
+		if err := c.ensureGenericSecurityGroupResourceRow(ctx, clusterUUID, id); err != nil {
+			return "", err
+		}
+		c.logger.WithFields(logrus.Fields{"clusterUUID": clusterUUID, "typedType": typedResourceType, "securityGroupID": id}).Info("reconciled cluster bootstrap security group from Neutron by name")
+		return id, nil
+	}
+
+	createReq := &request.CreateSecurityGroupRequest{
+		SecurityGroup: request.SecurityGroup{Name: expectedName, Description: description},
+	}
+	resp, err := c.networkService.CreateSecurityGroup(ctx, authToken, *createReq)
+	if err != nil {
+		listed2, lerr := c.networkService.ListSecurityGroupsByName(ctx, authToken, expectedName)
+		if lerr == nil && len(listed2.SecurityGroups) > 0 {
+			id := strings.TrimSpace(listed2.SecurityGroups[0].ID)
+			if id == "" {
+				return "", err
+			}
+			if err := c.persistTypedSecurityGroupUUID(ctx, clusterUUID, typedResourceType, id); err != nil {
+				return "", err
+			}
+			if err := c.ensureGenericSecurityGroupResourceRow(ctx, clusterUUID, id); err != nil {
+				return "", err
+			}
+			c.logger.WithFields(logrus.Fields{"clusterUUID": clusterUUID, "typedType": typedResourceType, "securityGroupID": id}).Info("reconciled cluster bootstrap security group after create race")
+			return id, nil
+		}
+		return "", err
+	}
+	id := strings.TrimSpace(resp.SecurityGroup.ID)
+	if id == "" {
+		return "", fmt.Errorf("create security group %q returned empty id", expectedName)
+	}
+	if err := c.persistTypedSecurityGroupUUID(ctx, clusterUUID, typedResourceType, id); err != nil {
+		return "", err
+	}
+	if err := c.ensureGenericSecurityGroupResourceRow(ctx, clusterUUID, id); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+type subnetRuleSource struct {
+	CIDR      string
+	Ethertype string
+}
+
+func (c *clusterService) collectClusterSubnetRuleSources(ctx context.Context, authToken string, subnetIDs []string) ([]subnetRuleSource, error) {
+	token := strings.Clone(authToken)
+	seen := make(map[string]struct{})
+	var out []subnetRuleSource
+	for _, rawID := range subnetIDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		resp, err := c.networkService.GetSubnetByID(ctx, token, id)
+		if err != nil {
+			return nil, fmt.Errorf("get subnet %s: %w", id, err)
+		}
+		cidr := strings.TrimSpace(resp.Subnet.CIDR)
+		if cidr == "" {
+			return nil, fmt.Errorf("subnet %s has empty CIDR", id)
+		}
+		et := "IPv4"
+		if resp.Subnet.IPVersion == 6 {
+			et = "IPv6"
+		}
+		key := et + "|" + cidr
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, subnetRuleSource{CIDR: cidr, Ethertype: et})
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no subnet CIDRs resolved from SubnetIDs")
+	}
+	return out, nil
+}
+
+func (c *clusterService) ensureClusterBootstrapSecurityGroupRules(ctx context.Context, authToken string, req *request.CreateClusterRequest, masterSGID, sharedSGID string) ([]subnetRuleSource, error) {
+	if len(req.AllowedCIDRS) == 0 {
+		return nil, fmt.Errorf("allowed CIDRs are required to configure API security group rules")
+	}
+	subnetSrcs, err := c.collectClusterSubnetRuleSources(ctx, authToken, req.SubnetIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	reloadMasterRules := func() ([]resource.SecurityGroupRuleDTO, error) {
+		d, e := c.networkService.GetSecurityGroupByID(ctx, authToken, masterSGID)
+		if e != nil {
+			return nil, e
+		}
+		return d.SecurityGroup.SecurityGroupRules, nil
+	}
+	reloadSharedRules := func() ([]resource.SecurityGroupRuleDTO, error) {
+		d, e := c.networkService.GetSecurityGroupByID(ctx, authToken, sharedSGID)
+		if e != nil {
+			return nil, e
+		}
+		return d.SecurityGroup.SecurityGroupRules, nil
+	}
+
+	rules, err := reloadMasterRules()
+	if err != nil {
+		return nil, err
 	}
 	for _, cidr := range req.AllowedCIDRS {
-		createRuleIP.SecurityGroupRule.RemoteIPPrefix = cidr
-		_ = c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createRuleIP)
+		cidr = strings.TrimSpace(cidr)
+		if cidr == "" {
+			continue
+		}
+		et := inferEthertypeFromRemoteCIDR(cidr)
+		if sgRulesContainIngressTCPPortRangeFromCIDR(rules, 6443, 6443, cidr, et) {
+			continue
+		}
+		createRuleIP := &request.CreateSecurityGroupRuleForIpRequest{
+			SecurityGroupRule: request.SecurityGroupRuleForIP{
+				Direction:       "ingress",
+				PortRangeMin:    "6443",
+				Ethertype:       et,
+				PortRangeMax:    "6443",
+				Protocol:        "tcp",
+				SecurityGroupID: masterSGID,
+				RemoteIPPrefix:  cidr,
+			},
+		}
+		if err := c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createRuleIP); err != nil {
+			return nil, fmt.Errorf("create master SG ingress tcp/6443 from allowed CIDR %s: %w", cidr, err)
+		}
 	}
-	createRuleSG := &request.CreateSecurityGroupRuleForSgRequest{
-		SecurityGroupRule: request.SecurityGroupRuleForSG{
-			Direction:       "ingress",
-			Ethertype:       "IPv4",
-			SecurityGroupID: sharedSG.SecurityGroup.ID,
-			RemoteGroupID:   sharedSG.SecurityGroup.ID,
-		},
-	}
-	_ = c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createRuleSG)
 
+	rules, err = reloadMasterRules()
+	if err != nil {
+		return nil, err
+	}
+	for _, src := range subnetSrcs {
+		if sgRulesContainIngressTCPPortRangeFromCIDR(rules, 6443, 6443, src.CIDR, src.Ethertype) {
+			continue
+		}
+		createRuleIP := &request.CreateSecurityGroupRuleForIpRequest{
+			SecurityGroupRule: request.SecurityGroupRuleForIP{
+				Direction:       "ingress",
+				PortRangeMin:    "6443",
+				Ethertype:       src.Ethertype,
+				PortRangeMax:    "6443",
+				Protocol:        "tcp",
+				SecurityGroupID: masterSGID,
+				RemoteIPPrefix:  src.CIDR,
+			},
+		}
+		if err := c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createRuleIP); err != nil {
+			return nil, fmt.Errorf("create master SG ingress tcp/6443 from subnet CIDR %s: %w", src.CIDR, err)
+		}
+	}
+
+	rules, err = reloadMasterRules()
+	if err != nil {
+		return nil, err
+	}
+	for _, src := range subnetSrcs {
+		if sgRulesContainIngressTCPPortRangeFromCIDR(rules, 9345, 9345, src.CIDR, src.Ethertype) {
+			continue
+		}
+		createRuleIP := &request.CreateSecurityGroupRuleForIpRequest{
+			SecurityGroupRule: request.SecurityGroupRuleForIP{
+				Direction:       "ingress",
+				PortRangeMin:    "9345",
+				Ethertype:       src.Ethertype,
+				PortRangeMax:    "9345",
+				Protocol:        "tcp",
+				SecurityGroupID: masterSGID,
+				RemoteIPPrefix:  src.CIDR,
+			},
+		}
+		if err := c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createRuleIP); err != nil {
+			return nil, fmt.Errorf("create master SG ingress tcp/9345 from subnet CIDR %s: %w", src.CIDR, err)
+		}
+	}
+
+	sharedRules, err := reloadSharedRules()
+	if err != nil {
+		return nil, err
+	}
+	if !sgRulesContainIngressFromRemoteGroup(sharedRules, sharedSGID, sharedSGID) {
+		createRuleSG := &request.CreateSecurityGroupRuleForSgRequest{
+			SecurityGroupRule: request.SecurityGroupRuleForSG{
+				Direction:       "ingress",
+				Ethertype:       "IPv4",
+				SecurityGroupID: sharedSGID,
+				RemoteGroupID:   sharedSGID,
+			},
+		}
+		if err := c.networkService.CreateSecurityGroupRuleForSG(ctx, authToken, *createRuleSG); err != nil {
+			return nil, fmt.Errorf("create shared SG self-ingress: %w", err)
+		}
+		sharedRules, err = reloadSharedRules()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	for _, src := range subnetSrcs {
+		if sgRulesContainIngressTCPPortRangeFromCIDR(sharedRules, 30000, 32767, src.CIDR, src.Ethertype) {
+			continue
+		}
+		createRuleIP := &request.CreateSecurityGroupRuleForIpRequest{
+			SecurityGroupRule: request.SecurityGroupRuleForIP{
+				Direction:       "ingress",
+				PortRangeMin:    "30000",
+				Ethertype:       src.Ethertype,
+				PortRangeMax:    "32767",
+				Protocol:        "tcp",
+				SecurityGroupID: sharedSGID,
+				RemoteIPPrefix:  src.CIDR,
+			},
+		}
+		if err := c.networkService.CreateSecurityGroupRuleForIP(ctx, authToken, *createRuleIP); err != nil {
+			return nil, fmt.Errorf("create shared SG nodeport range 30000-32767 from subnet CIDR %s: %w", src.CIDR, err)
+		}
+	}
+
+	return subnetSrcs, nil
+}
+
+func (c *clusterService) stepEnsureSecurityGroupsAndRules(ctx context.Context, authToken string, req *request.CreateClusterRequest, cluster *model.Cluster) error {
+	masterName := fmt.Sprintf("%v-master-sg", req.ClusterName)
+	workerName := fmt.Sprintf("%v-worker-sg", req.ClusterName)
+	sharedName := fmt.Sprintf("%v-cluster-shared-sg", req.ClusterName)
+
+	masterID, err := c.resolveClusterBootstrapSecurityGroup(ctx, authToken, cluster.ClusterUUID, masterName, masterName, "security_group_master")
+	if err != nil {
+		return err
+	}
+	workerID, err := c.resolveClusterBootstrapSecurityGroup(ctx, authToken, cluster.ClusterUUID, workerName, workerName, "security_group_worker")
+	if err != nil {
+		return err
+	}
+	sharedID, err := c.resolveClusterBootstrapSecurityGroup(ctx, authToken, cluster.ClusterUUID, sharedName, sharedName, "security_group_shared")
+	if err != nil {
+		return err
+	}
+	if masterID == "" || workerID == "" || sharedID == "" {
+		return fmt.Errorf("cluster security groups unresolved (master=%q worker=%q shared=%q)", masterID, workerID, sharedID)
+	}
+
+	if strings.TrimSpace(cluster.ClusterSharedSecurityGroup) != sharedID {
+		if err := c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: cluster.ClusterUUID, ClusterSharedSecurityGroup: sharedID}); err != nil {
+			return err
+		}
+	}
+
+	subnetSrcs, err := c.ensureClusterBootstrapSecurityGroupRules(ctx, authToken, req, masterID, sharedID)
+	if err != nil {
+		return err
+	}
+
+	// Final read: only succeed the create step when Neutron shows all required rules (covers API lag after creates).
+	masterDet, err := c.networkService.GetSecurityGroupByID(ctx, authToken, masterID)
+	if err != nil {
+		return err
+	}
+	finalMasterRules := masterDet.SecurityGroup.SecurityGroupRules
+	for _, cidr := range req.AllowedCIDRS {
+		cidr = strings.TrimSpace(cidr)
+		if cidr == "" {
+			continue
+		}
+		if !sgRulesContainIngressTCP6443FromCIDR(finalMasterRules, cidr) {
+			return fmt.Errorf("master security group %s still missing ingress tcp/6443 from allowed CIDR %s after reconcile", masterID, cidr)
+		}
+	}
+	for _, src := range subnetSrcs {
+		if !sgRulesContainIngressTCPPortRangeFromCIDR(finalMasterRules, 6443, 6443, src.CIDR, src.Ethertype) {
+			return fmt.Errorf("master security group %s still missing ingress tcp/6443 from subnet CIDR %s after reconcile", masterID, src.CIDR)
+		}
+		if !sgRulesContainIngressTCPPortRangeFromCIDR(finalMasterRules, 9345, 9345, src.CIDR, src.Ethertype) {
+			return fmt.Errorf("master security group %s still missing ingress tcp/9345 from subnet CIDR %s after reconcile", masterID, src.CIDR)
+		}
+	}
+	sharedDet, err := c.networkService.GetSecurityGroupByID(ctx, authToken, sharedID)
+	if err != nil {
+		return err
+	}
+	finalSharedRules := sharedDet.SecurityGroup.SecurityGroupRules
+	if !sgRulesContainIngressFromRemoteGroup(finalSharedRules, sharedID, sharedID) {
+		return fmt.Errorf("shared security group %s still missing self-referencing ingress after reconcile", sharedID)
+	}
+	for _, src := range subnetSrcs {
+		if !sgRulesContainIngressTCPPortRangeFromCIDR(finalSharedRules, 30000, 32767, src.CIDR, src.Ethertype) {
+			return fmt.Errorf("shared security group %s still missing ingress tcp/30000-32767 from subnet CIDR %s after reconcile", sharedID, src.CIDR)
+		}
+	}
 	return nil
 }
 
@@ -1091,6 +1537,63 @@ func (c *clusterService) ensureDefaultNodeGroupsInDB(ctx context.Context, req *r
 		}
 	}
 	return nil
+}
+
+// jsonStringSliceColumnToCommaCSV unmarshals a JSON string array column (e.g. node_group_labels) for rke2-init / vke-agent --rke2NodeLabel.
+func jsonStringSliceColumnToCommaCSV(b []byte) (string, error) {
+	if len(strings.TrimSpace(string(b))) == 0 {
+		return "", nil
+	}
+	var arr []string
+	if err := json.Unmarshal(b, &arr); err != nil {
+		return "", err
+	}
+	return strings.Join(arr, ","), nil
+}
+
+// resourceUUIDSet builds a set of resource rows' ResourceUUID values (e.g. OpenStack server names stored in resources).
+// Used so create loops do not use len(rows) as a master/worker index (extra rows or retries would skip VMs).
+func resourceUUIDSet(rows []model.Resource) map[string]struct{} {
+	out := make(map[string]struct{}, len(rows))
+	for _, r := range rows {
+		u := strings.TrimSpace(r.ResourceUUID)
+		if u != "" {
+			out[u] = struct{}{}
+		}
+	}
+	return out
+}
+
+// openstackServerNameInServerGroup reports whether the anti-affinity server group already has a member VM whose OpenStack name equals wantName (e.g. "<cluster>-master-1").
+// Used so retries do not create duplicate masters when the DB row is missing but the instance exists.
+func (c *clusterService) openstackServerNameInServerGroup(ctx context.Context, authToken string, serverGroupID string, wantName string) (bool, error) {
+	wantName = strings.TrimSpace(wantName)
+	if wantName == "" {
+		return false, nil
+	}
+	members, err := c.getServerGroupMembers(ctx, authToken, serverGroupID)
+	if err != nil {
+		return false, err
+	}
+	tok := strings.Clone(authToken)
+	for _, id := range members {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		det, derr := c.computeService.GetInstancesDetail(ctx, tok, id)
+		if derr != nil {
+			low := strings.ToLower(derr.Error())
+			if strings.Contains(low, "404") {
+				continue
+			}
+			return false, derr
+		}
+		if strings.TrimSpace(det.OpenstackServers.Name) == wantName {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (c *clusterService) stepEnsurePorts(ctx context.Context, authToken string, req *request.CreateClusterRequest, cluster *model.Cluster) error {
@@ -1221,7 +1724,23 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 	}
 
 	// Masters
-	existingMasters, _ := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "server_master")
+	existingMasters, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "server_master")
+	if err != nil {
+		return err
+	}
+	master1Name := fmt.Sprintf("%v-master-1", req.ClusterName)
+	if inOS, err := c.openstackServerNameInServerGroup(ctx, authToken, masterGroup[0].ResourceUUID, master1Name); err != nil {
+		return err
+	} else if inOS {
+		if _, has := resourceUUIDSet(existingMasters)[master1Name]; !has {
+			c.logger.WithFields(logrus.Fields{"clusterUUID": cluster.ClusterUUID, "serverName": master1Name}).Info("master-1 already exists in OpenStack; backfilling server_master resource row")
+			_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_master", ResourceUUID: master1Name})
+			existingMasters, err = c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "server_master")
+			if err != nil {
+				return err
+			}
+		}
+	}
 	for idx, p := range masterPortsSorted {
 		wantName := fmt.Sprintf("%v-master-%d", req.ClusterName, idx+1)
 		for _, s := range existingMasters {
@@ -1237,7 +1756,12 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 		}
 	}
 
-	for i := len(existingMasters); i < 1 && i < len(masterPortsSorted); i++ {
+	masterNames := resourceUUIDSet(existingMasters)
+	if _, has := masterNames[master1Name]; !has {
+		if len(masterPortsSorted) < 1 {
+			return fmt.Errorf("computes: no network_port_master for master-1")
+		}
+		portIdx := 0
 		rke2InitScript, err := GenerateUserDataFromTemplate("true",
 			MasterServerType,
 			cluster.ClusterRegisterToken,
@@ -1264,7 +1788,7 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 		}
 		masterRequest := &request.CreateComputeRequest{
 			Server: request.Server{
-				Name:             fmt.Sprintf("%v-master-%d", req.ClusterName, i+1),
+				Name:             master1Name,
 				ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
 				FlavorRef:        req.MasterInstanceFlavorUUID,
 				KeyName:          req.NodeKeyPairName,
@@ -1284,7 +1808,7 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 					},
 				},
 				Networks: []request.Networks{
-					{Port: masterPortsSorted[i].ResourceUUID},
+					{Port: masterPortsSorted[portIdx].ResourceUUID},
 				},
 				UserData: Base64Encoder(rke2InitScript),
 			},
@@ -1296,10 +1820,8 @@ func (c *clusterService) stepEnsureComputes(ctx context.Context, authToken strin
 			return err
 		}
 		_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_master", ResourceUUID: masterRequest.Server.Name})
-		if i == 0 {
-			if err := c.ensureLBPoolMembersForMasterPort(ctx, authToken, req, cluster, masterPortsSorted[i].ResourceUUID, i+1); err != nil {
-				return err
-			}
+		if err := c.ensureLBPoolMembersForMasterPort(ctx, authToken, req, cluster, masterPortsSorted[portIdx].ResourceUUID, 1); err != nil {
+			return err
 		}
 	}
 
@@ -1381,10 +1903,37 @@ func (c *clusterService) stepEnsurePostKubeconfigComputes(ctx context.Context, a
 		return err
 	}
 	// Master-1 is always created in stepEnsureComputes with --initialize=true; this step only joins masters 2–3.
-	if len(existingMasters) < 1 {
-		return fmt.Errorf("post-kubeconfig computes: master-1 missing in resources (server_master); cannot join masters 2–3")
+	masterNames := resourceUUIDSet(existingMasters)
+	master1Name := fmt.Sprintf("%v-master-1", req.ClusterName)
+	if _, ok := masterNames[master1Name]; !ok {
+		inOS, err := c.openstackServerNameInServerGroup(ctx, authToken, masterGroup[0].ResourceUUID, master1Name)
+		if err != nil {
+			return err
+		}
+		if inOS {
+			c.logger.WithFields(logrus.Fields{"clusterUUID": cluster.ClusterUUID, "serverName": master1Name}).Info("post-kubeconfig: master-1 in OpenStack only; backfilling server_master resource row")
+			_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_master", ResourceUUID: master1Name})
+			masterNames[master1Name] = struct{}{}
+		} else {
+			return fmt.Errorf("post-kubeconfig computes: master-1 missing in resources (server_master); cannot join masters 2–3")
+		}
 	}
-	for i := len(existingMasters); i < 3 && i < len(masterPortsSorted); i++ {
+	// Port index 1..2 → masters 2–3. Do not use len(existingMasters) as loop index (stale/extra DB rows would skip creates).
+	for portIdx := 1; portIdx < 3 && portIdx < len(masterPortsSorted); portIdx++ {
+		wantName := fmt.Sprintf("%v-master-%d", req.ClusterName, portIdx+1)
+		if _, ok := masterNames[wantName]; ok {
+			continue
+		}
+		inOS, err := c.openstackServerNameInServerGroup(ctx, authToken, masterGroup[0].ResourceUUID, wantName)
+		if err != nil {
+			return err
+		}
+		if inOS {
+			c.logger.WithFields(logrus.Fields{"clusterUUID": cluster.ClusterUUID, "serverName": wantName}).Info("post-kubeconfig: master already in OpenStack; backfilling server_master resource row")
+			_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_master", ResourceUUID: wantName})
+			masterNames[wantName] = struct{}{}
+			continue
+		}
 		rke2InitScript, err := GenerateUserDataFromTemplate("false",
 			MasterServerType,
 			cluster.ClusterRegisterToken,
@@ -1411,7 +1960,7 @@ func (c *clusterService) stepEnsurePostKubeconfigComputes(ctx context.Context, a
 		}
 		masterRequest := &request.CreateComputeRequest{
 			Server: request.Server{
-				Name:             fmt.Sprintf("%v-master-%d", req.ClusterName, i+1),
+				Name:             wantName,
 				ImageRef:         config.GlobalConfig.GetImageRefConfig().ImageRef,
 				FlavorRef:        req.MasterInstanceFlavorUUID,
 				KeyName:          req.NodeKeyPairName,
@@ -1431,7 +1980,7 @@ func (c *clusterService) stepEnsurePostKubeconfigComputes(ctx context.Context, a
 					},
 				},
 				Networks: []request.Networks{
-					{Port: masterPortsSorted[i].ResourceUUID},
+					{Port: masterPortsSorted[portIdx].ResourceUUID},
 				},
 				UserData: Base64Encoder(rke2InitScript),
 			},
@@ -1443,14 +1992,41 @@ func (c *clusterService) stepEnsurePostKubeconfigComputes(ctx context.Context, a
 			return err
 		}
 		_ = c.repository.Resources().CreateResource(ctx, &model.Resource{ClusterUUID: cluster.ClusterUUID, ResourceType: "server_master", ResourceUUID: masterRequest.Server.Name})
+		masterNames[wantName] = struct{}{}
 	}
 
 	existingWorkers, _ := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "server_worker")
 	workerPorts, _ := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "network_port_worker")
+
+	workerNodeGroupLabelsCSV := ""
+	workerNodeGroupTaintsCSV := ""
+	ngRows, err := c.repository.NodeGroups().GetNodeGroupsByClusterUUID(ctx, cluster.ClusterUUID, "", "")
+	if err != nil {
+		return err
+	}
+	workerSGUUID := workerGroup[0].ResourceUUID
+	for _, ng := range ngRows {
+		if ng.NodeGroupsStatus == constants.DeletedNodeGroupStatus {
+			continue
+		}
+		if ng.NodeGroupsType != NodeGroupWorkerType || ng.NodeGroupUUID != workerSGUUID {
+			continue
+		}
+		workerNodeGroupLabelsCSV, err = jsonStringSliceColumnToCommaCSV(ng.NodeGroupLabels)
+		if err != nil {
+			return fmt.Errorf("worker node group labels: %w", err)
+		}
+		workerNodeGroupTaintsCSV, err = jsonStringSliceColumnToCommaCSV(ng.NodeGroupTaints)
+		if err != nil {
+			return fmt.Errorf("worker node group taints: %w", err)
+		}
+		break
+	}
+
 	for i := len(existingWorkers); i < req.WorkerNodeGroupMinSize && i < len(workerPorts); i++ {
 		workerInitScript, err := GenerateUserDataFromTemplate("false",
 			WorkerServerType,
-			cluster.ClusterAgentToken,
+			cluster.ClusterRegisterToken,
 			cluster.ClusterEndpoint,
 			req.KubernetesVersion,
 			req.ClusterName,
@@ -1459,8 +2035,8 @@ func (c *clusterService) stepEnsurePostKubeconfigComputes(ctx context.Context, a
 			config.GlobalConfig.GetWebConfig().Endpoint,
 			authToken,
 			config.GlobalConfig.GetVkeAgentConfig().VkeAgentVersion,
-			"",
-			"",
+			workerNodeGroupLabelsCSV,
+			workerNodeGroupTaintsCSV,
 			fmt.Sprintf("%s/v3/", config.GlobalConfig.GetEndpointsConfig().EnvoyEndpoint),
 			config.GlobalConfig.GetVkeAgentConfig().ClusterAutoscalerVersion,
 			config.GlobalConfig.GetVkeAgentConfig().CloudProviderVkeVersion,
@@ -1906,6 +2482,26 @@ func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, 
 	return clustersResp, nil
 }
 
+// openstackTokenForDestroyOrphan prefers the delete job user token, then cluster application credential.
+func (c *clusterService) openstackTokenForDestroyOrphan(ctx context.Context, cluster *model.Cluster, jobAuthToken string) (string, error) {
+	if strings.TrimSpace(jobAuthToken) != "" {
+		return strings.Clone(jobAuthToken), nil
+	}
+	if strings.TrimSpace(cluster.ApplicationCredentialID) == "" || strings.TrimSpace(cluster.ApplicationCredentialSecretEnc) == "" {
+		return "", fmt.Errorf("no job auth token and no application credential for cluster %s", cluster.ClusterUUID)
+	}
+	encKey := config.GlobalConfig.GetEncryptionConfig().Key
+	if encKey == "" {
+		return "", fmt.Errorf("VKE_ENCRYPTION_KEY must be set")
+	}
+	derived := sha256Sum(encKey)
+	appSecret, derr := utils.DecryptAESGCM(derived, cluster.ApplicationCredentialSecretEnc)
+	if derr != nil {
+		return "", derr
+	}
+	return c.identityService.AuthenticateWithApplicationCredential(ctx, cluster.ApplicationCredentialID, appSecret)
+}
+
 // RunDestroyCluster executes delete_state steps until COMPLETED. Invoked by RabbitMQ CLUSTER_DELETE jobs;
 // each step is persisted so retries / redelivery resume from delete_state.
 func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string, clusterID string) error {
@@ -1920,7 +2516,19 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 		}
 
 		if cluster.ClusterStatus == DeletedClusterStatus || cluster.DeleteState == constants.DeleteStateCompleted {
-			c.logger.WithFields(logrus.Fields{"clusterUUID": clusterID}).Info("cluster already deleted; skipping destroy")
+			// DB delete flow finished, but a prior bug/retry may have left Octavia LBs. Best-effort orphan cleanup
+			// so CLUSTER_DELETE jobs do not "succeed" while `<uuid>_vke_cluster` still exists.
+			c.logger.WithFields(logrus.Fields{"clusterUUID": clusterID}).Info("cluster already deleted in DB; attempting orphan OpenStack load balancer cleanup")
+			tok, oerr := c.openstackTokenForDestroyOrphan(ctx, cluster, authToken)
+			if oerr != nil {
+				c.logger.WithError(oerr).WithField("clusterUUID", clusterID).Warn("orphan LB cleanup skipped: no OpenStack token")
+			} else if strings.TrimSpace(tok) != "" {
+				if chk := c.identityService.CheckAuthToken(ctx, tok, cluster.ClusterProjectUUID); chk != nil {
+					c.logger.WithError(chk).WithField("clusterUUID", clusterID).Warn("orphan LB cleanup skipped: auth check failed")
+				} else if err := c.deleteLoadBalancerWithRetries(ctx, tok, cluster); err != nil {
+					return fmt.Errorf("orphan load balancer cleanup: %w", err)
+				}
+			}
 			return nil
 		}
 
@@ -1995,7 +2603,9 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 				return stepErr
 			}
 			cluster.DeleteState = constants.DeleteStateLoadBalancer
-			c.updateClusterDeleteState(ctx, cluster)
+			if err := c.updateClusterDeleteState(ctx, cluster); err != nil {
+				return err
+			}
 
 		case constants.DeleteStateLoadBalancer:
 			stepErr = c.deleteFloatingIP(ctx, token, cluster)
@@ -2004,7 +2614,9 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 				return stepErr
 			}
 			cluster.DeleteState = constants.DeleteStateDNS
-			c.updateClusterDeleteState(ctx, cluster)
+			if err := c.updateClusterDeleteState(ctx, cluster); err != nil {
+				return err
+			}
 
 		case constants.DeleteStateDNS:
 			stepErr = c.deleteNodeGroups(ctx, token, cluster)
@@ -2013,7 +2625,9 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 				return stepErr
 			}
 			cluster.DeleteState = constants.DeleteStateFloatingIP
-			c.updateClusterDeleteState(ctx, cluster)
+			if err := c.updateClusterDeleteState(ctx, cluster); err != nil {
+				return err
+			}
 
 		case constants.DeleteStateFloatingIP:
 			stepErr = c.deleteSecurityGroups(ctx, token, cluster)
@@ -2022,7 +2636,9 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 				return stepErr
 			}
 			cluster.DeleteState = constants.DeleteStateNodes
-			c.updateClusterDeleteState(ctx, cluster)
+			if err := c.updateClusterDeleteState(ctx, cluster); err != nil {
+				return err
+			}
 
 		case constants.DeleteStateNodes:
 			stepErr = c.deleteLoadBalancerWithRetries(ctx, token, cluster)
@@ -2030,7 +2646,13 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 				return stepErr
 			}
 			cluster.DeleteState = constants.DeleteStateSecurityGroups
-			c.updateClusterDeleteState(ctx, cluster)
+			if err := c.updateClusterDeleteState(ctx, cluster); err != nil {
+				return err
+			}
+			c.logger.WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+				"deleteState": cluster.DeleteState,
+			}).Info("load balancer cleanup finished; advancing cluster deletion")
 
 		case constants.DeleteStateSecurityGroups:
 			stepErr = c.deleteApplicationCredentials(ctx, token, authToken, cluster)
@@ -2039,12 +2661,16 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 				return stepErr
 			}
 			cluster.DeleteState = constants.DeleteStateCredentials
-			c.updateClusterDeleteState(ctx, cluster)
+			if err := c.updateClusterDeleteState(ctx, cluster); err != nil {
+				return err
+			}
 
 		case constants.DeleteStateCredentials:
 			cluster.DeleteState = constants.DeleteStateCompleted
 			cluster.ClusterStatus = DeletedClusterStatus
-			c.updateClusterDeleteState(ctx, cluster)
+			if err := c.updateClusterDeleteState(ctx, cluster); err != nil {
+				return err
+			}
 			if err := c.CreateAuditLog(ctx, cluster.ClusterUUID, cluster.ClusterProjectUUID, "Cluster Destroyed"); err != nil {
 				c.logger.WithError(err).WithFields(logrus.Fields{
 					"clusterUUID": cluster.ClusterUUID,
@@ -2082,7 +2708,7 @@ func (c *clusterService) deleteLoadBalancerWithRetries(ctx context.Context, auth
 	return nil
 }
 
-func (c *clusterService) updateClusterDeleteState(ctx context.Context, cluster *model.Cluster) {
+func (c *clusterService) updateClusterDeleteState(ctx context.Context, cluster *model.Cluster) error {
 	clModel := &model.Cluster{
 		DeleteState: cluster.DeleteState,
 	}
@@ -2095,9 +2721,12 @@ func (c *clusterService) updateClusterDeleteState(ctx context.Context, cluster *
 	if err != nil {
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
+			"deleteState": cluster.DeleteState,
 		}).Error("failed to update cluster delete state")
 		c.logClusterError(ctx, cluster.ClusterUUID, fmt.Sprintf("Failed to update cluster delete state: %v", err))
+		return fmt.Errorf("persist cluster delete_state %q: %w", cluster.DeleteState, err)
 	}
+	return nil
 }
 
 func appendUniqueLoadBalancerID(ids *[]string, seen map[string]struct{}, id string) {
@@ -2127,7 +2756,14 @@ func (c *clusterService) collectLoadBalancerIDsForDeletion(ctx context.Context, 
 	}
 	appendUniqueLoadBalancerID(&out, seen, cluster.ClusterLoadbalancerUUID)
 
-	for _, name := range []string{loadBalancerOpenStackName(cluster.ClusterUUID), cluster.ClusterUUID} {
+	lbNameCandidates := []string{
+		loadBalancerOpenStackName(cluster.ClusterUUID),
+		strings.TrimSpace(cluster.ClusterUUID),
+	}
+	if cn := strings.TrimSpace(cluster.ClusterName); cn != "" {
+		lbNameCandidates = append(lbNameCandidates, fmt.Sprintf("%v-lb", cn))
+	}
+	for _, name := range lbNameCandidates {
 		if strings.TrimSpace(name) == "" {
 			continue
 		}
@@ -2142,6 +2778,53 @@ func (c *clusterService) collectLoadBalancerIDsForDeletion(ctx context.Context, 
 	return out, nil
 }
 
+// verifyLoadBalancerDeletedThreePasses re-checks Octavia three times (with short delay). If a pass still
+// sees the load balancer, it re-issues Delete + Wait then re-checks; only then does the pass succeed or fail.
+func (c *clusterService) verifyLoadBalancerDeletedThreePasses(ctx context.Context, authToken, clusterUUID, lbID string) error {
+	token := strings.Clone(authToken)
+	const stagger = 2 * time.Second
+	for i := 1; i <= 3; i++ {
+		if i > 1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(stagger):
+			}
+		}
+		gone, err := c.loadbalancerService.LoadBalancerAbsent(ctx, token, lbID)
+		if err != nil {
+			return fmt.Errorf("load balancer post-delete verify %d/3 (cluster=%s lb=%s): %w", i, clusterUUID, lbID, err)
+		}
+		if !gone {
+			c.logger.WithFields(logrus.Fields{
+				"clusterUUID":      clusterUUID,
+				"loadbalancerUUID": lbID,
+				"verifyPass":       i,
+			}).Warn("load balancer still present on post-delete verify; re-issuing Octavia delete and wait")
+			relbErr := c.loadbalancerService.DeleteLoadbalancer(ctx, token, lbID)
+			if relbErr != nil && !strings.Contains(strings.ToLower(relbErr.Error()), "404") {
+				return fmt.Errorf("post-delete verify %d/3: re-delete cluster=%s lb=%s: %w", i, clusterUUID, lbID, relbErr)
+			}
+			if werr := c.loadbalancerService.WaitForLoadBalancerDeleted(ctx, token, lbID); werr != nil {
+				return fmt.Errorf("post-delete verify %d/3: wait after re-delete cluster=%s lb=%s: %w", i, clusterUUID, lbID, werr)
+			}
+			gone, err = c.loadbalancerService.LoadBalancerAbsent(ctx, token, lbID)
+			if err != nil {
+				return fmt.Errorf("load balancer post-delete verify %d/3 after re-delete (cluster=%s lb=%s): %w", i, clusterUUID, lbID, err)
+			}
+			if !gone {
+				return fmt.Errorf("load balancer post-delete verify %d/3: cluster=%s lb=%s still present after re-delete", i, clusterUUID, lbID)
+			}
+		}
+		c.logger.WithFields(logrus.Fields{
+			"clusterUUID":      clusterUUID,
+			"loadbalancerUUID": lbID,
+			"verifyPass":       i,
+		}).Info("post-delete check: load balancer not visible in Octavia (pass)")
+	}
+	return nil
+}
+
 func (c *clusterService) deleteOpenStackLoadBalancerWithWait(ctx context.Context, token, clusterUUID, lbID string) error {
 	maxRetries := 10
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -2154,6 +2837,9 @@ func (c *clusterService) deleteOpenStackLoadBalancerWithWait(ctx context.Context
 				}).Error("failed to wait for load balancer deletion")
 				return werr
 			}
+			if verr := c.verifyLoadBalancerDeletedThreePasses(ctx, token, clusterUUID, lbID); verr != nil {
+				return verr
+			}
 			return nil
 		}
 		if strings.Contains(err.Error(), "404") {
@@ -2161,6 +2847,9 @@ func (c *clusterService) deleteOpenStackLoadBalancerWithWait(ctx context.Context
 				"clusterUUID":      clusterUUID,
 				"loadbalancerUUID": lbID,
 			}).Info("load balancer delete returned 404; already removed")
+			if verr := c.verifyLoadBalancerDeletedThreePasses(ctx, token, clusterUUID, lbID); verr != nil {
+				return verr
+			}
 			return nil
 		}
 
@@ -2184,8 +2873,26 @@ func (c *clusterService) deleteOpenStackLoadBalancerWithWait(ctx context.Context
 	return nil
 }
 
-func (c *clusterService) deleteSingleLoadBalancer(ctx context.Context, authToken, clusterUUID, lbID string) error {
+func (c *clusterService) clearClusterLoadBalancerTrackingAfterDelete(ctx context.Context, cluster *model.Cluster, lbID string) error {
+	lbID = strings.TrimSpace(lbID)
+	if lbID == "" {
+		return nil
+	}
+	if err := c.repository.Resources().DeleteResourcesByClusterTypeAndUUID(ctx, cluster.ClusterUUID, "load_balancer", lbID); err != nil {
+		return fmt.Errorf("remove load_balancer resource rows: %w", err)
+	}
+	if strings.TrimSpace(cluster.ClusterLoadbalancerUUID) == lbID {
+		if err := c.repository.Cluster().ClearLoadbalancerUUIDIfMatches(ctx, cluster.ClusterUUID, lbID); err != nil {
+			return fmt.Errorf("clear cluster_loadbalancer_uuid: %w", err)
+		}
+		cluster.ClusterLoadbalancerUUID = ""
+	}
+	return nil
+}
+
+func (c *clusterService) deleteSingleLoadBalancer(ctx context.Context, authToken string, cluster *model.Cluster, lbID string) error {
 	token := strings.Clone(authToken)
+	clusterUUID := cluster.ClusterUUID
 
 	pools, err := c.loadbalancerService.GetLoadBalancerPools(ctx, token, lbID)
 	skipChildResources := false
@@ -2253,31 +2960,52 @@ func (c *clusterService) deleteSingleLoadBalancer(ctx context.Context, authToken
 		}
 	}
 
-	return c.deleteOpenStackLoadBalancerWithWait(ctx, token, clusterUUID, lbID)
+	if err := c.deleteOpenStackLoadBalancerWithWait(ctx, token, clusterUUID, lbID); err != nil {
+		return err
+	}
+	return c.clearClusterLoadBalancerTrackingAfterDelete(ctx, cluster, lbID)
 }
 
 func (c *clusterService) deleteLoadBalancerComponents(ctx context.Context, authToken string, cluster *model.Cluster) error {
-	lbIDs, err := c.collectLoadBalancerIDsForDeletion(ctx, authToken, cluster)
-	if err != nil {
-		c.logger.WithError(err).WithFields(logrus.Fields{
-			"clusterUUID": cluster.ClusterUUID,
-		}).Error("failed to resolve load balancer ids for deletion")
-		return err
-	}
-	if len(lbIDs) == 0 {
-		return nil
-	}
-	if len(lbIDs) > 1 {
-		c.logger.WithFields(logrus.Fields{
-			"clusterUUID": cluster.ClusterUUID,
-			"lbCount":     len(lbIDs),
-			"lbIDs":       strings.Join(lbIDs, ","),
-		}).Info("deleting multiple load balancers for cluster")
-	}
-	for _, lbID := range lbIDs {
-		if err := c.deleteSingleLoadBalancer(ctx, authToken, cluster.ClusterUUID, lbID); err != nil {
+	const maxSweepRounds = 5
+	for round := 1; round <= maxSweepRounds; round++ {
+		lbIDs, err := c.collectLoadBalancerIDsForDeletion(ctx, authToken, cluster)
+		if err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+			}).Error("failed to resolve load balancer ids for deletion")
 			return err
 		}
+		if len(lbIDs) == 0 {
+			if round > 1 {
+				c.logger.WithFields(logrus.Fields{
+					"clusterUUID": cluster.ClusterUUID,
+					"sweepRound":  round - 1,
+				}).Info("no load balancers left in Octavia for cluster after cleanup sweeps")
+			}
+			return nil
+		}
+		if len(lbIDs) > 1 || round > 1 {
+			c.logger.WithFields(logrus.Fields{
+				"clusterUUID": cluster.ClusterUUID,
+				"sweepRound":  round,
+				"lbCount":     len(lbIDs),
+				"lbIDs":       strings.Join(lbIDs, ","),
+			}).Info("deleting load balancer id(s) for cluster (re-collect catches duplicates/orphans after each delete)")
+		}
+		for _, lbID := range lbIDs {
+			if err := c.deleteSingleLoadBalancer(ctx, authToken, cluster, lbID); err != nil {
+				return err
+			}
+		}
+	}
+
+	lbIDs, err := c.collectLoadBalancerIDsForDeletion(ctx, authToken, cluster)
+	if err != nil {
+		return err
+	}
+	if len(lbIDs) > 0 {
+		return fmt.Errorf("load balancers still present after %d cleanup sweeps (cluster=%s ids=%v)", maxSweepRounds, cluster.ClusterUUID, lbIDs)
 	}
 	return nil
 }

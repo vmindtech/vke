@@ -18,6 +18,16 @@ import (
 	"gorm.io/datatypes"
 )
 
+func labelsTaintsFromNodeGroupModel(ng model.NodeGroups) (labels []string, taints []string) {
+	if len(ng.NodeGroupLabels) > 0 {
+		_ = json.Unmarshal(ng.NodeGroupLabels, &labels)
+	}
+	if len(ng.NodeGroupTaints) > 0 {
+		_ = json.Unmarshal(ng.NodeGroupTaints, &taints)
+	}
+	return labels, taints
+}
+
 type INodeGroupsService interface {
 	GetNodeGroups(ctx context.Context, authToken, clusterID, nodeGroupID string) ([]resource.NodeGroup, error)
 	GetNodeGroupsByClusterUUID(ctx context.Context, clusterUUID string) ([]resource.NodeGroup, error)
@@ -75,6 +85,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			return nil, err
 		}
 
+		lab, tnt := labelsTaintsFromNodeGroupModel(*nodeGroup)
 		var resp []resource.NodeGroup
 		resp = append(resp, resource.NodeGroup{
 			ClusterUUID:      nodeGroup.ClusterUUID,
@@ -87,6 +98,8 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			NodeGroupsType:   nodeGroup.NodeGroupsType,
 			CurrentNodes:     count,
 			NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
+			NodeGroupLabels:  lab,
+			NodeGroupTaints:  tnt,
 		})
 		return resp, nil
 	} else {
@@ -105,6 +118,7 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 				return nil, err
 			}
 
+			lab, tnt := labelsTaintsFromNodeGroupModel(nodeGroup)
 			resp = append(resp, resource.NodeGroup{
 				ClusterUUID:      nodeGroup.ClusterUUID,
 				NodeGroupUUID:    nodeGroup.NodeGroupUUID,
@@ -116,6 +130,8 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 				NodeGroupsType:   nodeGroup.NodeGroupsType,
 				CurrentNodes:     count,
 				NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
+				NodeGroupLabels:  lab,
+				NodeGroupTaints:  tnt,
 			})
 		}
 		return resp, nil
@@ -134,6 +150,7 @@ func (nodg *nodeGroupsService) GetNodeGroupsByClusterUUID(ctx context.Context, c
 	var resp []resource.NodeGroup
 
 	for _, nodeGroup := range nodeGroups {
+		lab, tnt := labelsTaintsFromNodeGroupModel(nodeGroup)
 		resp = append(resp, resource.NodeGroup{
 			ClusterUUID:      nodeGroup.ClusterUUID,
 			NodeGroupUUID:    nodeGroup.NodeGroupUUID,
@@ -145,6 +162,8 @@ func (nodg *nodeGroupsService) GetNodeGroupsByClusterUUID(ctx context.Context, c
 			NodeGroupsType:   nodeGroup.NodeGroupsType,
 			CurrentNodes:     0, //ToDo: Keep current node count in db
 			NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
+			NodeGroupLabels:  lab,
+			NodeGroupTaints:  tnt,
 		})
 
 	}

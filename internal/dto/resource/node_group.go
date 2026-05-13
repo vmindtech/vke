@@ -13,16 +13,18 @@ type GetNodeGroupsResponse struct {
 }
 
 type NodeGroup struct {
-	ClusterUUID      string `json:"cluster_uuid"`
-	NodeGroupUUID    string `json:"node_group_uuid"`
-	NodeGroupName    string `json:"node_group_name"`
-	NodeGroupMinSize int    `json:"node_group_min_size"`
-	NodeGroupMaxSize int    `json:"node_group_max_size"`
-	NodeDiskSize     int    `json:"node_disk_size"`
-	NodeFlavorUUID   string `json:"node_flavor_uuid"`
-	NodeGroupsType   string `json:"node_groups_type"`
-	CurrentNodes     int    `json:"current_nodes"`
-	NodeGroupsStatus string `json:"node_groups_status"`
+	ClusterUUID      string   `json:"cluster_uuid"`
+	NodeGroupUUID    string   `json:"node_group_uuid"`
+	NodeGroupName    string   `json:"node_group_name"`
+	NodeGroupMinSize int      `json:"node_group_min_size"`
+	NodeGroupMaxSize int      `json:"node_group_max_size"`
+	NodeDiskSize     int      `json:"node_disk_size"`
+	NodeFlavorUUID   string   `json:"node_flavor_uuid"`
+	NodeGroupsType   string   `json:"node_groups_type"`
+	CurrentNodes     int      `json:"current_nodes"`
+	NodeGroupsStatus string   `json:"node_groups_status"`
+	NodeGroupLabels  []string `json:"node_group_labels,omitempty"`
+	NodeGroupTaints  []string `json:"node_group_taints,omitempty"`
 }
 
 type DeleteNodeResponse struct {
