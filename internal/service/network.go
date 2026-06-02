@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -232,10 +231,7 @@ func (ns *networkService) CreateSecurityGroupRuleForIP(ctx context.Context, auth
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		b, _ := httputil.DumpResponse(resp, true)
 
 		ns.logger.WithFields(logrus.Fields{
 			"status_code": resp.StatusCode,
@@ -271,10 +267,7 @@ func (ns *networkService) CreateSecurityGroupRuleForSG(ctx context.Context, auth
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		b, _ := httputil.DumpResponse(resp, true)
 
 		ns.logger.WithFields(logrus.Fields{
 			"status_code": resp.StatusCode,
@@ -315,10 +308,7 @@ func (ns *networkService) CreateFloatingIP(ctx context.Context, authToken string
 			"status_code": resp.StatusCode,
 			"error_msg":   resp.Status,
 		}).Error("failed to create floating ip")
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		b, _ := httputil.DumpResponse(resp, true)
 		return resource.CreateFloatingIPResponse{}, fmt.Errorf("failed to create floating ip, status code: %v, error msg: %v, full msg: %v", resp.StatusCode, resp.Status, string(b))
 	}
 

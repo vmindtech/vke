@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -68,10 +67,7 @@ func (cs *computeService) CreateCompute(ctx context.Context, authToken string, r
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusAccepted {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		b, _ := httputil.DumpResponse(resp, true)
 		cs.logger.WithFields(logrus.Fields{
 			"status_code": resp.StatusCode,
 			"error_msg":   resp.Status,

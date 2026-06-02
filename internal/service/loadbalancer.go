@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -274,10 +273,7 @@ func (lbc *loadbalancerService) CreatePool(ctx context.Context, authToken string
 			"statusCode": resp.StatusCode,
 			"status":     resp.Status,
 		}).Error("failed to create pool")
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		b, _ := httputil.DumpResponse(resp, true)
 
 		return resource.CreatePoolResponse{}, fmt.Errorf("failed to create pool, status code: %v, error msg: %v", resp.StatusCode, string(b))
 	}
@@ -327,10 +323,7 @@ func (lbc *loadbalancerService) CreateMember(ctx context.Context, authToken, poo
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		b, _ := httputil.DumpResponse(resp, true)
 		// lbc.logger.Errorf("failed to create member, status code: %v, error msg: %v", resp.StatusCode, string(b))
 		lbc.logger.WithFields(logrus.Fields{
 			"poolID":     poolID,
@@ -463,10 +456,7 @@ func (lbc *loadbalancerService) CreateHealthHTTPMonitor(ctx context.Context, aut
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		b, _ := httputil.DumpResponse(resp, true)
 
 		lbc.logger.WithFields(logrus.Fields{
 			"poolID":     req.HealthMonitor.PoolID,
@@ -520,10 +510,7 @@ func (lbc *loadbalancerService) CreateHealthTCPMonitor(ctx context.Context, auth
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		b, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		b, _ := httputil.DumpResponse(resp, true)
 
 		lbc.logger.WithFields(logrus.Fields{
 			"poolID":     req.HealthMonitor.PoolID,
