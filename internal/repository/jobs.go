@@ -19,6 +19,9 @@ type IJobsRepository interface {
 	// TryMarkJobStarted atomically claims the job. It returns false when another worker holds a
 	// non-stale RUNNING lock (duplicate queue delivery), so the caller must skip execution.
 	TryMarkJobStarted(ctx context.Context, jobUUID, lockedBy string, staleAfter time.Duration) (bool, error)
+	// TouchJobLock refreshes locked_at for a lock this worker owns (heartbeat); a force-killed
+	// worker stops heartbeating, so its lock goes stale within staleAfter instead of blocking retries.
+	TouchJobLock(ctx context.Context, jobUUID, lockedBy string) error
 	MarkJobSucceeded(ctx context.Context, jobUUID string) error
 	MarkJobFailed(ctx context.Context, jobUUID string, lastErr string, nextRunAt time.Time, attempts int) error
 }
@@ -93,6 +96,14 @@ func (j *JobsRepository) TryMarkJobStarted(ctx context.Context, jobUUID, lockedB
 		return false, res.Error
 	}
 	return res.RowsAffected > 0, nil
+}
+
+func (j *JobsRepository) TouchJobLock(ctx context.Context, jobUUID, lockedBy string) error {
+	return j.mysqlInstance.Database().WithContext(ctx).
+		Model(&model.Job{}).
+		Where("job_uuid = ? AND locked_by = ? AND status = ?", jobUUID, lockedBy, "RUNNING").
+		Update("locked_at", time.Now()).
+		Error
 }
 
 func (j *JobsRepository) MarkJobSucceeded(ctx context.Context, jobUUID string) error {

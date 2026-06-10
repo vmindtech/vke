@@ -27,10 +27,26 @@ import (
 	"github.com/vmindtech/vke/pkg/utils"
 )
 
-// jobLockStaleAfter must exceed the longest legitimate job runtime (cluster create includes a
-// 10-minute kubeconfig wait plus provisioning); shorter values would let a duplicate delivery
-// steal the lock from a healthy run.
-const jobLockStaleAfter = time.Hour
+// A running job refreshes locked_at every jobLockHeartbeat; the lock is considered stale after
+// jobLockStaleAfter without a heartbeat (worker crashed / force-killed), so retries resume within
+// minutes instead of waiting out the whole job runtime.
+const (
+	jobLockHeartbeat  = 30 * time.Second
+	jobLockStaleAfter = 3 * time.Minute
+)
+
+// workerID identifies this process in jobs.locked_by so heartbeats only refresh locks we own.
+func workerID() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "vke-worker"
+	}
+	id := fmt.Sprintf("%s-%d", host, os.Getpid())
+	if len(id) > 64 { // jobs.locked_by is varchar(64)
+		id = id[len(id)-64:]
+	}
+	return id
+}
 
 func main() {
 	configureManager := config.NewConfigureManager()
@@ -251,7 +267,8 @@ func handleDelivery(
 
 	// Claim the job so duplicate deliveries (e.g. after a connection drop) cannot run the same
 	// cluster create/delete concurrently. The stale window covers worker crashes that left RUNNING rows.
-	acquired, lockErr := repo.Jobs().TryMarkJobStarted(ctx, job.JobUUID, "vke-worker", jobLockStaleAfter)
+	wid := workerID()
+	acquired, lockErr := repo.Jobs().TryMarkJobStarted(ctx, job.JobUUID, wid, jobLockStaleAfter)
 	if lockErr != nil {
 		entry.WithError(lockErr).Error("failed to claim job lock")
 		return true, 5 * time.Second, lockErr
@@ -260,6 +277,25 @@ func handleDelivery(
 		entry.Info("job already running on another worker; requeueing duplicate delivery")
 		return true, time.Minute, nil
 	}
+
+	// Heartbeat keeps the lock fresh while the job runs; it stops (and the lock goes stale) when
+	// this process exits for any reason, including SIGKILL.
+	hbCtx, stopHeartbeat := context.WithCancel(ctx)
+	defer stopHeartbeat()
+	go func() {
+		t := time.NewTicker(jobLockHeartbeat)
+		defer t.Stop()
+		for {
+			select {
+			case <-hbCtx.Done():
+				return
+			case <-t.C:
+				if herr := repo.Jobs().TouchJobLock(hbCtx, job.JobUUID, wid); herr != nil {
+					entry.WithError(herr).Warn("job lock heartbeat failed")
+				}
+			}
+		}
+	}()
 
 	defer func() {
 		if r := recover(); r != nil {
