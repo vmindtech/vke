@@ -3,11 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 
 	"github.com/vmindtech/vke/pkg/response"
 
@@ -16,8 +18,22 @@ import (
 	"github.com/vmindtech/vke/internal/dto/resource"
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/internal/service"
+	"github.com/vmindtech/vke/pkg/queue"
 	"github.com/vmindtech/vke/pkg/utils"
 )
+
+func getAuthTokenFromHeaders(c *fiber.Ctx) string {
+	if t := c.Get("X-Auth-Token"); t != "" {
+		return t
+	}
+	if a := strings.TrimSpace(c.Get("Authorization")); a != "" {
+		if strings.HasPrefix(strings.ToLower(a), "bearer ") {
+			return strings.TrimSpace(a[7:])
+		}
+		return a
+	}
+	return ""
+}
 
 type IAppHandler interface {
 	App(c *fiber.Ctx) error
@@ -75,31 +91,116 @@ func (a *appHandler) ClusterInfo(c *fiber.Ctx) error {
 }
 
 func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
-	var req request.CreateClusterRequest
-	if err := c.BodyParser(&req); err != nil {
+	req, err := request.ParseCreateClusterRequestJSON(c.Body())
+	if err != nil {
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(response.NewBodyParserErrorResponse())
 	}
 
 	ctx := context.Background()
 
-	authToken := c.Get("X-Auth-Token")
+	authToken := getAuthTokenFromHeaders(c)
 	if authToken == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, "", "", req.ProjectID))
 	}
 
-	ctx = context.WithValue(ctx, "auth-token", authToken)
+	// Idempotency: client may send Idempotency-Key header for safe retries. Default is unique per request (cluster UUID–centric),
+	// not cluster name — same name after delete must not reuse the old jobs row / RabbitMQ job id.
+	idemKey := strings.TrimSpace(c.Get("Idempotency-Key"))
+	if idemKey == "" {
+		idemKey = "create_cluster:" + uuid.New().String()
+	}
 
-	clusterUUID := make(chan string)
-	go func(ctx context.Context) {
-		token := ctx.Value("auth-token").(string)
-		a.appService.Cluster().CreateCluster(ctx, token, req, clusterUUID)
-	}(ctx)
+	// If this key still maps to a job whose cluster is gone or terminal, free the unique idempotency_key for a new create.
+	if ej, je := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey); je == nil && ej != nil {
+		cl, ce := a.appService.Repository().Cluster().GetClusterByUUID(ctx, ej.ClusterUUID)
+		if ce != nil || cl == nil ||
+			cl.ClusterStatus == service.DeletedClusterStatus ||
+			cl.ClusterStatus == service.DeletingClusterStatus ||
+			cl.ClusterStatus == service.ErrorClusterStatus {
+			if rerr := a.appService.Repository().Jobs().RetireIdempotencyKey(ctx, ej.JobUUID); rerr != nil {
+				return c.Status(fiber.StatusUnprocessableEntity).JSON(
+					response.NewErrorResponseWithDetails(fmt.Errorf("stale idempotency key could not be cleared: %w", rerr), utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+			}
+		}
+	}
+
+	jobUUID := uuid.New().String()
+	clusterUUID := uuid.New().String()
+
+	// init cluster record + application credential (token is NOT stored); mutates req (normalize api access, etc.)
+	if err := a.appService.Cluster().InitCreateCluster(ctx, authToken, &req, clusterUUID); err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
+	}
+
+	payload, marshalErr := json.Marshal(&request.CreateClusterJobPayload{Request: req, ClusterUUID: clusterUUID})
+	if marshalErr != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(
+			response.NewErrorResponseWithDetails(marshalErr, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
+	}
+
+	job := &model.Job{
+		JobUUID:        jobUUID,
+		JobType:        "CLUSTER_CREATE",
+		Status:         "QUEUED",
+		IdempotencyKey: idemKey,
+		ClusterUUID:    clusterUUID,
+		ProjectUUID:    req.ProjectID,
+		Payload:        payload,
+		Attempts:       0,
+		MaxAttempts:    10,
+		NextRunAt:      func() *time.Time { t := time.Now(); return &t }(),
+	}
+
+	if err := a.appService.Repository().Jobs().CreateJob(ctx, job); err != nil {
+		existing, getErr := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey)
+		if getErr != nil {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(
+				response.NewErrorResponseWithDetails(err, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+		}
+		cl, ce := a.appService.Repository().Cluster().GetClusterByUUID(ctx, existing.ClusterUUID)
+		// Same idempotency key but old cluster is gone/failed: retire old job row and insert this new job (do not republish stale job UUID).
+		if ce != nil || cl == nil ||
+			cl.ClusterStatus == service.DeletedClusterStatus ||
+			cl.ClusterStatus == service.DeletingClusterStatus ||
+			cl.ClusterStatus == service.ErrorClusterStatus {
+			if rerr := a.appService.Repository().Jobs().RetireIdempotencyKey(ctx, existing.JobUUID); rerr != nil {
+				return c.Status(fiber.StatusUnprocessableEntity).JSON(
+					response.NewErrorResponseWithDetails(fmt.Errorf("could not retire stale job for idempotency key: %w", rerr), utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+			}
+			if err2 := a.appService.Repository().Jobs().CreateJob(ctx, job); err2 != nil {
+				return c.Status(fiber.StatusUnprocessableEntity).JSON(
+					response.NewErrorResponseWithDetails(err2, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+			}
+		} else {
+			// True in-flight duplicate: same logical create, reuse job + cluster
+			clusterUUID = existing.ClusterUUID
+			jobUUID = existing.JobUUID
+			if err := a.appService.Cluster().InitCreateCluster(ctx, authToken, &req, clusterUUID); err != nil {
+				return c.Status(fiber.StatusUnprocessableEntity).JSON(
+					response.NewErrorResponseWithDetails(err, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
+			}
+		}
+	}
+
+	// The worker only consumes from RabbitMQ; a job that is not published would stay QUEUED forever.
+	rmqCfg := config.GlobalConfig.GetRabbitMQConfig()
+	if rmqCfg.URL == "" || rmqCfg.QueueName == "" {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(
+			response.NewErrorResponseWithDetails(fmt.Errorf("RABBITMQ_URL and RABBITMQ_QUEUE must be set"), utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
+	}
+	if pubErr := queue.NewRabbitMQ(rmqCfg.URL, rmqCfg.QueueName).PublishJSON(ctx, &request.JobMessage{JobUUID: jobUUID}); pubErr != nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(
+			response.NewErrorResponseWithDetails(pubErr, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
+	}
 
 	resp := &resource.CreateClusterResponse{
-		ClusterUUID:   <-clusterUUID,
-		ClusterName:   req.ClusterName,
-		ClusterStatus: "CREATING",
+		ClusterUUID:    clusterUUID,
+		ClusterName:    req.ClusterName,
+		ClusterStatus:  "CREATING",
+		JobUUID:        jobUUID,
+		IdempotencyKey: idemKey,
 	}
 
 	return c.JSON(response.NewSuccessResponse(resp))
@@ -169,13 +270,66 @@ func (a *appHandler) GetClustersByProjectId(c *fiber.Ctx) error {
 func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 	clusterID := c.Params("cluster_id")
 	ctx := context.Background()
-	authToken := c.Get("X-Auth-Token")
+	authToken := getAuthTokenFromHeaders(c)
 	if authToken == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
 	}
 
-	go a.appService.Cluster().DestroyCluster(ctx, authToken, clusterID)
+	idemKey := c.Get("Idempotency-Key")
+	if idemKey == "" {
+		idemKey = "delete_cluster:" + clusterID
+	}
+	jobUUID := uuid.New().String()
+
+	// Never persist the raw OpenStack token in jobs.payload; it is only a fallback for clusters without app credentials.
+	encKey := config.GlobalConfig.GetEncryptionConfig().Key
+	if encKey == "" {
+		return c.Status(fiber.StatusInternalServerError).JSON(
+			response.NewErrorResponseWithDetails(fmt.Errorf("VKE_ENCRYPTION_KEY must be set"), utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+	}
+	tokenEnc, encErr := utils.EncryptAESGCM(utils.DeriveKeySHA256(encKey), authToken)
+	if encErr != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(
+			response.NewErrorResponseWithDetails(encErr, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+	}
+	payload, marshalErr := json.Marshal(&request.DeleteClusterJobPayload{AuthTokenEnc: tokenEnc, ClusterID: clusterID})
+	if marshalErr != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(
+			response.NewErrorResponseWithDetails(marshalErr, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+	}
+
+	job := &model.Job{
+		JobUUID:        jobUUID,
+		JobType:        "CLUSTER_DELETE",
+		Status:         "QUEUED",
+		IdempotencyKey: idemKey,
+		ClusterUUID:    clusterID,
+		ProjectUUID:    "",
+		Payload:        payload,
+		Attempts:       0,
+		MaxAttempts:    10,
+		NextRunAt:      func() *time.Time { t := time.Now(); return &t }(),
+	}
+	if err := a.appService.Repository().Jobs().CreateJob(ctx, job); err != nil {
+		// idempotent retry: if same delete already queued/running/failed, return success anyway
+		if existing, getErr := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey); getErr == nil {
+			jobUUID = existing.JobUUID
+		} else {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(
+				response.NewErrorResponseWithDetails(err, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+		}
+	}
+	// The worker only consumes from RabbitMQ; a job that is not published would stay QUEUED forever.
+	rmqCfg := config.GlobalConfig.GetRabbitMQConfig()
+	if rmqCfg.URL == "" || rmqCfg.QueueName == "" {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(
+			response.NewErrorResponseWithDetails(fmt.Errorf("RABBITMQ_URL and RABBITMQ_QUEUE must be set"), utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+	}
+	if pubErr := queue.NewRabbitMQ(rmqCfg.URL, rmqCfg.QueueName).PublishJSON(ctx, &request.JobMessage{JobUUID: jobUUID}); pubErr != nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(
+			response.NewErrorResponseWithDetails(pubErr, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+	}
 
 	resp := &resource.DestroyCluster{
 		ClusterID:         clusterID,

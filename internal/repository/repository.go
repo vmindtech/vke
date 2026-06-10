@@ -14,6 +14,7 @@ type IRepository interface {
 	NodeGroups() INodeGroupsRepository
 	Resources() IResourcesRepository
 	Error() IErrorRepository
+	Jobs() IJobsRepository
 	StartDBTransaction(ctx context.Context) (*gorm.DB, error)
 	CommitDBTransaction(tx *gorm.DB) error
 }
@@ -26,9 +27,10 @@ type repository struct {
 	nodegroups    INodeGroupsRepository
 	resources     IResourcesRepository
 	err           IErrorRepository
+	jobs          IJobsRepository
 }
 
-func NewRepository(mi mysqldb.IMysqlInstance, cr IClusterRepository, ar IAuditLogRepository, kr IKubeconfigRepository, ng INodeGroupsRepository, rr IResourcesRepository, er IErrorRepository) IRepository {
+func NewRepository(mi mysqldb.IMysqlInstance, cr IClusterRepository, ar IAuditLogRepository, kr IKubeconfigRepository, ng INodeGroupsRepository, rr IResourcesRepository, er IErrorRepository, jr IJobsRepository) IRepository {
 	return &repository{
 		mysqlInstance: mi,
 		cluster:       cr,
@@ -37,6 +39,7 @@ func NewRepository(mi mysqldb.IMysqlInstance, cr IClusterRepository, ar IAuditLo
 		nodegroups:    ng,
 		resources:     rr,
 		err:           er,
+		jobs:          jr,
 	}
 }
 
@@ -84,4 +87,8 @@ func (r *repository) Resources() IResourcesRepository {
 
 func (r *repository) Error() IErrorRepository {
 	return r.err
+}
+
+func (r *repository) Jobs() IJobsRepository {
+	return r.jobs
 }

@@ -29,6 +29,7 @@ type IComputeService interface {
 	DeleteCompute(ctx context.Context, authToken, serverID string) error
 	GetServerGroupMemberList(ctx context.Context, authToken, ServerGroupID string) (resource.GetServerGroupMemberListResponse, error)
 	GetServerGroup(ctx context.Context, authToken string, serverGroupID string) (resource.GetServerGroupResponse, error)
+	GetInstancesDetail(ctx context.Context, authToken, serverID string) (resource.OpenstacServersResponse, error)
 	DeleteServer(ctx context.Context, authToken string, serverID string) error
 }
 
@@ -382,6 +383,7 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 		return []resource.Servers{}, err
 	}
 
+	lab, tnt := labelsTaintsFromNodeGroupModel(*nodeGroup)
 	var respNodeGroup []resource.NodeGroup
 	respNodeGroup = append(respNodeGroup, resource.NodeGroup{
 		ClusterUUID:      nodeGroup.ClusterUUID,
@@ -394,6 +396,8 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 		NodeGroupsType:   nodeGroup.NodeGroupsType,
 		CurrentNodes:     count,
 		NodeGroupsStatus: nodeGroup.NodeGroupsStatus,
+		NodeGroupLabels:  lab,
+		NodeGroupTaints:  tnt,
 	})
 	var intanceDetail resource.OpenstacServersResponse
 	var responseData []resource.Servers

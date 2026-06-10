@@ -8,9 +8,11 @@ type ClusterInfoResource struct {
 }
 
 type CreateClusterResponse struct {
-	ClusterUUID   string `json:"cluster_uuid"`
-	ClusterName   string `json:"cluster_name"`
-	ClusterStatus string `json:"cluster_status"`
+	ClusterUUID      string `json:"cluster_uuid"`
+	ClusterName      string `json:"cluster_name"`
+	ClusterStatus    string `json:"cluster_status"`
+	JobUUID          string `json:"job_uuid,omitempty"`
+	IdempotencyKey   string `json:"idempotency_key,omitempty"`
 }
 
 type GetClusterDetailsResponse struct {

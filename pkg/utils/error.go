@@ -19,6 +19,8 @@ const (
 	FailedToGetClusterMsg        = "failed to get cluster information."
 	FailedToUpdateClusterMsg     = "failed to update cluster information."
 	FailedToGetClusterListMsg    = "failed to get cluster list."
+	FailedToCreateClusterMsg     = "failed to create cluster."
+	FailedToDeleteClusterMsg     = "failed to delete cluster."
 	FailedToGetKubeconfigMsg     = "failed to get kubeconfig."
 	FailedToDecodeKubeconfigMsg  = "failed to decode kubeconfig."
 	FailedToAddNodeMsg           = "failed to add node."

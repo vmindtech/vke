@@ -14,6 +14,7 @@ type IClusterRepository interface {
 	CreateCluster(ctx context.Context, cluster *model.Cluster) error
 	UpdateCluster(ctx context.Context, cluster *model.Cluster) error
 	DeleteUpdateCluster(ctx context.Context, cluster *model.Cluster, clusterUUID string) error
+	ClearLoadbalancerUUIDIfMatches(ctx context.Context, clusterUUID, loadBalancerUUID string) error
 }
 
 type ClusterRepository struct {
@@ -90,5 +91,15 @@ func (c *ClusterRepository) DeleteUpdateCluster(ctx context.Context, cluster *mo
 			ClusterDeleteDate: cluster.ClusterDeleteDate,
 			DeleteState:       cluster.DeleteState,
 		}).
+		Error
+}
+
+func (c *ClusterRepository) ClearLoadbalancerUUIDIfMatches(ctx context.Context, clusterUUID, loadBalancerUUID string) error {
+	return c.mysqlInstance.
+		Database().
+		WithContext(ctx).
+		Model(&model.Cluster{}).
+		Where("cluster_uuid = ? AND cluster_loadbalancer_uuid = ?", clusterUUID, loadBalancerUUID).
+		Update("cluster_loadbalancer_uuid", "").
 		Error
 }

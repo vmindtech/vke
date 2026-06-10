@@ -18,10 +18,12 @@ type CreateNetworkPortResponse struct {
 }
 type Port struct {
 	ID       string    `json:"id"`
+	Name     string    `json:"name"`
 	FixedIps []FixedIp `json:"fixed_ips"`
 }
 
 type FixedIp struct {
+	SubnetID  string `json:"subnet_id"`
 	IpAddress string `json:"ip_address"`
 }
 
@@ -30,8 +32,26 @@ type CreateSecurityGroupResponse struct {
 }
 
 type SecurityGroup struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID                 string                 `json:"id"`
+	Name               string                 `json:"name"`
+	SecurityGroupRules []SecurityGroupRuleDTO `json:"security_group_rules,omitempty"`
+}
+
+// SecurityGroupRuleDTO matches Neutron rule objects on GET /security-groups and list responses.
+type SecurityGroupRuleDTO struct {
+	ID              string  `json:"id"`
+	Direction       string  `json:"direction"`
+	Ethertype       string  `json:"ethertype"`
+	Protocol        *string `json:"protocol"`
+	PortRangeMin    *int    `json:"port_range_min"`
+	PortRangeMax    *int    `json:"port_range_max"`
+	RemoteIPPrefix  string  `json:"remote_ip_prefix"`
+	RemoteGroupID   string  `json:"remote_group_id"`
+	SecurityGroupID string  `json:"security_group_id"`
+}
+
+type ListSecurityGroupsResponse struct {
+	SecurityGroups []SecurityGroup `json:"security_groups"`
 }
 
 type CreateFloatingIPResponse struct {
