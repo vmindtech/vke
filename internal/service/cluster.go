@@ -212,6 +212,7 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 	}
 	token, err := c.identityService.AuthenticateWithApplicationCredential(ctx, cluster.ApplicationCredentialID, appSecret)
 	if err != nil {
+		c.logClusterErrorWithDetails(ctx, clusterUUID, constants.ErrAuthTokenCheckFailed, "cluster_creation", err.Error())
 		_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: clusterUUID, ClusterStatus: ErrorClusterStatus})
 		return err
 	}
@@ -297,9 +298,38 @@ func (c *clusterService) RunCreateCluster(ctx context.Context, clusterUUID strin
 		}
 
 		if stepErr != nil {
+			// Persist the failure to the errors table so users can see WHY the cluster went to Error
+			// (e.g. floating IP 409). Kubeconfig timeout is already recorded inside CheckKubeConfig.
+			if !errors.Is(stepErr, ErrKubeconfigTimeout) {
+				c.logClusterErrorWithDetails(ctx, clusterUUID, createStepErrorMessage(cluster.CreateState), "cluster_creation:"+cluster.CreateState, stepErr.Error())
+			}
 			_ = c.repository.Cluster().UpdateCluster(ctx, &model.Cluster{ClusterUUID: clusterUUID, ClusterStatus: ErrorClusterStatus})
 			return stepErr
 		}
+	}
+}
+
+// createStepErrorMessage maps a create_state to the user-facing base message stored in the errors table.
+func createStepErrorMessage(createState string) string {
+	switch createState {
+	case constants.CreateStateLoadBalancer:
+		return constants.ErrLoadBalancerCreateFailed
+	case constants.CreateStateFloatingIP:
+		return constants.ErrFloatingIPCreateFailed
+	case constants.CreateStateSecurityGroups:
+		return constants.ErrSecurityGroupCreateFailed
+	case constants.CreateStateServerGroups:
+		return constants.ErrComputeServerGroupCreateFailed
+	case constants.CreateStateDNS:
+		return constants.ErrDNSRecordCreateFailed
+	case constants.CreateStatePorts:
+		return constants.ErrNetworkCreateFailed
+	case constants.CreateStateComputes:
+		return constants.ErrComputeCreateFailed
+	case constants.CreateStateKubeconfig:
+		return constants.ErrKubeconfigCreateFailed
+	default:
+		return constants.ErrClusterCreateFailed
 	}
 }
 
