@@ -2274,27 +2274,28 @@ func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string
 	const maxWait = 10 * time.Minute
 	const poll = 30 * time.Second
 	deadline := time.Now().Add(maxWait)
-	for time.Now().Before(deadline) {
+	for {
+		// Check before sleeping: on retries/redelivery the kubeconfig is often already in the DB.
+		_, err := c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, clusterUUID)
+		if err == nil {
+			return nil
+		}
 		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
 		sleep := poll
 		if sleep > remaining {
 			sleep = remaining
 		}
-		if sleep <= 0 {
-			break
-		}
+		c.logger.WithFields(logrus.Fields{
+			"ClusterUUID": clusterUUID,
+		}).Info("waiting for kubeconfig in DB (agent push)")
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(sleep):
 		}
-		_, err := c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, clusterUUID)
-		if err == nil {
-			return nil
-		}
-		c.logger.WithFields(logrus.Fields{
-			"ClusterUUID": clusterUUID,
-		}).Info("waiting for kubeconfig in DB (agent push)")
 	}
 	err := fmt.Errorf("%w: %s", ErrKubeconfigTimeout, clusterUUID)
 	c.logClusterErrorWithDetails(ctx, clusterUUID, constants.ErrKubeconfigCreateFailed, "CheckKubeConfig", err.Error())
@@ -2594,6 +2595,16 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 			"deleteState": cluster.DeleteState,
 		}).Info("cluster deletion step")
 
+		// NOTE: the delete_state enum predates this flow, so its values do NOT name the action of the
+		// step — each case below runs the action listed and then advances to the next enum value:
+		//   INITIAL         -> delete DNS record
+		//   LOADBALANCER    -> delete floating IP
+		//   DNS             -> delete node groups (compute instances)
+		//   FLOATING_IP     -> delete security groups
+		//   NODES           -> delete load balancer(s)
+		//   SECURITY_GROUPS -> delete application credentials
+		//   CREDENTIALS     -> finalize (mark Deleted/COMPLETED)
+		// Changing the enum requires a migration on existing rows; until then keep this mapping in sync.
 		var stepErr error
 		switch cluster.DeleteState {
 		case constants.DeleteStateInitial:

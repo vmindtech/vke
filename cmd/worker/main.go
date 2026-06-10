@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/signal"
 	"strings"
@@ -23,7 +24,13 @@ import (
 	"github.com/vmindtech/vke/pkg/logging"
 	"github.com/vmindtech/vke/pkg/mysqldb"
 	"github.com/vmindtech/vke/pkg/queue"
+	"github.com/vmindtech/vke/pkg/utils"
 )
+
+// jobLockStaleAfter must exceed the longest legitimate job runtime (cluster create includes a
+// 10-minute kubeconfig wait plus provisioning); shorter values would let a duplicate delivery
+// steal the lock from a healthy run.
+const jobLockStaleAfter = time.Hour
 
 func main() {
 	configureManager := config.NewConfigureManager()
@@ -77,8 +84,12 @@ func main() {
 		logger.Fatal("RABBITMQ_URL and RABBITMQ_QUEUE must be set")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// consumeCtx stops new deliveries on the first signal; jobCtx lets in-flight jobs finish
+	// (drained below) and is only cancelled by a second signal (force quit).
+	consumeCtx, stopConsuming := context.WithCancel(context.Background())
+	defer stopConsuming()
+	jobCtx, cancelJobs := context.WithCancel(context.Background())
+	defer cancelJobs()
 
 	rmq := queue.NewRabbitMQ(rmqCfg.URL, rmqCfg.QueueName)
 	conc := rmqCfg.Concurrency
@@ -90,7 +101,7 @@ func main() {
 	if prefetch < 8 {
 		prefetch = 8
 	}
-	deliveries, closeFn, err := rmq.Consume(ctx, "vke-worker", prefetch)
+	deliveries, closeFn, err := rmq.Consume(consumeCtx, "vke-worker", prefetch)
 	if err != nil {
 		logger.WithError(err).Fatal("failed to start consumer")
 	}
@@ -100,7 +111,10 @@ func main() {
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 		<-c
-		cancel()
+		logger.Info("shutdown signal received; finishing in-flight jobs (send again to force quit)")
+		stopConsuming()
+		<-c
+		cancelJobs()
 	}()
 
 	sem := make(chan struct{}, conc)
@@ -118,44 +132,58 @@ func main() {
 		go func() {
 			defer func() { <-sem }()
 
-			requeue, err := handleDelivery(ctx, logger, iRepository, iClusterService, d)
+			// Errors are logged inside handleDelivery with jobUUID + clusterUUID when known;
+			// terminal outcomes (success or permanent failure) are already persisted there.
+			requeue, retryDelay, _ := handleDelivery(jobCtx, logger, iRepository, iClusterService, d)
 			ackMu.Lock()
 			defer ackMu.Unlock()
-			if err != nil {
-				// Errors are logged inside handleDelivery with jobUUID + clusterUUID when known.
-				if !requeue {
-					_ = d.Ack(false)
+			if requeue {
+				if retryDelay <= 0 {
+					retryDelay = 5 * time.Second
+				}
+				// Republish first; only drop the original once the retry copy is safely in the broker.
+				if pubErr := rmq.PublishJSONWithDelay(context.Background(), json.RawMessage(d.Body), retryDelay); pubErr != nil {
+					logger.WithError(pubErr).Error("failed to republish job for retry; nacking for broker redelivery")
+					_ = d.Nack(false, true)
 					return
 				}
-				_ = rmq.PublishJSONWithDelay(ctx, json.RawMessage(d.Body), 5*time.Second)
 				_ = d.Ack(false)
 				return
 			}
 			_ = d.Ack(false)
 		}()
 	}
+
+	// Channel closed (SIGINT/SIGTERM): wait for in-flight jobs so create/delete steps are not killed mid-way.
+	logger.Info("shutting down; waiting for in-flight jobs")
+	for i := 0; i < conc; i++ {
+		sem <- struct{}{}
+	}
+	logger.Info("worker stopped")
 }
 
+// handleDelivery processes one queue message. It returns requeue=true with a retry delay when the
+// message must be republished (transient failure or lock contention); err is informational only.
 func handleDelivery(
 	ctx context.Context,
 	logger *logrus.Logger,
 	repo repository.IRepository,
 	clusterSvc service.IClusterService,
 	d amqp.Delivery,
-) (bool, error) {
+) (bool, time.Duration, error) {
 	var msg request.JobMessage
 	if err := json.Unmarshal(d.Body, &msg); err != nil {
 		logger.WithError(err).Error("job message unmarshal failed")
-		return false, err
+		return false, 0, err
 	}
 	if msg.JobUUID == "" {
-		return false, nil
+		return false, 0, nil
 	}
 
 	job, err := repo.Jobs().GetJobByUUID(ctx, msg.JobUUID)
 	if err != nil {
 		logger.WithError(err).WithField("jobUUID", msg.JobUUID).Error("get job by UUID failed")
-		return true, err
+		return true, 5 * time.Second, err
 	}
 
 	var createPayload request.CreateClusterJobPayload
@@ -166,7 +194,7 @@ func handleDelivery(
 	case "CLUSTER_CREATE":
 		if err := json.Unmarshal(job.Payload, &createPayload); err != nil {
 			logger.WithError(err).WithField("jobUUID", job.JobUUID).Error("cluster create job payload unmarshal failed")
-			return true, err
+			return true, 5 * time.Second, err
 		}
 		if clusterLogID == "" {
 			clusterLogID = strings.TrimSpace(createPayload.ClusterUUID)
@@ -174,7 +202,7 @@ func handleDelivery(
 	case "CLUSTER_DELETE":
 		if err := json.Unmarshal(job.Payload, &deletePayload); err != nil {
 			logger.WithError(err).WithField("jobUUID", job.JobUUID).Error("cluster delete job payload unmarshal failed")
-			return true, err
+			return true, 5 * time.Second, err
 		}
 		if clusterLogID == "" {
 			clusterLogID = strings.TrimSpace(deletePayload.ClusterID)
@@ -197,7 +225,7 @@ func handleDelivery(
 			cl, cerr := repo.Cluster().GetClusterByUUID(ctx, createPayload.ClusterUUID)
 			if cerr == nil && (cl.ClusterStatus == service.ActiveClusterStatus || cl.ClusterStatus == service.DeletedClusterStatus) {
 				entry.WithField("clusterStatus", cl.ClusterStatus).Debug("create job succeeded and cluster terminal; ack stale queue message")
-				return false, nil
+				return false, 0, nil
 			}
 			if cerr != nil {
 				entry.WithError(cerr).Warn("could not load cluster for duplicate check; reconciling create")
@@ -212,17 +240,26 @@ func handleDelivery(
 			}
 			if cl.ClusterStatus == service.DeletedClusterStatus || cl.DeleteState == constants.DeleteStateCompleted {
 				entry.WithField("clusterStatus", cl.ClusterStatus).Info("delete job succeeded and cluster removed; ack duplicate queue message")
-				return false, nil
+				return false, 0, nil
 			}
 			entry.WithFields(logrus.Fields{"clusterStatus": cl.ClusterStatus, "deleteState": cl.DeleteState}).Info("job marked succeeded but cluster not fully deleted; reconciling RunDestroyCluster")
 		default:
 			entry.Info("job already succeeded; ack duplicate queue message")
-			return false, nil
+			return false, 0, nil
 		}
 	}
 
-	// mark running (best effort)
-	_ = repo.Jobs().MarkJobStarted(ctx, job.JobUUID, "vke-worker")
+	// Claim the job so duplicate deliveries (e.g. after a connection drop) cannot run the same
+	// cluster create/delete concurrently. The stale window covers worker crashes that left RUNNING rows.
+	acquired, lockErr := repo.Jobs().TryMarkJobStarted(ctx, job.JobUUID, "vke-worker", jobLockStaleAfter)
+	if lockErr != nil {
+		entry.WithError(lockErr).Error("failed to claim job lock")
+		return true, 5 * time.Second, lockErr
+	}
+	if !acquired {
+		entry.Info("job already running on another worker; requeueing duplicate delivery")
+		return true, time.Minute, nil
+	}
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -238,51 +275,75 @@ func handleDelivery(
 			if errors.Is(err, service.ErrStaleCreateClusterJob) {
 				_ = repo.Jobs().MarkJobSucceeded(ctx, job.JobUUID)
 				entry.WithError(err).Warn("stale create queue message (cluster gone); ack without retry")
-				return false, nil
+				return false, 0, nil
 			}
 			// Kubeconfig never arrived: retrying the whole job every N minutes is harmful (log spam, no benefit).
 			if errors.Is(err, service.ErrKubeconfigTimeout) {
 				_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), time.Now(), job.MaxAttempts)
 				entry.WithError(err).Error("cluster create: kubeconfig wait exceeded; job failed without retry")
-				return false, err
+				return false, 0, err
 			}
 			attempts := job.Attempts + 1
-			backoff := time.Duration(attempts*attempts) * 10 * time.Second
+			backoff := retryBackoff(attempts)
 			next := time.Now().Add(backoff)
 			if attempts >= job.MaxAttempts {
 				_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), next, attempts)
 				entry.WithError(err).WithField("attempts", attempts).Error("cluster create job failed permanently")
-				return false, err
+				return false, 0, err
 			}
 			_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), next, attempts)
 			entry.WithError(err).WithFields(logrus.Fields{"attempts": attempts, "nextRunAt": next}).Warn("cluster create job failed; will retry")
-			return true, err
+			return true, backoff, err
 		}
 		_ = repo.Jobs().MarkJobSucceeded(ctx, job.JobUUID)
 		entry.Info("cluster create job succeeded")
-		return false, nil
+		return false, 0, nil
 
 	case "CLUSTER_DELETE":
+		authToken, tokenErr := deleteJobAuthToken(deletePayload)
+		if tokenErr != nil {
+			// Destroy can still proceed via the cluster's application credential; the raw token is only a fallback.
+			entry.WithError(tokenErr).Warn("could not recover auth token from delete job payload; relying on application credential")
+		}
 		// RunDestroyCluster: delete_state machine until COMPLETED; idempotent for queue retries.
-		if err := clusterSvc.RunDestroyCluster(ctx, deletePayload.AuthToken, deletePayload.ClusterID); err != nil {
+		if err := clusterSvc.RunDestroyCluster(ctx, authToken, deletePayload.ClusterID); err != nil {
 			attempts := job.Attempts + 1
-			backoff := time.Duration(attempts*attempts) * 10 * time.Second
+			backoff := retryBackoff(attempts)
 			next := time.Now().Add(backoff)
 			if attempts >= job.MaxAttempts {
 				_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), next, attempts)
 				entry.WithError(err).WithField("attempts", attempts).Error("cluster delete job failed permanently")
-				return false, err
+				return false, 0, err
 			}
 			_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), next, attempts)
 			entry.WithError(err).WithFields(logrus.Fields{"attempts": attempts, "nextRunAt": next}).Warn("cluster delete job failed; will retry")
-			return true, err
+			return true, backoff, err
 		}
 		_ = repo.Jobs().MarkJobSucceeded(ctx, job.JobUUID)
 		entry.Info("cluster delete job succeeded")
-		return false, nil
+		return false, 0, nil
 	default:
 		_ = repo.Jobs().MarkJobSucceeded(ctx, job.JobUUID)
 		entry.Warn("unknown job type; marked succeeded")
-		return false, nil
+		return false, 0, nil
 	}
+}
+
+// retryBackoff is the quadratic delay between job attempts; it is both persisted to jobs.next_run_at
+// and used as the RabbitMQ retry-queue TTL so the two stay consistent.
+func retryBackoff(attempts int) time.Duration {
+	return time.Duration(attempts*attempts) * 10 * time.Second
+}
+
+// deleteJobAuthToken returns the fallback OpenStack token from a delete payload, decrypting
+// auth_token_enc when present (plain auth_token only exists in jobs enqueued by older builds).
+func deleteJobAuthToken(p request.DeleteClusterJobPayload) (string, error) {
+	if p.AuthTokenEnc == "" {
+		return p.AuthToken, nil
+	}
+	encKey := config.GlobalConfig.GetEncryptionConfig().Key
+	if encKey == "" {
+		return "", fmt.Errorf("VKE_ENCRYPTION_KEY must be set to decrypt delete job auth token")
+	}
+	return utils.DecryptAESGCM(utils.DeriveKeySHA256(encKey), p.AuthTokenEnc)
 }

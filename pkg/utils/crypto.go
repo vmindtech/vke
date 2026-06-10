@@ -4,10 +4,17 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"io"
 )
+
+// DeriveKeySHA256 derives a 32-byte AES key from the configured passphrase (VKE_ENCRYPTION_KEY).
+func DeriveKeySHA256(s string) []byte {
+	sum := sha256.Sum256([]byte(s))
+	return sum[:]
+}
 
 // EncryptAESGCM encrypts plaintext with key (32 bytes recommended) and returns base64(nonce|ciphertext).
 func EncryptAESGCM(key []byte, plaintext string) (string, error) {

@@ -7,7 +7,6 @@ import (
 
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/pkg/mysqldb"
-	"gorm.io/gorm/clause"
 )
 
 type IJobsRepository interface {
@@ -17,7 +16,9 @@ type IJobsRepository interface {
 	// RetireIdempotencyKey renames idempotency_key so a new job can reuse the same logical key (e.g. after cluster deleted).
 	RetireIdempotencyKey(ctx context.Context, jobUUID string) error
 	MarkJobQueued(ctx context.Context, jobUUID string, nextRunAt time.Time) error
-	MarkJobStarted(ctx context.Context, jobUUID, lockedBy string) error
+	// TryMarkJobStarted atomically claims the job. It returns false when another worker holds a
+	// non-stale RUNNING lock (duplicate queue delivery), so the caller must skip execution.
+	TryMarkJobStarted(ctx context.Context, jobUUID, lockedBy string, staleAfter time.Duration) (bool, error)
 	MarkJobSucceeded(ctx context.Context, jobUUID string) error
 	MarkJobFailed(ctx context.Context, jobUUID string, lastErr string, nextRunAt time.Time, attempts int) error
 }
@@ -78,18 +79,20 @@ func (j *JobsRepository) MarkJobQueued(ctx context.Context, jobUUID string, next
 		Error
 }
 
-func (j *JobsRepository) MarkJobStarted(ctx context.Context, jobUUID, lockedBy string) error {
+func (j *JobsRepository) TryMarkJobStarted(ctx context.Context, jobUUID, lockedBy string, staleAfter time.Duration) (bool, error) {
 	now := time.Now()
-	return j.mysqlInstance.Database().WithContext(ctx).
+	res := j.mysqlInstance.Database().WithContext(ctx).
 		Model(&model.Job{}).
-		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where(&model.Job{JobUUID: jobUUID}).
+		Where("job_uuid = ? AND (status <> ? OR locked_at IS NULL OR locked_at < ?)", jobUUID, "RUNNING", now.Add(-staleAfter)).
 		Updates(map[string]any{
 			"status":    "RUNNING",
 			"locked_by": lockedBy,
 			"locked_at": now,
-		}).
-		Error
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
 }
 
 func (j *JobsRepository) MarkJobSucceeded(ctx context.Context, jobUUID string) error {

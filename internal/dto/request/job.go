@@ -10,7 +10,9 @@ type CreateClusterJobPayload struct {
 }
 
 type DeleteClusterJobPayload struct {
-	AuthToken string `json:"auth_token"`
-	ClusterID string `json:"cluster_id"`
+	// AuthToken is kept only for jobs enqueued by older builds; new jobs carry AuthTokenEnc (AES-GCM, VKE_ENCRYPTION_KEY).
+	AuthToken    string `json:"auth_token,omitempty"`
+	AuthTokenEnc string `json:"auth_token_enc,omitempty"`
+	ClusterID    string `json:"cluster_id"`
 }
 

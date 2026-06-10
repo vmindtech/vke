@@ -184,12 +184,15 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 		}
 	}
 
+	// The worker only consumes from RabbitMQ; a job that is not published would stay QUEUED forever.
 	rmqCfg := config.GlobalConfig.GetRabbitMQConfig()
-	if rmqCfg.URL != "" && rmqCfg.QueueName != "" {
-		if pubErr := queue.NewRabbitMQ(rmqCfg.URL, rmqCfg.QueueName).PublishJSON(ctx, &request.JobMessage{JobUUID: jobUUID}); pubErr != nil {
-			return c.Status(fiber.StatusServiceUnavailable).JSON(
-				response.NewErrorResponseWithDetails(pubErr, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
-		}
+	if rmqCfg.URL == "" || rmqCfg.QueueName == "" {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(
+			response.NewErrorResponseWithDetails(fmt.Errorf("RABBITMQ_URL and RABBITMQ_QUEUE must be set"), utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
+	}
+	if pubErr := queue.NewRabbitMQ(rmqCfg.URL, rmqCfg.QueueName).PublishJSON(ctx, &request.JobMessage{JobUUID: jobUUID}); pubErr != nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(
+			response.NewErrorResponseWithDetails(pubErr, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
 	}
 
 	resp := &resource.CreateClusterResponse{
@@ -278,7 +281,23 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 		idemKey = "delete_cluster:" + clusterID
 	}
 	jobUUID := uuid.New().String()
-	payload, _ := json.Marshal(&request.DeleteClusterJobPayload{AuthToken: authToken, ClusterID: clusterID})
+
+	// Never persist the raw OpenStack token in jobs.payload; it is only a fallback for clusters without app credentials.
+	encKey := config.GlobalConfig.GetEncryptionConfig().Key
+	if encKey == "" {
+		return c.Status(fiber.StatusInternalServerError).JSON(
+			response.NewErrorResponseWithDetails(fmt.Errorf("VKE_ENCRYPTION_KEY must be set"), utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+	}
+	tokenEnc, encErr := utils.EncryptAESGCM(utils.DeriveKeySHA256(encKey), authToken)
+	if encErr != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(
+			response.NewErrorResponseWithDetails(encErr, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+	}
+	payload, marshalErr := json.Marshal(&request.DeleteClusterJobPayload{AuthTokenEnc: tokenEnc, ClusterID: clusterID})
+	if marshalErr != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(
+			response.NewErrorResponseWithDetails(marshalErr, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+	}
 
 	job := &model.Job{
 		JobUUID:        jobUUID,
@@ -301,9 +320,15 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 				response.NewErrorResponseWithDetails(err, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
 		}
 	}
+	// The worker only consumes from RabbitMQ; a job that is not published would stay QUEUED forever.
 	rmqCfg := config.GlobalConfig.GetRabbitMQConfig()
-	if rmqCfg.URL != "" && rmqCfg.QueueName != "" {
-		_ = queue.NewRabbitMQ(rmqCfg.URL, rmqCfg.QueueName).PublishJSON(ctx, &request.JobMessage{JobUUID: jobUUID})
+	if rmqCfg.URL == "" || rmqCfg.QueueName == "" {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(
+			response.NewErrorResponseWithDetails(fmt.Errorf("RABBITMQ_URL and RABBITMQ_QUEUE must be set"), utils.FailedToDeleteClusterMsg, clusterID, "", ""))
+	}
+	if pubErr := queue.NewRabbitMQ(rmqCfg.URL, rmqCfg.QueueName).PublishJSON(ctx, &request.JobMessage{JobUUID: jobUUID}); pubErr != nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(
+			response.NewErrorResponseWithDetails(pubErr, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
 	}
 
 	resp := &resource.DestroyCluster{
