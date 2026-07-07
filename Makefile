@@ -41,7 +41,10 @@ lint:
 	golangci-lint run
 
 test-unit:
-	go test ./internal/... -race -coverprofile=coverage.out -covermode=atomic -v
+	go test ./... -race -coverprofile=coverage.out -covermode=atomic
+
+test-unit-verbose:
+	go test ./... -race -coverprofile=coverage.out -covermode=atomic -v
 
 test-repository:
 	go test ./internal/repository... -race -coverprofile=coverage.out -covermode=atomic -v
@@ -80,4 +83,4 @@ db-add-node-groups-taints:
 	mysql -h $$MYSQL_HOST -u $$MYSQL_USER --password=$$MYSQL_PASS --database=$$DB_NAME < scripts/add_node_groups_taints.sql
 
 generate-mock-all:
-	mockgen -source=./internal/repository/repository.go -destination=./internal/repository/mocks/repository_mock.go -package=mocks
+	go generate ./...
