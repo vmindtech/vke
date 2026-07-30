@@ -1,0 +1,9 @@
+---
+description: Standards for Go code layout, DI, and internal layer separation
+globs: ["**/*.go"]
+---
+# Go Architecture Rules
+
+- **Dependency Injection**: Use `di.go` as the centralized place for instantiating concrete structs and injecting interfaces.
+- **Constructors**: Implement constructor functions returning pointers where appropriate (e.g., `NewService(...) *Service`).
+- **Graceful Shutdown**: Ensure any background goroutine or listener registers context cancellation or `sync.WaitGroup` cleanup.
