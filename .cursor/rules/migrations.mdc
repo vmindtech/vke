@@ -1,9 +1,0 @@
----
-description: SQL schema migration conventions
-globs: ["migrations/*"]
----
-# Migration Guidelines
-
-- Migration files must follow the strict chronological sequence or timestamp naming convention used in the directory.
-- Always write both `UP` and `DOWN` migrations where supported.
-- Use idempotent SQL statements (e.g., `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`) to prevent execution failures in CI/CD.
