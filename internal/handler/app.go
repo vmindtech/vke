@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -130,6 +131,14 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 
 	// init cluster record + application credential (token is NOT stored); mutates req (normalize api access, etc.)
 	if err := a.appService.Cluster().InitCreateCluster(ctx, authToken, &req, clusterUUID); err != nil {
+		if errors.Is(err, service.ErrClusterNameAlreadyExists) {
+			errBag := utils.ErrorBag{
+				Code:  utils.ConflictErrCode,
+				Cause: err,
+			}
+			return c.Status(fiber.StatusConflict).JSON(
+				response.NewErrorResponseWithDetails(errBag, utils.ClusterNameConflictMsg, "", "", req.ProjectID))
+		}
 		return c.Status(fiber.StatusUnprocessableEntity).JSON(
 			response.NewErrorResponseWithDetails(err, utils.FailedToCreateClusterMsg, clusterUUID, "", req.ProjectID))
 	}
