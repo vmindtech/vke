@@ -40,7 +40,7 @@ func (cf *cloudflareService) AddDNSRecordToCloudflare(ctx context.Context, loadB
 		Type:    "A",
 		Comment: clusterName,
 		Tags:    []string{},
-		TTL:     3600,
+		TTL:     1,
 	}
 	data, err := json.Marshal(addDNSRecordCFRequest)
 	if err != nil {
