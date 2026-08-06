@@ -32,6 +32,9 @@ var ErrKubeconfigTimeout = errors.New("kubeconfig not received within max wait")
 // (e.g. stale RabbitMQ message). Worker should ack without retry, not treat as success.
 var ErrStaleCreateClusterJob = errors.New("create job obsolete: cluster deleted or deleting")
 
+// ErrClusterNameAlreadyExists is returned when a non-deleted cluster in the same project has the requested name.
+var ErrClusterNameAlreadyExists = repository.ErrClusterNameAlreadyExists
+
 // Octavia LB child resources (resources.resource_type), for idempotent create + pool member tracking.
 const (
 	resLBListenerAPI = "lb_listener_api"
@@ -97,6 +100,14 @@ func (c *clusterService) InitCreateCluster(ctx context.Context, authToken string
 	// if already exists, treat as success (idempotent)
 	if existing, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID); err == nil && existing != nil && existing.ClusterUUID != "" {
 		return nil
+	}
+
+	nameExists, err := c.repository.Cluster().ClusterNameExists(ctx, req.ProjectID, req.ClusterName)
+	if err != nil {
+		return fmt.Errorf("check cluster name uniqueness: %w", err)
+	}
+	if nameExists {
+		return ErrClusterNameAlreadyExists
 	}
 
 	request.NormalizeCreateClusterRequest(req)

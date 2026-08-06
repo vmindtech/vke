@@ -6,12 +6,14 @@ const (
 	UnexpectedErrCode   = "500"
 	UnauthorizedErrCode = "401"
 	BodyParserErrCode   = "400"
+	ConflictErrCode     = "409"
 
-	NotFoundMsg     = "Not found!"
-	UnexpectedMsg   = "An unexpected error has occurred."
-	ValidationMsg   = "The given data was invalid."
-	UnauthorizedMsg = "Authentication failed."
-	BodyParserMsg   = "The given values could not be parsed."
+	NotFoundMsg           = "Not found!"
+	UnexpectedMsg         = "An unexpected error has occurred."
+	ValidationMsg         = "The given data was invalid."
+	UnauthorizedMsg       = "Authentication failed."
+	BodyParserMsg         = "The given values could not be parsed."
+	ClusterNameConflictMsg = "A cluster with this name already exists in the project."
 
 	// App Errors
 	FailedToGetAppMsg            = "failed to get app information."

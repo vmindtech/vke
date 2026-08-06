@@ -2,15 +2,19 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/pkg/mysqldb"
 )
 
+var ErrClusterNameAlreadyExists = errors.New("cluster name already exists in project")
+
 type IClusterRepository interface {
 	GetClusterByUUID(ctx context.Context, uuid string) (*model.Cluster, error)
 	GetClustersByProjectId(ctx context.Context, projectId string) ([]model.Cluster, error)
+	ClusterNameExists(ctx context.Context, projectID, clusterName string) (bool, error)
 	CreateCluster(ctx context.Context, cluster *model.Cluster) error
 	UpdateCluster(ctx context.Context, cluster *model.Cluster) error
 	DeleteUpdateCluster(ctx context.Context, cluster *model.Cluster, clusterUUID string) error
@@ -60,6 +64,22 @@ func (c *ClusterRepository) GetClustersByProjectId(ctx context.Context, projectI
 		return nil, err
 	}
 	return clusters, nil
+}
+
+func (c *ClusterRepository) ClusterNameExists(ctx context.Context, projectID, clusterName string) (bool, error) {
+	var count int64
+	err := c.mysqlInstance.
+		Database().
+		WithContext(ctx).
+		Model(&model.Cluster{}).
+		Where("cluster_project_uuid = ? AND cluster_name = ? AND cluster_status <> ?", projectID, clusterName, "Deleted").
+		Count(&count).
+		Error
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
 }
 
 func (c *ClusterRepository) CreateCluster(ctx context.Context, cluster *model.Cluster) error {

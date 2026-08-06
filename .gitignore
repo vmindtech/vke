@@ -33,3 +33,7 @@
 .env
 
 config-*.json
+
+.cursorrules
+
+.cursor/
