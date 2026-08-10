@@ -200,6 +200,7 @@ func (cs *computeService) GetServerGroupMemberList(ctx context.Context, authToke
 	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
+	r.Header.Add("x-openstack-nova-api-version", config.GlobalConfig.GetOpenStackApiConfig().NovaMicroVersion)
 
 	resp, err := cs.client.Do(r)
 	if err != nil {
@@ -288,6 +289,7 @@ func (cs *computeService) GetCountOfServerFromServerGroup(ctx context.Context, a
 	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
+	r.Header.Add("x-openstack-nova-api-version", config.GlobalConfig.GetOpenStackApiConfig().NovaMicroVersion)
 
 	resp, err := cs.client.Do(r)
 	if err != nil {
@@ -344,6 +346,7 @@ func (cs *computeService) GetInstances(ctx context.Context, authToken, nodeGroup
 	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
+	r.Header.Add("x-openstack-nova-api-version", config.GlobalConfig.GetOpenStackApiConfig().NovaMicroVersion)
 
 	resp, err := cs.client.Do(r)
 	if err != nil {
@@ -541,6 +544,7 @@ func (cs *computeService) GetServerGroup(ctx context.Context, authToken string, 
 	r.Header = make(http.Header)
 	r.Header.Add("X-Auth-Token", token)
 	r.Header.Add("Content-Type", "application/json")
+	r.Header.Add("x-openstack-nova-api-version", config.GlobalConfig.GetOpenStackApiConfig().NovaMicroVersion)
 
 	resp, err := cs.client.Do(r)
 	if err != nil {
