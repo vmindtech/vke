@@ -15,6 +15,7 @@ import (
 
 type ICloudflareService interface {
 	AddDNSRecordToCloudflare(ctx context.Context, loadBalancerIP, loadBalancerSubdomainHash, clusterName string) (resource.AddDNSRecordResponse, error)
+	UpdateDNSRecordContent(ctx context.Context, recordID, ip string) error
 	DeleteDNSRecordFromCloudflare(ctx context.Context, dnsRecordID string) error
 	DeleteDNSRecord(ctx context.Context, recordID string) error
 }
@@ -39,7 +40,7 @@ func (cf *cloudflareService) AddDNSRecordToCloudflare(ctx context.Context, loadB
 		Type:    "A",
 		Comment: clusterName,
 		Tags:    []string{},
-		TTL:     3600,
+		TTL:     1,
 	}
 	data, err := json.Marshal(addDNSRecordCFRequest)
 	if err != nil {
@@ -93,6 +94,41 @@ func (cf *cloudflareService) AddDNSRecordToCloudflare(ctx context.Context, loadB
 	}
 
 	return respDecoder, nil
+}
+
+func (cf *cloudflareService) UpdateDNSRecordContent(ctx context.Context, recordID, ip string) error {
+	data, err := json.Marshal(request.UpdateDNSRecordCFRequest{Content: ip})
+	if err != nil {
+		cf.logger.WithError(err).WithField("recordID", recordID).Error("failed to marshal DNS update request")
+		return err
+	}
+
+	r, err := http.NewRequest("PATCH", fmt.Sprintf("%s/%s/dns_records/%s", cloudflareEndpoint, config.GlobalConfig.GetCloudflareConfig().ZoneID, recordID), bytes.NewBuffer(data))
+	if err != nil {
+		cf.logger.WithError(err).WithField("recordID", recordID).Error("failed to create DNS update request")
+		return err
+	}
+	r.Header = make(http.Header)
+	r.Header.Add("Authorization", fmt.Sprintf("Bearer %s", config.GlobalConfig.GetCloudflareConfig().CfToken))
+	r.Header.Add("Content-Type", "application/json")
+
+	resp, err := cf.client.Do(r)
+	if err != nil {
+		cf.logger.WithError(err).WithField("recordID", recordID).Error("failed to send DNS update request")
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		cf.logger.WithFields(logrus.Fields{
+			"recordID":   recordID,
+			"statusCode": resp.StatusCode,
+			"status":     resp.Status,
+		}).Error("failed to update dns record")
+		return fmt.Errorf("failed to update dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+	}
+
+	return nil
 }
 
 func (cf *cloudflareService) DeleteDNSRecordFromCloudflare(ctx context.Context, dnsRecordID string) error {

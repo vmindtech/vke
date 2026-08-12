@@ -569,7 +569,11 @@ func (a *appHandler) UpdateCluster(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnauthorized).JSON(
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
 	}
-	resp, _ := a.appService.Cluster().UpdateCluster(ctx, authToken, clusterID, req)
+	resp, err := a.appService.Cluster().UpdateCluster(ctx, authToken, clusterID, req)
+	if err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToUpdateClusterMsg, clusterID, "", ""))
+	}
 	return c.JSON(response.NewSuccessResponse(resp))
 }
 

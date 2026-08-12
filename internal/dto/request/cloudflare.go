@@ -9,3 +9,7 @@ type AddDNSRecordCFRequest struct {
 	Tags    []string `json:"tags"`
 	TTL     int      `json:"ttl"`
 }
+
+type UpdateDNSRecordCFRequest struct {
+	Content string `json:"content"`
+}

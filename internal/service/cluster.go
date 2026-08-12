@@ -3627,11 +3627,20 @@ func (c *clusterService) UpdateCluster(ctx context.Context, authToken, clusterID
 		return resource.UpdateClusterResponse{}, err
 	}
 
+	oldAPIAccess := request.NormalizeClusterAPIAccessEnum(cluster.ClusterAPIAccess)
+	newAPIAccess := request.NormalizeClusterAPIAccessEnum(req.ClusterAPIAccess)
+
 	cluster.ClusterName = req.ClusterName
 	cluster.ClusterVersion = req.ClusterVersion
 	cluster.ClusterStatus = req.ClusterStatus
-	cluster.ClusterAPIAccess = req.ClusterAPIAccess
+	cluster.ClusterAPIAccess = newAPIAccess
 	cluster.ClusterCertificateExpireDate = req.ClusterCertificateExpireDate
+
+	if oldAPIAccess != newAPIAccess {
+		if err := c.applyAPIAccessTransition(ctx, token, cluster, oldAPIAccess, newAPIAccess); err != nil {
+			return resource.UpdateClusterResponse{}, err
+		}
+	}
 
 	err = c.repository.Cluster().UpdateCluster(ctx, cluster)
 	if err != nil {
@@ -3644,6 +3653,189 @@ func (c *clusterService) UpdateCluster(ctx context.Context, authToken, clusterID
 	return resource.UpdateClusterResponse{
 		ClusterUUID: cluster.ClusterUUID,
 	}, nil
+}
+
+// applyAPIAccessTransition switches the cluster between public and private API access.
+// Going private repoints DNS to the VIP before releasing the floating IP, so the record never
+// resolves to an address the project no longer owns; going public attaches the address first.
+func (c *clusterService) applyAPIAccessTransition(ctx context.Context, authToken string, cluster *model.Cluster, from, to string) error {
+	logFields := logrus.Fields{
+		"clusterUUID": cluster.ClusterUUID,
+		"from":        from,
+		"to":          to,
+	}
+
+	if to == "public" {
+		if err := c.attachClusterFloatingIP(ctx, authToken, cluster); err != nil {
+			c.logger.WithError(err).WithFields(logFields).Error("failed to attach floating IP on API access change")
+			c.logClusterErrorFiltered(ctx, cluster.ClusterUUID, constants.ErrFloatingIPCreateFailed, "cluster_api_access_change", err)
+			return err
+		}
+	}
+
+	if err := c.repointClusterDNSForAPIAccess(ctx, authToken, cluster, to); err != nil {
+		c.logger.WithError(err).WithFields(logFields).Error("failed to repoint DNS on API access change")
+		c.logClusterErrorFiltered(ctx, cluster.ClusterUUID, constants.ErrDNSRecordCreateFailed, "cluster_api_access_change", err)
+		return err
+	}
+
+	if to == "private" {
+		if err := c.detachClusterFloatingIP(ctx, authToken, cluster); err != nil {
+			c.logger.WithError(err).WithFields(logFields).Error("failed to detach floating IP on API access change")
+			c.logClusterErrorFiltered(ctx, cluster.ClusterUUID, constants.ErrFloatingIPDeleteFailed, "cluster_api_access_change", err)
+			return err
+		}
+	}
+
+	return nil
+}
+
+// detachClusterFloatingIP releases the single floating IP a cluster can own and drops its bookkeeping.
+func (c *clusterService) detachClusterFloatingIP(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	fipID, err := c.floatingIPUUIDForCluster(ctx, cluster)
+	if err != nil {
+		return err
+	}
+
+	if fipID != "" {
+		if err := c.networkService.DeleteFloatingIP(ctx, authToken, fipID); err != nil && !strings.Contains(err.Error(), "404") {
+			return fmt.Errorf("delete floating IP %s: %w", fipID, err)
+		}
+		if err := c.repository.Resources().DeleteResourcesByClusterTypeAndUUID(ctx, cluster.ClusterUUID, "floating_ip", fipID); err != nil {
+			return fmt.Errorf("delete floating IP resource row: %w", err)
+		}
+	}
+
+	cluster.FloatingIPUUID = ""
+	return nil
+}
+
+// attachClusterFloatingIP associates a public floating IP with the cluster load balancer VIP port.
+func (c *clusterService) attachClusterFloatingIP(ctx context.Context, authToken string, cluster *model.Cluster) error {
+	fipID, err := c.floatingIPUUIDForCluster(ctx, cluster)
+	if err != nil {
+		return err
+	}
+	// A leftover row means an earlier transition failed midway. Reuse the address only if Neutron
+	// still has it, otherwise the row is stale and a new address has to be allocated.
+	if fipID != "" {
+		_, err := c.networkService.GetFloatingIP(ctx, authToken, fipID)
+		switch {
+		case err == nil:
+			cluster.FloatingIPUUID = fipID
+			return nil
+		case !strings.Contains(err.Error(), "404"):
+			return fmt.Errorf("get floating IP %s: %w", fipID, err)
+		}
+		if err := c.repository.Resources().DeleteResourcesByClusterTypeAndUUID(ctx, cluster.ClusterUUID, "floating_ip", fipID); err != nil {
+			return fmt.Errorf("delete stale floating IP resource row: %w", err)
+		}
+	}
+
+	lbID, err := c.loadBalancerUUIDForCluster(ctx, cluster)
+	if err != nil {
+		return err
+	}
+
+	listLBResp, err := c.loadbalancerService.ListLoadBalancer(ctx, authToken, lbID)
+	if err != nil {
+		return err
+	}
+	vipPortID := strings.TrimSpace(listLBResp.LoadBalancer.VipPortID)
+	if vipPortID == "" {
+		return fmt.Errorf("load balancer %s has no vip_port_id", lbID)
+	}
+
+	resp, err := c.networkService.CreateFloatingIP(ctx, authToken, request.CreateFloatingIPRequest{
+		FloatingIP: request.FloatingIP{
+			FloatingNetworkID: config.GlobalConfig.GetPublicNetworkIDConfig().PublicNetworkID,
+			PortID:            vipPortID,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := c.repository.Resources().CreateResource(ctx, &model.Resource{
+		ClusterUUID:  cluster.ClusterUUID,
+		ResourceType: "floating_ip",
+		ResourceUUID: resp.FloatingIP.ID,
+	}); err != nil {
+		// Without the row the address is untrackable on delete, so give it back to the pool.
+		if delErr := c.networkService.DeleteFloatingIP(ctx, authToken, resp.FloatingIP.ID); delErr != nil {
+			c.logger.WithError(delErr).WithField("floatingIPUUID", resp.FloatingIP.ID).Error("failed to release untracked floating IP")
+		}
+		return err
+	}
+
+	cluster.FloatingIPUUID = resp.FloatingIP.ID
+	return nil
+}
+
+// floatingIPUUIDForCluster returns the floating IP a cluster owns; resources is the source of truth,
+// since clusters.floating_ip_uuid is only a cache that GORM cannot blank out on release.
+func (c *clusterService) floatingIPUUIDForCluster(ctx context.Context, cluster *model.Cluster) (string, error) {
+	fips, err := c.repository.Resources().GetResourceByClusterUUID(ctx, cluster.ClusterUUID, "floating_ip")
+	if err != nil {
+		return "", err
+	}
+	if len(fips) == 0 {
+		return "", nil
+	}
+	return strings.TrimSpace(fips[0].ResourceUUID), nil
+}
+
+// repointClusterDNSForAPIAccess updates the Cloudflare A record to the VIP (private) or floating IP (public).
+func (c *clusterService) repointClusterDNSForAPIAccess(ctx context.Context, authToken string, cluster *model.Cluster, apiAccess string) error {
+	lbID, err := c.loadBalancerUUIDForCluster(ctx, cluster)
+	if err != nil {
+		return err
+	}
+
+	listLBResp, err := c.loadbalancerService.ListLoadBalancer(ctx, authToken, lbID)
+	if err != nil {
+		return err
+	}
+	ip := strings.TrimSpace(listLBResp.LoadBalancer.VIPAddress)
+	if apiAccess == "public" {
+		fipID, err := c.floatingIPUUIDForCluster(ctx, cluster)
+		if err != nil {
+			return err
+		}
+		if fipID == "" {
+			return fmt.Errorf("public API access: floating IP not found; cannot update DNS")
+		}
+		fipResp, err := c.networkService.GetFloatingIP(ctx, authToken, fipID)
+		if err != nil {
+			return fmt.Errorf("get floating ip for DNS: %w", err)
+		}
+		pub := strings.TrimSpace(fipResp.FloatingIP.FloatingIP)
+		if pub == "" {
+			return fmt.Errorf("floating ip %s has no floating_ip_address from Neutron", fipID)
+		}
+		ip = pub
+	}
+	if ip == "" {
+		return fmt.Errorf("no IP available to point DNS at")
+	}
+
+	if strings.TrimSpace(cluster.ClusterCloudflareRecordID) != "" {
+		return c.cloudflareService.UpdateDNSRecordContent(ctx, cluster.ClusterCloudflareRecordID, ip)
+	}
+
+	// No record yet: rebuild it under the subdomain nodes and kubeconfig already point at. A fresh
+	// hash would move the endpoint away from them, so an empty one is unrecoverable here.
+	subdomainHash := strings.TrimSpace(cluster.ClusterSubdomainHash)
+	if subdomainHash == "" {
+		return fmt.Errorf("cluster %s has no DNS record and no subdomain hash", cluster.ClusterUUID)
+	}
+	addDNSResp, err := c.cloudflareService.AddDNSRecordToCloudflare(ctx, ip, subdomainHash, cluster.ClusterName)
+	if err != nil {
+		return err
+	}
+	cluster.ClusterEndpoint = addDNSResp.Result.Name
+	cluster.ClusterCloudflareRecordID = addDNSResp.Result.ID
+	return nil
 }
 
 func (c *clusterService) GetClusterErrors(ctx context.Context, authToken, clusterID string) ([]resource.GetClusterErrorsResponse, error) {
