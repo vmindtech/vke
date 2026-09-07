@@ -149,7 +149,7 @@ func (cf *cloudflareService) DeleteDNSRecordFromCloudflare(ctx context.Context, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		cf.logger.WithField("dnsRecordID", dnsRecordID).Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		logHTTPStatusFailure(cf.logger.WithField("dnsRecordID", dnsRecordID), resp.StatusCode, resp.Status, "failed to delete dns record")
 		return fmt.Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
@@ -174,7 +174,7 @@ func (cf *cloudflareService) DeleteDNSRecord(ctx context.Context, recordID strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		cf.logger.WithField("recordID", recordID).Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
+		logHTTPStatusFailure(cf.logger.WithField("recordID", recordID), resp.StatusCode, resp.Status, "failed to delete dns record")
 		return fmt.Errorf("failed to delete dns record, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
