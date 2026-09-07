@@ -31,7 +31,7 @@ func logDeleteRetry(entry *logrus.Entry, err error, attempt, maxAttempts int, ms
 	if err != nil {
 		e = e.WithError(err)
 	}
-	e.Warn(msg)
+	e.Info(msg)
 }
 
 func logRetryableFailure(entry *logrus.Entry, err error, msg string) {
@@ -42,7 +42,7 @@ func logRetryableFailure(entry *logrus.Entry, err error, msg string) {
 	if err != nil {
 		e = e.WithError(err)
 	}
-	e.Warn(msg)
+	e.Info(msg)
 }
 
 func isRetryableHTTPStatus(code int) bool {
@@ -67,7 +67,7 @@ func logHTTPStatusFailure(entry *logrus.Entry, statusCode int, status, msg strin
 		"retryable":  isRetryableHTTPStatus(statusCode),
 	})
 	if isRetryableHTTPStatus(statusCode) {
-		entry.Warn(msg)
+		entry.Info(msg)
 		return
 	}
 	entry.Error(msg)

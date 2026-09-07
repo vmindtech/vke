@@ -363,7 +363,7 @@ func handleDelivery(
 				"nextRunAt": next,
 				"retryable": true,
 				"outcome":   "retrying",
-			}).Warn("cluster delete job failed; will retry")
+			}).Info("cluster delete job failed; will retry")
 			return true, backoff, err
 		}
 		_ = repo.Jobs().MarkJobSucceeded(ctx, job.JobUUID)

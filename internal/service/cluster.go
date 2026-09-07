@@ -2832,7 +2832,7 @@ func (c *clusterService) verifyLoadBalancerDeletedThreePasses(ctx context.Contex
 				"clusterUUID":      clusterUUID,
 				"loadbalancerUUID": lbID,
 				"verifyPass":       i,
-			}).Warn("load balancer still present on post-delete verify; re-issuing Octavia delete and wait")
+			}).Info("load balancer still present on post-delete verify; re-issuing Octavia delete and wait")
 			relbErr := c.loadbalancerService.DeleteLoadbalancer(ctx, token, lbID)
 			if relbErr != nil && !strings.Contains(strings.ToLower(relbErr.Error()), "404") {
 				return fmt.Errorf("post-delete verify %d/3: re-delete cluster=%s lb=%s: %w", i, clusterUUID, lbID, relbErr)
@@ -3300,7 +3300,7 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 		c.logger.WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
 			"attempt":     attempt,
-		}).Warn("retrying security group deletion")
+		}).Info("retrying security group deletion")
 
 		time.Sleep(time.Duration(attempt) * 5 * time.Second)
 	}
@@ -3340,7 +3340,7 @@ func (c *clusterService) deleteApplicationCredentials(ctx context.Context, ident
 		}
 		c.logger.WithError(err).WithFields(logrus.Fields{
 			"clusterUUID": cluster.ClusterUUID,
-		}).Warn("caller token did not delete application credential; retrying with cluster identity token")
+		}).Info("caller token did not delete application credential; retrying with cluster identity token")
 	}
 
 	if delErr := tryDelete(strings.Clone(identityToken)); delErr != nil {
