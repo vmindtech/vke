@@ -913,10 +913,7 @@ func (lbc *loadbalancerService) DeleteLoadbalancerPools(ctx context.Context, aut
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		lbc.withLog(ctx).WithFields(logrus.Fields{
-			"statusCode": resp.StatusCode,
-			"status":     resp.Status,
-		}).Error("failed to delete load balancer pool")
+		logHTTPStatusFailure(lbc.withLog(ctx), resp.StatusCode, resp.Status, "failed to delete load balancer pool")
 		return fmt.Errorf("failed to delete load balancer pool, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 	return nil
@@ -1051,10 +1048,7 @@ func (lbc *loadbalancerService) DeleteLoadbalancerListeners(ctx context.Context,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		lbc.withLog(ctx).WithFields(logrus.Fields{
-			"statusCode": resp.StatusCode,
-			"status":     resp.Status,
-		}).Error("failed to delete load balancer listener")
+		logHTTPStatusFailure(lbc.withLog(ctx), resp.StatusCode, resp.Status, "failed to delete load balancer listener")
 		return fmt.Errorf("failed to delete load balancer listener, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 	return nil
@@ -1131,11 +1125,7 @@ func (lbc *loadbalancerService) DeleteLoadbalancer(ctx context.Context, authToke
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		lbc.withLog(ctx).WithFields(logrus.Fields{
-			"loadBalancerID": loadBalancerID,
-			"statusCode":     resp.StatusCode,
-			"status":         resp.Status,
-		}).Error("failed to delete load balancer")
+		logHTTPStatusFailure(lbc.withLog(ctx).WithField("loadBalancerID", loadBalancerID), resp.StatusCode, resp.Status, "failed to delete load balancer")
 		return fmt.Errorf("failed to delete load balancer, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 

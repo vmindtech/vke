@@ -1217,6 +1217,20 @@ func (mr *MockICloudflareServiceMockRecorder) DeleteDNSRecordFromCloudflare(ctx,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteDNSRecordFromCloudflare", reflect.TypeOf((*MockICloudflareService)(nil).DeleteDNSRecordFromCloudflare), ctx, dnsRecordID)
 }
 
+// UpdateDNSRecordContent mocks base method.
+func (m *MockICloudflareService) UpdateDNSRecordContent(ctx context.Context, recordID, ip string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDNSRecordContent", ctx, recordID, ip)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDNSRecordContent indicates an expected call of UpdateDNSRecordContent.
+func (mr *MockICloudflareServiceMockRecorder) UpdateDNSRecordContent(ctx, recordID, ip any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDNSRecordContent", reflect.TypeOf((*MockICloudflareService)(nil).UpdateDNSRecordContent), ctx, recordID, ip)
+}
+
 // MockIIdentityService is a mock of IIdentityService interface.
 type MockIIdentityService struct {
 	ctrl     *gomock.Controller

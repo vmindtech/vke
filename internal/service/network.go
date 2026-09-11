@@ -641,10 +641,6 @@ func (ns *networkService) DeleteNetworkPort(ctx context.Context, authToken strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		ns.logger.WithFields(logrus.Fields{
-			"status_code": resp.StatusCode,
-			"error_msg":   resp.Status,
-		}).Error("failed to delete network port")
 		return fmt.Errorf("failed to delete network port, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
@@ -670,10 +666,7 @@ func (ns *networkService) GetSecurityGroupPorts(ctx context.Context, authToken, 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		ns.logger.WithFields(logrus.Fields{
-			"status_code": resp.StatusCode,
-			"error_msg":   resp.Status,
-		}).Error("failed to list ports")
+		logHTTPStatusFailure(ns.logger.WithField("securityGroupID", securityGroupID), resp.StatusCode, resp.Status, "failed to list ports")
 		return resource.NetworkPortsResponse{}, fmt.Errorf("failed to list ports, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 

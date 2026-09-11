@@ -17,6 +17,7 @@ import (
 
 	"github.com/vmindtech/vke/config"
 	"github.com/vmindtech/vke/internal/dto/request"
+	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/internal/repository"
 	"github.com/vmindtech/vke/internal/service"
 	"github.com/vmindtech/vke/pkg/constants"
@@ -344,15 +345,25 @@ func handleDelivery(
 		// RunDestroyCluster: delete_state machine until COMPLETED; idempotent for queue retries.
 		if err := clusterSvc.RunDestroyCluster(ctx, authToken, deletePayload.ClusterID); err != nil {
 			attempts := job.Attempts + 1
-			backoff := retryBackoff(attempts)
-			next := time.Now().Add(backoff)
-			if attempts >= job.MaxAttempts {
-				_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), next, attempts)
-				entry.WithError(err).WithField("attempts", attempts).Error("cluster delete job failed permanently")
+			if isDeleteJobPermanent(err, attempts, job.MaxAttempts) {
+				_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), time.Now(), attempts)
+				persistDeleteJobFailure(ctx, entry, repo, clusterLogID)
+				entry.WithError(err).WithFields(logrus.Fields{
+					"attempts":  attempts,
+					"retryable": false,
+					"outcome":   "failed_permanently",
+				}).Error("cluster delete job failed permanently")
 				return false, 0, err
 			}
+			backoff := retryBackoff(attempts)
+			next := time.Now().Add(backoff)
 			_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), next, attempts)
-			entry.WithError(err).WithFields(logrus.Fields{"attempts": attempts, "nextRunAt": next}).Warn("cluster delete job failed; will retry")
+			entry.WithError(err).WithFields(logrus.Fields{
+				"attempts":  attempts,
+				"nextRunAt": next,
+				"retryable": true,
+				"outcome":   "retrying",
+			}).Info("cluster delete job failed; will retry")
 			return true, backoff, err
 		}
 		_ = repo.Jobs().MarkJobSucceeded(ctx, job.JobUUID)
@@ -369,6 +380,24 @@ func handleDelivery(
 // and used as the RabbitMQ retry-queue TTL so the two stay consistent.
 func retryBackoff(attempts int) time.Duration {
 	return time.Duration(attempts*attempts) * 10 * time.Second
+}
+
+func isDeleteJobPermanent(err error, attempts, maxAttempts int) bool {
+	return errors.Is(err, service.ErrDestroyClusterPermanent) || attempts >= maxAttempts
+}
+
+func persistDeleteJobFailure(ctx context.Context, logger *logrus.Entry, repo repository.IRepository, clusterID string) {
+	if strings.TrimSpace(clusterID) == "" {
+		return
+	}
+	recErr := repo.Error().CreateError(ctx, &model.Error{
+		ClusterUUID:  clusterID,
+		ErrorMessage: constants.GetErrorMessage(constants.ErrClusterDeleteFailed, "cluster_deletion", clusterID),
+		CreatedAt:    time.Now(),
+	})
+	if recErr != nil {
+		logger.WithError(recErr).Warn("failed to persist cluster delete failure")
+	}
 }
 
 // deleteJobAuthToken returns the fallback OpenStack token from a delete payload, decrypting
