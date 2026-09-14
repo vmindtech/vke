@@ -21,6 +21,7 @@ const (
 	ErrClusterSubnetInvalid  = "Invalid subnet configuration"
 	ErrClusterKeypairInvalid = "Invalid node keypair name"
 	ErrClusterGetFailed      = "Failed to get cluster"
+	ErrClusterDeleteFailed   = "Cluster deletion failed permanently"
 
 	// Cluster Resource Errors
 	ErrLoadBalancerCreateFailed          = "Failed to create load balancer for cluster"

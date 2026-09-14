@@ -174,7 +174,7 @@ func (i *identityService) DeleteApplicationCredential(ctx context.Context, authT
 	token := strings.Clone(authToken)
 	getUserID, err := i.GetTokenDetail(ctx, token)
 	if err != nil {
-		i.logger.WithError(err).Error("failed to get user id")
+		logRetryableFailure(i.logger.WithField("applicationCredentialID", applicationCredentialID), err, "failed to get user id")
 		return err
 	}
 	applicationCredentialPath := fmt.Sprintf("v3/users/%s/application_credentials/%v", getUserID, applicationCredentialID)

@@ -154,10 +154,6 @@ func (cs *computeService) DeleteServerGroup(ctx context.Context, authToken, clus
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		cs.logger.WithFields(logrus.Fields{
-			"status_code": resp.StatusCode,
-			"error_msg":   resp.Status,
-		}).Error("failed to delete server group")
 		return fmt.Errorf("failed to delete server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 	return nil
@@ -553,10 +549,7 @@ func (cs *computeService) GetServerGroup(ctx context.Context, authToken string, 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		cs.logger.WithFields(logrus.Fields{
-			"status_code": resp.StatusCode,
-			"error_msg":   resp.Status,
-		}).Error("failed to get server group")
+		logHTTPStatusFailure(cs.logger.WithField("serverGroupID", serverGroupID), resp.StatusCode, resp.Status, "failed to get server group")
 		return resource.GetServerGroupResponse{}, fmt.Errorf("failed to get server group, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 	var respData resource.GetServerGroupResponse
@@ -572,9 +565,7 @@ func (cs *computeService) DeleteServer(ctx context.Context, authToken string, se
 	token := strings.Clone(authToken)
 	volumes, err := cs.GetServerVolumes(ctx, token, serverID)
 	if err != nil && !strings.Contains(err.Error(), "404") {
-		cs.logger.WithError(err).WithFields(logrus.Fields{
-			"serverID": serverID,
-		}).Error("failed to get volumes")
+		logRetryableFailure(cs.logger.WithField("serverID", serverID), err, "failed to get volumes")
 		return err
 	}
 
@@ -594,20 +585,17 @@ func (cs *computeService) DeleteServer(ctx context.Context, authToken string, se
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
-		cs.logger.WithFields(logrus.Fields{
-			"status_code": resp.StatusCode,
-			"error_msg":   resp.Status,
-		}).Error("failed to delete server")
+		logHTTPStatusFailure(cs.logger.WithField("serverID", serverID), resp.StatusCode, resp.Status, "failed to delete server")
 		return fmt.Errorf("failed to delete server, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
 	for _, volumeID := range volumes {
 		err = cs.DeleteVolume(ctx, authToken, volumeID)
 		if err != nil && !strings.Contains(err.Error(), "404") {
-			cs.logger.WithError(err).WithFields(logrus.Fields{
+			logRetryableFailure(cs.logger.WithFields(logrus.Fields{
 				"serverID": serverID,
 				"volumeID": volumeID,
-			}).Error("failed to delete volume")
+			}), err, "failed to delete volume")
 			return err
 		}
 	}

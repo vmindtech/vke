@@ -209,6 +209,21 @@ func (mr *MockIClusterRepositoryMockRecorder) ClearLoadbalancerUUIDIfMatches(ctx
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearLoadbalancerUUIDIfMatches", reflect.TypeOf((*MockIClusterRepository)(nil).ClearLoadbalancerUUIDIfMatches), ctx, clusterUUID, loadBalancerUUID)
 }
 
+// ClusterNameExists mocks base method.
+func (m *MockIClusterRepository) ClusterNameExists(ctx context.Context, projectID, clusterName string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterNameExists", ctx, projectID, clusterName)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClusterNameExists indicates an expected call of ClusterNameExists.
+func (mr *MockIClusterRepositoryMockRecorder) ClusterNameExists(ctx, projectID, clusterName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterNameExists", reflect.TypeOf((*MockIClusterRepository)(nil).ClusterNameExists), ctx, projectID, clusterName)
+}
+
 // CreateCluster mocks base method.
 func (m *MockIClusterRepository) CreateCluster(ctx context.Context, cluster *model.Cluster) error {
 	m.ctrl.T.Helper()
