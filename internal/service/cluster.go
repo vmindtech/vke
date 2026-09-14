@@ -28,6 +28,12 @@ import (
 // CLUSTER_CREATE jobs must not retry on this (likely network/agent unreachable); retrying only spams logs.
 var ErrKubeconfigTimeout = errors.New("kubeconfig not received within max wait")
 
+// kubeconfig wait tunables; shortened in unit tests to avoid real waits.
+var (
+	kubeconfigMaxWait = 10 * time.Minute
+	kubeconfigPoll    = 30 * time.Second
+)
+
 // ErrStaleCreateClusterJob is returned when a CLUSTER_CREATE job targets a cluster that is already deleted or deleting
 // (e.g. stale RabbitMQ message). Worker should ack without retry, not treat as success.
 var ErrStaleCreateClusterJob = errors.New("create job obsolete: cluster deleted or deleting")
@@ -2315,9 +2321,7 @@ func (c *clusterService) logClusterErrorFiltered(ctx context.Context, clusterUUI
 }
 
 func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string) error {
-	const maxWait = 10 * time.Minute
-	const poll = 30 * time.Second
-	deadline := time.Now().Add(maxWait)
+	deadline := time.Now().Add(kubeconfigMaxWait)
 	for {
 		// Check before sleeping: on retries/redelivery the kubeconfig is often already in the DB.
 		_, err := c.repository.Kubeconfig().GetKubeconfigByUUID(ctx, clusterUUID)
@@ -2328,7 +2332,7 @@ func (c *clusterService) CheckKubeConfig(ctx context.Context, clusterUUID string
 		if remaining <= 0 {
 			break
 		}
-		sleep := poll
+		sleep := kubeconfigPoll
 		if sleep > remaining {
 			sleep = remaining
 		}
@@ -2730,7 +2734,7 @@ func (c *clusterService) deleteLoadBalancerWithRetries(ctx context.Context, auth
 	var lastError error
 	entry := c.logger.WithField("clusterUUID", cluster.ClusterUUID)
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		time.Sleep(time.Duration(waitSeconds) * time.Second)
+		sleepFn(time.Duration(waitSeconds) * time.Second)
 		if err := c.deleteLoadBalancerComponents(ctx, authToken, cluster); err != nil {
 			lastError = err
 			logDeleteRetry(entry, err, attempt, maxRetries, "failed to delete load balancer components")
@@ -2893,7 +2897,7 @@ func (c *clusterService) deleteOpenStackLoadBalancerWithWait(ctx context.Context
 			return err
 		}
 
-		time.Sleep(time.Duration(attempt) * 5 * time.Second)
+		sleepFn(time.Duration(attempt) * 5 * time.Second)
 	}
 	return nil
 }
@@ -3060,7 +3064,7 @@ func (c *clusterService) deleteDNSRecord(ctx context.Context, cluster *model.Clu
 			return err
 		}
 
-		time.Sleep(time.Duration(attempt) * 5 * time.Second)
+		sleepFn(time.Duration(attempt) * 5 * time.Second)
 	}
 
 	return nil
@@ -3101,7 +3105,7 @@ func (c *clusterService) deleteFloatingIP(ctx context.Context, authToken string,
 			return err
 		}
 
-		time.Sleep(time.Duration(attempt) * 5 * time.Second)
+		sleepFn(time.Duration(attempt) * 5 * time.Second)
 	}
 
 	return nil
@@ -3148,7 +3152,7 @@ func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string,
 				if attempt == maxRetries {
 					return err
 				}
-				time.Sleep(time.Duration(attempt) * 5 * time.Second)
+				sleepFn(time.Duration(attempt) * 5 * time.Second)
 				continue
 			}
 
@@ -3169,12 +3173,12 @@ func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string,
 					if attempt == maxRetries {
 						return err
 					}
-					time.Sleep(time.Duration(attempt) * 5 * time.Second)
+					sleepFn(time.Duration(attempt) * 5 * time.Second)
 					continue
 				}
 			}
 
-			time.Sleep(10 * time.Second)
+			sleepFn(10 * time.Second)
 
 			err = c.computeService.DeleteServerGroup(ctx, token, nodeGroup.ResourceUUID)
 			if err != nil {
@@ -3192,7 +3196,7 @@ func (c *clusterService) deleteNodeGroups(ctx context.Context, authToken string,
 				if attempt == maxRetries {
 					return err
 				}
-				time.Sleep(time.Duration(attempt) * 5 * time.Second)
+				sleepFn(time.Duration(attempt) * 5 * time.Second)
 				continue
 			}
 
@@ -3259,7 +3263,7 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 		}
 	}
 
-	time.Sleep(30 * time.Second)
+	sleepFn(30 * time.Second)
 
 	maxRetries := 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -3302,7 +3306,7 @@ func (c *clusterService) deleteSecurityGroups(ctx context.Context, authToken str
 			"attempt":     attempt,
 		}).Info("retrying security group deletion")
 
-		time.Sleep(time.Duration(attempt) * 5 * time.Second)
+		sleepFn(time.Duration(attempt) * 5 * time.Second)
 	}
 
 	return nil

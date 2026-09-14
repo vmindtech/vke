@@ -12,6 +12,9 @@ import (
 	"gorm.io/datatypes"
 )
 
+// sleepFn is swapped out in unit tests to avoid real waits.
+var sleepFn = time.Sleep
+
 func GenerateUserDataFromTemplate(
 	initiliazeFlag,
 	rke2AgentType,
