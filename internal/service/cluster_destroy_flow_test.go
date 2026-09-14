@@ -110,12 +110,13 @@ func TestRunDestroyCluster_DNSDeleteFailureStopsWithoutAdvance(t *testing.T) {
 
 	boom := errors.New("cloudflare 500")
 	m.cloudflare.EXPECT().DeleteDNSRecord(gomock.Any(), "rec-1").Return(boom).Times(3)
-	logged := expectClusterErrorLogged(m)
 
-	// no DeleteUpdateCluster expectation: advancing the state would fail the test
+	// no DeleteUpdateCluster expectation: advancing the state would fail the test.
+	// no CreateError expectation either: a step failure is retryable, so only the worker
+	// records it in the errors table once the delete job fails permanently.
 	err := svc.RunDestroyCluster(context.Background(), "", "cid-1")
 	require.ErrorIs(t, err, boom)
-	waitClusterErrorLogged(t, logged)
+	assert.NotErrorIs(t, err, ErrDestroyClusterPermanent)
 }
 
 func TestRunDestroyCluster_DNS404TreatedAsDeleted(t *testing.T) {
@@ -168,11 +169,10 @@ func TestRunDestroyCluster_MarksDeletingFirst(t *testing.T) {
 		})
 	// stop the loop right after the status flip
 	m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").Return(nil, errors.New("stop loop"))
-	logged := expectClusterErrorLogged(m)
 
 	err := svc.RunDestroyCluster(context.Background(), "", "cid-1")
 	require.ErrorContains(t, err, "stop loop")
-	waitClusterErrorLogged(t, logged)
+	assert.NotErrorIs(t, err, ErrDestroyClusterPermanent)
 
 	require.NotNil(t, marked)
 	assert.Equal(t, DeletingClusterStatus, marked.ClusterStatus)
