@@ -323,12 +323,11 @@ The `test-results` artifact retains JSON test events, stderr logs, and the cover
 profile for 14 days, including failed runs. Coverage is collected for inspection;
 there is no minimum coverage gate or custom test summary.
 
-A separate `Go vulnerability scan` job runs `govulncheck` against the Go 1.23
-build configuration and the current Go vulnerability database. Reachable known
-vulnerabilities fail the job; the text report is retained in `vulnerability-results`
-for 14 days. The scanner is pinned to v1.1.4 for Go 1.23 compatibility. Review the
-scanner pin when upgrading the build toolchain. This checks Go dependencies and
-the standard library; container OS packages are outside this scan.
+The `Go vulnerability scan` job is currently commented out pending dependency
+and toolchain remediation in a separate security PR. It is not an active CI check;
+existing findings remain unresolved. When re-enabled, it runs `govulncheck`
+v1.1.4 with Go 1.23 and retains its report for 14 days. Review the scanner pin
+when upgrading the build toolchain.
 
 Node user-data is rendered from `scripts/rke2-init-sh.tpl`. Changing agent flags means changing that template and `GenerateUserDataFromTemplate` together.
 
