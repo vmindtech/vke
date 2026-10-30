@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -103,11 +104,14 @@ func TestPostKubeconfigComputes_CreateResumeAndAdopt(t *testing.T) {
 				assert.True(t, volume.DeleteOnTermination)
 				data, err := base64.StdEncoding.DecodeString(got.Server.UserData)
 				require.NoError(t, err)
+				args := strings.Fields(string(data))
+				assert.Contains(t, args, "--initialize=false")
 				for _, value := range []string{"reg-token", "hash.vke.example.com", "ac-1", "app-secret", "v1.28.3"} {
 					assert.Contains(t, string(data), value)
 				}
 				var index int
 				if _, err := fmt.Sscanf(got.Server.Name, "demo-master-%d", &index); err == nil {
+					assert.Contains(t, args, "--rke2AgentType=server")
 					assert.Equal(t, "flavor-m", got.Server.FlavorRef)
 					assert.Equal(t, "srvgrp-m", got.SchedulerHints.Group)
 					assert.Equal(t, fmt.Sprintf("port-m%d", index), got.Server.Networks[0].Port)
@@ -116,6 +120,7 @@ func TestPostKubeconfigComputes_CreateResumeAndAdopt(t *testing.T) {
 				} else {
 					_, err := fmt.Sscanf(got.Server.Name, "demo-default-wg-%d", &index)
 					require.NoError(t, err)
+					assert.Contains(t, args, "--rke2AgentType=agent")
 					assert.Equal(t, "flavor-w", got.Server.FlavorRef)
 					assert.Equal(t, "srvgrp-w", got.SchedulerHints.Group)
 					assert.Equal(t, fmt.Sprintf("port-w%d", index), got.Server.Networks[0].Port)
@@ -137,7 +142,9 @@ func TestPostKubeconfigComputes_CreateResumeAndAdopt(t *testing.T) {
 				rows[row.ResourceType] = append(rows[row.ResourceType], *row)
 				return nil
 			}).Times(writes)
+			var updatedGroups []string
 			m.nodeGroupsRepo.EXPECT().UpdateNodeGroups(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, ng *model.NodeGroups) error {
+				updatedGroups = append(updatedGroups, ng.NodeGroupUUID)
 				assert.Contains(t, []string{"srvgrp-m", "srvgrp-w"}, ng.NodeGroupUUID)
 				assert.Equal(t, NodeGroupActiveStatus, ng.NodeGroupsStatus)
 				assert.False(t, ng.NodeGroupUpdateDate.IsZero())
@@ -148,8 +155,11 @@ func TestPostKubeconfigComputes_CreateResumeAndAdopt(t *testing.T) {
 			m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").Return(cluster, nil)
 			stale := &model.Cluster{ClusterUUID: "cid-1", ClusterRegisterToken: "old-token"}
 			require.NoError(t, svc.stepEnsureKubeconfigAndFinalize(context.Background(), "tok", req, stale))
+			assert.ElementsMatch(t, []string{"srvgrp-m", "srvgrp-w"}, updatedGroups)
+			updatedGroups = nil
 			assert.Equal(t, cluster, stale, "finalization must reload endpoint and tokens")
 			require.NoError(t, svc.stepEnsurePostKubeconfigComputes(context.Background(), "tok", req, stale))
+			assert.ElementsMatch(t, []string{"srvgrp-m", "srvgrp-w"}, updatedGroups)
 			assert.Equal(t, wantNames, createdNames, "redelivery must not duplicate existing machines")
 		})
 	}

@@ -314,7 +314,21 @@ make lint               # golangci-lint run
 make generate-mock-all  # regenerate mocks; CI fails if they drift
 ```
 
-CI on pull requests runs `go build`, `go vet`, mock freshness, and the race-enabled test suite.
+CI on pull requests and pushes to `main` runs `go build`, `go vet`, mock freshness,
+and the race-enabled test suite with randomized order, disabled test caching, and a
+10-minute timeout per package. To reproduce a failed order, use the `-test.shuffle`
+seed from the test output with `go test -shuffle=<seed>`.
+
+The `test-results` artifact retains JSON test events, stderr logs, and the coverage
+profile for 14 days, including failed runs. Coverage is collected for inspection;
+there is no minimum coverage gate or custom test summary.
+
+A separate `Go vulnerability scan` job runs `govulncheck` against the Go 1.23
+build configuration and the current Go vulnerability database. Reachable known
+vulnerabilities fail the job; the text report is retained in `vulnerability-results`
+for 14 days. The scanner is pinned to v1.1.4 for Go 1.23 compatibility. Review the
+scanner pin when upgrading the build toolchain. This checks Go dependencies and
+the standard library; container OS packages are outside this scan.
 
 Node user-data is rendered from `scripts/rke2-init-sh.tpl`. Changing agent flags means changing that template and `GenerateUserDataFromTemplate` together.
 

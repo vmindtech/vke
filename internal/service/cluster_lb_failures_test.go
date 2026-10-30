@@ -72,6 +72,7 @@ func TestEnsureLB_DiscoveryAndPersistenceFailures(t *testing.T) {
 			computesConfig(t)
 			cluster := &model.Cluster{ClusterUUID: "cid-1"}
 			boom := errors.New("dependency unavailable")
+			createFailure := errors.New("load balancer create failed")
 			expectResourceRows(m, "load_balancer")
 			if stage == "cached save" {
 				cluster.ClusterLoadbalancerUUID = "lb-1"
@@ -93,7 +94,7 @@ func TestEnsureLB_DiscoveryAndPersistenceFailures(t *testing.T) {
 					if attempt == 2 {
 						var createErr error
 						if stage != "create save" {
-							createErr = boom
+							createErr = createFailure
 						}
 						m.lb.EXPECT().CreateLoadBalancer(gomock.Any(), "tok", gomock.Any()).Return(resource.CreateLoadBalancerResponse{LoadBalancer: resource.CreateLoadBalancer{ID: "lb-1"}}, createErr)
 						if createErr == nil {
@@ -105,7 +106,11 @@ func TestEnsureLB_DiscoveryAndPersistenceFailures(t *testing.T) {
 			if stage == "cached save" || stage == "first adoption save" || stage == "second adoption save" || stage == "create save" || stage == "recovery save" {
 				m.resources.EXPECT().CreateResource(gomock.Any(), &model.Resource{ClusterUUID: "cid-1", ResourceType: "load_balancer", ResourceUUID: "lb-1"}).Return(boom)
 			}
-			require.ErrorIs(t, svc.stepEnsureLoadBalancer(context.Background(), "tok", sgPortsRequest(), cluster), boom)
+			wantErr := boom
+			if stage == "recovery absent" {
+				wantErr = createFailure
+			}
+			require.ErrorIs(t, svc.stepEnsureLoadBalancer(context.Background(), "tok", sgPortsRequest(), cluster), wantErr)
 		})
 	}
 }
