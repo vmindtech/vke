@@ -1,0 +1,67 @@
+name: VKE Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rabbitmq-integration:
+    name: RabbitMQ integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      rabbitmq:
+        image: rabbitmq:4.1-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: vke-test
+          RABBITMQ_DEFAULT_PASS: vke-test
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+          cache: true
+      - name: Verify messaging and delayed retries
+        env:
+          VKE_TEST_RABBITMQ_URL: amqp://vke-test:vke-test@127.0.0.1:5672/
+        run: go test -tags integration ./pkg/queue -race -count=1 -timeout=1m -v
+
+  vulnerabilities:
+    name: Go vulnerability scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+          cache: true
+      - name: Install govulncheck
+        # Pinned scanner compatible with the Go 1.26 build toolchain.
+        # The vulnerability database is fetched fresh on each scan.
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+      - name: Scan dependencies and standard library
+        id: scan
+        shell: bash
+        run: |
+          mkdir -p security-results
+          # Text output preserves govulncheck's nonzero exit on reachable vulnerabilities.
+          govulncheck ./... 2>&1 | tee security-results/govulncheck.txt
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.scan.outcome != 'skipped' }}
+        with:
+          name: vulnerability-results
+          path: security-results/
+          retention-days: 14
+          if-no-files-found: error
