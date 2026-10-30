@@ -1,328 +1,354 @@
-<a name="readme-top"></a>
+# VKE (vMind Kubernetes Engine)
 
-[![Contributors][contributors-shield]][contributors-url]
-[![Forks][forks-shield]][forks-url]
-[![Stargazers][stars-shield]][stars-url]
-[![Issues][issues-shield]][issues-url]
-[![MIT License][license-shield]][license-url]
+vMind Kubernetes Engine. An OpenStack control plane that provisions and operates managed [RKE2](https://docs.rke2.io/) clusters, including load balancing, block storage, and node autoscaling.
 
+[![License](https://img.shields.io/github/license/vmindtech/vke)](https://github.com/vmindtech/vke/blob/main/LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/vmindtech/vke)](https://go.dev/)
+[![CI](https://img.shields.io/github/actions/workflow/status/vmindtech/vke/test.yaml?label=tests)](https://github.com/vmindtech/vke/actions/workflows/test.yaml)
 
+VKE is the API and worker you run next to an OpenStack cloud. A caller with a Keystone token asks for a cluster. VKE creates the OpenStack resources, bootstraps RKE2, and hands back a kubeconfig. Inside that cluster, Octavia, Cinder, and the node autoscaler are already wired, so application teams use ordinary Kubernetes objects.
 
-<!-- PROJECT LOGO -->
-<br />
-<div align="center">
+## Contents
 
-  <h3 align="center">vMind Kubernetes Engine for OpenStack</h3>
-  <p align="center">
-     A middleware service that orchestrates the end-to-end deployment of Kubernetes clusters on OpenStack infrastructure, leveraging RKE2 to provide a fully managed and ready-to-use Kubernetes cluster solution.
-    <br />
-  </p>
-</div>
-<br />
+- [Features](#features)
+- [How a cluster is built](#how-a-cluster-is-built)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Run](#run)
+- [API](#api)
+- [Development](#development)
+- [Project layout](#project-layout)
+- [Related projects](#related-projects)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Getting Started
+## Features
 
-To run the application, follow these steps:
+- **Managed RKE2 clusters** on OpenStack, with three control-plane nodes and one or more worker node groups.
+- **Asynchronous create and delete.** The API records the request and returns immediately. A worker finishes the job and can resume it after a crash.
+- **Kubernetes API on Octavia.** Each cluster gets an Octavia load balancer, health monitors, and either a public floating IP or a private endpoint. DNS is published through Cloudflare.
+- **Node groups** with flavor, Cinder disk size, labels, taints, and a minimum and maximum size.
+- **Built-in Octavia integration for `Service` `type: LoadBalancer`.** See below.
+- **Built-in Cinder integration** for node disks and persistent volumes. See below.
+- **Built-in node autoscaling.** A HorizontalPodAutoscaler is enough to grow and shrink the worker pool. See below.
+- **Kubeconfig and error history** for each cluster, keyed by the OpenStack project.
 
-### Prerequisites
+### LoadBalancer services open an Octavia load balancer
 
-- Go 1.21+ installed on your system.
-- An active OpenStack account with valid credentials.
-- MySQL 8.0.36+ installed on your system and accessible.
-- Logstash 8.x+ for log aggregation (optional - application works without it).
+VKE installs [cloud-provider-vke](https://github.com/vmindtech/cloud-provider-vke) into every cluster during bootstrap (`CLOUD_PROVIDER_VKE_VERSION`). That provider speaks to Octavia with the cluster application credential.
 
-### Installation
+After the cluster is active, this Service is enough:
 
-#### Create Database
-
-    ```
-    mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/vke.sql 
-    ```
-
-**Note:** The `vke.sql` file includes the `errors` and `resources` tables for cluster error logging and resource tracking. If you're updating an existing database, you can run the separate migrations:
-
-    ```
-    # Add errors table
-    mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_errors_table.sql
-    
-    # Add resources table
-    mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_resources_table.sql
-    
-    # Add node groups taint support
-    mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_node_groups_taints.sql
-    ```
-
-#### Logstash Setup (Optional - Recommended for Production)
-
-For production environments, we recommend using Logstash for log aggregation. The application sends logs via UDP to Logstash, which then forwards them to OpenSearch/Elasticsearch. **The application works perfectly without Logstash - it will fall back to console output.**
-
-1. Install Logstash OpenSearch output plugin:
-   ```sh
-   /usr/share/logstash/bin/logstash-plugin install logstash-output-opensearch
-   ```
-
-2. Use the provided Logstash configuration:
-   ```sh
-   cp logstash.conf /etc/logstash/conf.d/vke-api.conf
-   ```
-
-3. Start Logstash:
-   ```sh
-   sudo systemctl start logstash
-   sudo systemctl enable logstash
-   ```
-
-#### Configuring and Running the Application Locally
-1. Clone the repo
-   ```sh
-   git clone https://github.com/vmindtech/vke.git
-   cd vke
-   ```
-
-2. Environment Configuration
-    Create a configuration file (e.g., config-development.json or config-production.json) with the following structure:
-
-   **Basic Configuration (Console Logging):**
-   ```json
-   {
-     "APP_NAME" : "vke",
-     "PORT" : "80",
-     "ENV" : "development",
-     "VERSION" : "1.0.0",
-     "MYSQL_URL": "USER:PASS@tcp(MYSQL_ADDRESS:3306)/DATABASE?charset=utf8&parseTime=true&loc=Europe%2FIstanbul",
-     "COMPUTE_ENDPOINT": "https://OPENSTACK_DOMAIN:8774",
-     "NETWORK_ENDPOINT": "https://OPENSTACK_DOMAIN:9696",
-     "LOAD_BALANCER_ENDPOINT": "https://OPENSTACK_DOMAIN:9876",
-     "IDENTITY_ENDPOINT": "https://OPENSTACK_DOMAIN:5000",
-     "CLOUDFLARE_AUTH_TOKEN": "YOUR_CLOUDFLARE_TOKEN",
-     "CLOUDFLARE_ZONE_ID": "YOUR_CLOUDFLARE_ZONE_ID",
-     "CLOUDFLARE_DOMAIN": "YOUR_DOMAIN_FOR_DNS_RECORD",
-     "PUBLIC_NETWORK_ID": "PUCLIC_NETWORK_UUID",
-     "IMAGE_REF": "UBUNTU20.04-IMAGE-UUID",
-     "NOVA_MICRO_VERSION": "2.88",
-     "ENDPOINT":  "YOUR_VKE_API_PUBLIC_ADDRESS exp: http://vmind.com.tr/api/v1",
-     "VKE_AGENT_VERSION": "1.0.0",
-     "CLUSTER_AUTOSCALER_VERSION": "0.73",
-     "CLOUD_PROVIDER_VKE_VERSION": "2.29.2",
-     "OPENSTACK_LOADBALANCER_ADMIN_ROLE": "load-balancer_admin",
-     "OPENSTACK_USER_OR_MEMBER_ROLE": "member"
-   }
-   ```
-
-   **Advanced Configuration (with Logstash):**
-   ```json
-   {
-     "APP_NAME" : "vke",
-     "PORT" : "80",
-     "ENV" : "production",
-     "VERSION" : "1.0.0",
-     "MYSQL_URL": "USER:PASS@tcp(MYSQL_ADDRESS:3306)/DATABASE?charset=utf8&parseTime=true&loc=Europe%2FIstanbul",
-     "COMPUTE_ENDPOINT": "https://OPENSTACK_DOMAIN:8774",
-     "NETWORK_ENDPOINT": "https://OPENSTACK_DOMAIN:9696",
-     "LOAD_BALANCER_ENDPOINT": "https://OPENSTACK_DOMAIN:9876",
-     "IDENTITY_ENDPOINT": "https://OPENSTACK_DOMAIN:5000",
-     "CLOUDFLARE_AUTH_TOKEN": "YOUR_CLOUDFLARE_TOKEN",
-     "CLOUDFLARE_ZONE_ID": "YOUR_CLOUDFLARE_ZONE_ID",
-     "CLOUDFLARE_DOMAIN": "YOUR_DOMAIN_FOR_DNS_RECORD",
-     "PUBLIC_NETWORK_ID": "PUCLIC_NETWORK_UUID",
-     "IMAGE_REF": "UBUNTU20.04-IMAGE-UUID",
-     "NOVA_MICRO_VERSION": "2.88",
-     "ENDPOINT":  "YOUR_VKE_API_PUBLIC_ADDRESS exp: http://vmind.com.tr/api/v1",
-     "VKE_AGENT_VERSION": "1.0.0",
-     "CLUSTER_AUTOSCALER_VERSION": "0.73",
-     "CLOUD_PROVIDER_VKE_VERSION": "2.29.2",
-     "OPENSTACK_LOADBALANCER_ADMIN_ROLE": "load-balancer_admin",
-     "OPENSTACK_USER_OR_MEMBER_ROLE": "member",
-     "LOGSTASH_HOST": "localhost",
-     "LOGSTASH_PORT": 2053
-   }
-   ```
-
-   **Logging Configuration (Optional):**
-   - `LOGSTASH_HOST`: Logstash server hostname (optional - defaults to console output)
-   - `LOGSTASH_PORT`: Logstash UDP port (optional - defaults to console output)
-   
-   **Note:** If `LOGSTASH_HOST` is empty or `LOGSTASH_PORT` is 0, the application will automatically use console output. The application is designed to work seamlessly with or without Logstash.
-
-    Set the environment variable for your application's environment using the following commands in the terminal:
-
-    ```sh
-    export golang_env=development
-    ```
-    or 
-
-    ```sh
-    export golang_env=production
-    ```
-    These commands will help you specify the runtime environment for your application.
-
-3. Run the Application
-
-    To run the application using Air for automatic reloading during development, use the following command in the terminal:
-
-    ```sh
-    air -c .air.toml
-    ```
-
-    This command will start the application and automatically reload it whenever code changes are detected, making your development process faster and more efficient.
-
-
-#### Running the Application with Docker
-
-To run the application with Docker, follow these steps:
-
-1. Build the Docker image or pull it from [Docker Hub](https://hub.docker.com/r/vmindtech/vke-application):
-    - To build the Docker image locally:
-        ```sh
-        docker build -t vmindtech/vke-app .
-        ```
-
-    - Alternatively, you can pull the ready-made image from Docker Hub:
-        ```sh
-        docker pull vmindtech/vke-application:tag
-        ```
-        Replace `tag` with the desired version tag, for example `1.0`.
-
-
-2. Run the Docker container:
-    ```sh
-    docker run -ti -v /opt/vke/config-production.json:/config-production.json -e golang_env='production' -p 8080:80 --name vke-application vmindtech/vke-application:tag
-    ```
-    Replace `tag` with the desired version tag, for example `1.0`.
-
-    This command mounts either the `config-production.json` or `config-development.json` file from your host machine into the container, sets the `golang_env` environment variable to 'production' or 'development' accordingly, and forwards requests from port `8080` on your host machine to port `80` inside the Docker container. You can replace `/opt/vke/config-production.json` or `/opt/vke/config-development.json` with the path to your actual configuration file and use any port you prefer.
-
-3. View the application in your browser:
-    Navigate to `http://localhost:8080` in your browser to view the application.
-
-4. Stopping and removing the container:
-    ```sh
-    docker stop vke-application
-    docker rm vke-application
-    ```
-
-    Use the above commands to stop and remove the container when you're done.
-
-Once you've successfully run the application with Docker, you can access it at `http://localhost:8080`.
-
-## Logging System
-
-The application uses a robust logging system with the following features:
-
-### Logstash Integration (Optional)
-- **UDP Transport**: Logs are sent via UDP to prevent application crashes when OpenSearch is unavailable
-- **Fault Tolerance**: Application continues running even if Logstash/OpenSearch is down
-- **Automatic Fallback**: If Logstash is unavailable, logs automatically fall back to console output
-- **Structured Logging**: JSON format with timestamps, log levels, and structured fields
-- **Error Handling**: Detailed error information with stack traces
-
-### Console Logging (Default)
-- **Development Friendly**: Perfect for development and testing
-- **No Dependencies**: Works without any external logging infrastructure
-- **JSON Format**: Structured logs in JSON format for easy parsing
-- **Service Information**: Includes environment and service name in all logs
-
-### Log Levels
-- `INFO`: General application information
-- `ERROR`: Error conditions that don't stop the application
-- `FATAL`: Critical errors that cause application shutdown
-
-### Log Fields
-- `@timestamp`: ISO8601 formatted timestamp
-- `level`: Log level (info, error, fatal)
-- `message`: Log message
-- `fields`: Additional structured data
-- `environment`: Application environment
-- `service`: Service name
-- `error_message`: Error details (when applicable)
-- `error_type`: Error type information
-
-### Monitoring
-When using Logstash, logs are automatically indexed in OpenSearch with the pattern `vke.prod-YYYY.MM.dd` for easy querying and monitoring.
-
-### Configuration Examples
-
-**Development (Console Only):**
-```json
-{
-  "APP_NAME": "vke",
-  "ENV": "development"
-  // No LOGSTASH_HOST/LOGSTASH_PORT = console output
-}
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  type: LoadBalancer
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 8080
 ```
 
-**Production (with Logstash):**
-```json
-{
-  "APP_NAME": "vke",
-  "ENV": "production",
-  "LOGSTASH_HOST": "localhost",
-  "LOGSTASH_PORT": 2053
-}
+[cloud-provider-vke](https://github.com/vmindtech/cloud-provider-vke) creates the Octavia load balancer, listener, pool, and member set, and attaches a floating IP from `PUBLIC_NETWORK_ID`. Deleting the Service deletes that load balancer. No extra controller, Octavia CLI step, or cloud-config manifest is required from the cluster user.
+
+This is separate from the load balancer VKE creates for the Kubernetes API itself. The API balancer is part of cluster provisioning. Service load balancers are created later, from inside the cluster, one per Service.
+
+`LOADBALANCER_PROVIDER` selects the Octavia provider (for example `ovn`). The Keystone roles in `OPENSTACK_LOADBALANCER_ADMIN_ROLE` and `OPENSTACK_USER_OR_MEMBER_ROLE` are granted to the application credential so the provider can manage load balancers in the project.
+
+### Cinder backs node disks and persistent volumes
+
+Worker and control-plane root disks are Cinder volumes, created as Nova boot-from-volume devices (`BLOCK_STORAGE_ENDPOINT`). Worker size comes from `workerDiskSizeGB` on the create request. The same [cloud-provider-vke](https://github.com/vmindtech/cloud-provider-vke) release integrates the cluster with Cinder, so a PersistentVolumeClaim is fulfilled by a Cinder volume without installing a CSI driver yourself:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
 ```
 
-**Production (with Fallback):**
-```json
-{
-  "APP_NAME": "vke",
-  "ENV": "production",
-  "LOGSTASH_HOST": "localhost",
-  "LOGSTASH_PORT": 2053
-}
-// If Logstash is down, automatically falls back to console
+### Node autoscaling follows the HPA
+
+VKE installs [cluster-autoscaler](https://github.com/vmindtech/autoscaler-vke) (`CLUSTER_AUTOSCALER_VERSION`) and binds it to each worker node group’s minimum and maximum size.
+
+You do not run a second scaler and you do not call the VKE API when traffic changes. Set a HorizontalPodAutoscaler:
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: web
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
 ```
 
-## Database Migrations
+The HPA adds pods. When those pods cannot be scheduled, [cluster-autoscaler](https://github.com/vmindtech/autoscaler-vke) creates worker nodes on OpenStack, up to `workerNodeGroupMaxSize`. When the extra pods are gone, it removes nodes down to `workerNodeGroupMinSize`. The same bounds apply to node groups created later. Pending pods from any source, including an HPA, are what move the node count.
 
-The application includes several database migration scripts for updating existing installations:
+## How a cluster is built
 
-### Available Migration Commands
-
-```bash
-# Add errors table for cluster error logging
-make db-add-errors-table
-
-# Add resources table for cluster resource tracking
-make db-add-resources-table
-
-# Add taint support to node_groups table
-make db-add-node-groups-taints
+```mermaid
+flowchart LR
+  Client[API client] -->|X-Auth-Token| API[cmd/api]
+  API --> MySQL[(MySQL)]
+  API --> Queue[RabbitMQ]
+  Queue --> Worker[cmd/worker]
+  Worker --> MySQL
+  Worker --> OpenStack[Nova Neutron Octavia Keystone Cinder]
+  Worker --> DNS[Cloudflare]
+  Worker --> Nodes[RKE2 nodes]
+  Nodes --> OpenStack
 ```
 
-### Manual Migration
+1. The API checks the Keystone token against the project, stores the cluster, creates an application credential, and publishes a `CLUSTER_CREATE` job. The HTTP response status is `CREATING`.
+2. The worker walks a resumable state machine. Each step is idempotent.
 
-You can also run migrations manually:
+   `INITIAL` → `LOADBALANCER` → `FLOATING_IP` → `SECURITY_GROUPS` → `SERVER_GROUPS` → `PORTS` → `COMPUTES` → `DNS` → `KUBECONFIG` → `COMPLETED`
 
-```bash
-# Add errors table
-mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_errors_table.sql
+3. The first control-plane node runs [vke-agent](https://github.com/vmindtech/vke-agent), which installs RKE2, [cloud-provider-vke](https://github.com/vmindtech/cloud-provider-vke), and [cluster-autoscaler](https://github.com/vmindtech/autoscaler-vke). Further control-plane and worker nodes join after the kubeconfig exists.
+4. Delete follows the same pattern with a `CLUSTER_DELETE` job: load balancer, DNS, floating IP, nodes, security groups, then credentials.
 
-# Add resources table
-mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_resources_table.sql
+The worker locks a job and refreshes that lock while the step runs. A dead worker’s lock expires after a few minutes and another worker retries the same step.
 
-# Add node groups taint support
-mysql -h MYSQL_ADDRESS -u DATABSE_USER --password=YOUR_PASS --database=YOUR_DB < scripts/add_node_groups_taints.sql
+## Requirements
+
+- Go 1.23 or newer, to build from source
+- MySQL 8
+- RabbitMQ
+- An OpenStack project that can use Nova, Neutron, Octavia, Keystone, and Cinder
+- A Glance image referenced by `IMAGE_REF`, and a Nova key pair the nodes can use
+- A Cloudflare zone for the cluster API DNS name
+- Network access from VKE to the OpenStack endpoints, and from the new nodes back to the VKE API (`ENDPOINT`)
+
+Logstash is optional. With `LOGSTASH_HOST` empty, logs go to the process stdout as JSON.
+
+## Quick start
+
+```sh
+git clone https://github.com/vmindtech/vke.git
+cd vke
+cp config.example.json config-development.json
 ```
 
-### Migration Details
+Edit `config-development.json`. Files named `config-*.json` are gitignored. Point `MYSQL_URL` and `RABBITMQ_URL` at your local services, and fill the OpenStack, Cloudflare, and image values. `VKE_ENCRYPTION_KEY` encrypts application-credential secrets at rest. Generate it once and keep it stable for the life of the database.
 
-- **Errors Table**: Tracks cluster operation errors for monitoring and debugging
-- **Resources Table**: Stores cluster-related resources for tracking and management
-- **Node Groups Taints**: Adds Kubernetes taint support for node group scheduling
+Create the schema in an empty database. `scripts/vke.sql` is the current full schema and drops the VKE tables before recreating them, so run it only against a new database:
 
-<!-- LICENSE -->
+```sh
+mysql -h 127.0.0.1 -u vke -p -e 'CREATE DATABASE IF NOT EXISTS vke CHARACTER SET utf8mb4;'
+mysql -h 127.0.0.1 -u vke -p vke < scripts/vke.sql
+```
+
+Upgrading an older database that was created before `jobs`, `create_state`, or `cluster_subdomain_hash` existed:
+
+```sh
+make migrate-up DATABASE_URL='mysql://vke:password@tcp(127.0.0.1:3306)/vke?charset=utf8mb4&parseTime=true&loc=UTC'
+```
+
+Do not run `migrate-up` on a database just loaded from the current `scripts/vke.sql`. Those columns are already there, and the migration will stop on the duplicate column.
+
+Start the API and the worker in two terminals:
+
+```sh
+export golang_env=development
+go run ./cmd/api
+```
+
+```sh
+export golang_env=development
+go run ./cmd/worker
+```
+
+Check the process:
+
+```sh
+curl -s localhost/api/v1
+curl -s localhost/readiness
+```
+
+`/api/v1` returns the app name, environment, and version. `/readiness` reports whether MySQL answers. `/liveness` reports whether the process is still serving.
+
+Create a cluster with a Keystone token for `projectId`:
+
+```sh
+curl -s -X POST localhost/api/v1/cluster \
+  -H 'Content-Type: application/json' \
+  -H 'X-Auth-Token: <keystone-token>' \
+  -H 'Idempotency-Key: create-web-1' \
+  -d '{
+    "clusterName": "web",
+    "projectId": "<openstack-project-uuid>",
+    "kubernetesVersion": "v1.31.4+rke2r1",
+    "nodeKeyPairName": "vke",
+    "clusterApiAccess": "public",
+    "subnetIds": ["<subnet-uuid>"],
+    "workerNodeGroupMinSize": 1,
+    "workerNodeGroupMaxSize": 5,
+    "workerInstanceFlavorUUID": "<flavor-uuid>",
+    "masterInstanceFlavorUUID": "<flavor-uuid>",
+    "workerDiskSizeGB": 50,
+    "allowedCIDRs": ["10.0.0.0/8"]
+  }'
+```
+
+The response carries `cluster_uuid` and `job_uuid` under `data`, with `cluster_status` set to `CREATING`. Poll `GET /api/v1/cluster/<cluster_uuid>` until `clusterStatus` is `Active`. While the worker runs, that field stays `Creating`. A failed step sets it to `Error`, and the message is available at `GET /api/v1/cluster/<cluster_uuid>/errors`. Then fetch the kubeconfig from `GET /api/v1/kubeconfig/<cluster_uuid>`. Repeating the create with the same `Idempotency-Key` returns the in-flight cluster instead of starting a second one.
+
+`clusterApiAccess` is `public` or `private`. `public` allocates a floating IP and a DNS name. `private` keeps the API on the project network.
+
+## Configuration
+
+VKE reads `config-${golang_env}.json` from the working directory. Set `GO_VAULT_PATH` to load that file from another directory. The sample is [`config.example.json`](config.example.json).
+
+| Key | Purpose |
+| --- | --- |
+| `APP_NAME`, `PORT`, `ENV`, `VERSION` | Process identity. `PORT` is the API listen port. `ENV=production` marks the production environment. |
+| `ENDPOINT` | Public base URL of this API. Nodes call it during bootstrap. |
+| `MYSQL_URL` | Go MySQL DSN. |
+| `RABBITMQ_URL`, `RABBITMQ_QUEUE` | Job broker. The queue name defaults in deployments to `vke.jobs`. Both must be set or create and delete return HTTP 503. |
+| `WORKER_CONCURRENCY` | Parallel jobs per worker process. Default 8, capped at 64. |
+| `VKE_ENCRYPTION_KEY` | Secret used to encrypt application credentials in MySQL. Required. |
+| `IDENTITY_ENDPOINT` | Keystone. Tokens are checked with `X-Auth-Token`. |
+| `COMPUTE_ENDPOINT` | Nova. `NOVA_MICRO_VERSION` is sent on compute calls. |
+| `NETWORK_ENDPOINT` | Neutron, for ports and security groups. |
+| `LOAD_BALANCER_ENDPOINT`, `LOADBALANCER_PROVIDER` | Octavia, for the API balancer and for in-cluster Service load balancers. |
+| `BLOCK_STORAGE_ENDPOINT` | Cinder, for boot volumes and persistent volumes. |
+| `ENVOY_ENDPOINT` | Passed to the node agent as the cloud auth URL. |
+| `PUBLIC_NETWORK_ID` | External network for API and Service floating IPs. |
+| `IMAGE_REF` | Glance image used for every node. |
+| `CLOUDFLARE_AUTH_TOKEN`, `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_DOMAIN` | DNS name of the cluster API. |
+| `OPENSTACK_LOADBALANCER_ADMIN_ROLE`, `OPENSTACK_USER_OR_MEMBER_ROLE` | Roles placed on the per-cluster application credential. |
+| `VKE_AGENT_VERSION`, `CLUSTER_AGENT_VERSION` | [vke-agent](https://github.com/vmindtech/vke-agent) and the cluster agent installed by the bootstrap script. |
+| `CLOUD_PROVIDER_VKE_VERSION` | [cloud-provider-vke](https://github.com/vmindtech/cloud-provider-vke), the in-cluster Octavia and Cinder provider. |
+| `CLUSTER_AUTOSCALER_VERSION` | [autoscaler-vke](https://github.com/vmindtech/autoscaler-vke), the in-cluster node autoscaler. |
+| `LOGSTASH_HOST`, `LOGSTASH_PORT` | Optional UDP log shipping. Leave host empty or port `0` to log JSON to stdout. |
+
+## Run
+
+### Local
+
+Development reload for the API, with [Air](https://github.com/air-verse/air):
+
+```sh
+export golang_env=development
+air -c .air.toml
+```
+
+Air rebuilds `cmd/api` only. Keep a worker running with `go run ./cmd/worker`.
+
+### Docker
+
+The API image listens on port 80. The worker image has no published port. Both need the config file, MySQL, and RabbitMQ. The worker also needs `scripts/rke2-init-sh.tpl`, which the image already contains.
+
+```sh
+docker build -t vke-api -f Dockerfile .
+docker build -t vke-worker -f Dockerfile.worker .
+
+docker run --name vke-api \
+  -e golang_env=production \
+  -v "$PWD/config-production.json:/config-production.json:ro" \
+  -p 8080:80 \
+  vke-api
+
+docker run --name vke-worker \
+  -e golang_env=production \
+  -v "$PWD/config-production.json:/config-production.json:ro" \
+  vke-worker
+```
+
+Release images are published as `vmindtech/vke-application` on Docker Hub. There is no browser UI. Use the HTTP API.
+
+## API
+
+All cluster routes are under `/api/v1`. Send the OpenStack token in the `X-Auth-Token` header. Successful bodies use `{ "data": ... }`. Failures use `{ "error": { "code", "message", "cluster_uuid", "project_uuid" } }`.
+
+| Method | Path | Action |
+| --- | --- | --- |
+| `GET` | `/api/v1` | Service metadata |
+| `POST` | `/api/v1/cluster` | Create a cluster and enqueue `CLUSTER_CREATE` |
+| `GET` | `/api/v1/cluster/:cluster_id` | Cluster status. `?details=true` adds load balancer, node groups, and subnets |
+| `GET` | `/api/v1/cluster/project/:project_id` | Clusters in a project |
+| `PUT` | `/api/v1/cluster/:cluster_id` | Update stored cluster fields |
+| `DELETE` | `/api/v1/cluster/:cluster_id` | Enqueue `CLUSTER_DELETE` |
+| `GET` | `/api/v1/kubeconfig/:cluster_id` | Download kubeconfig |
+| `GET` | `/api/v1/cluster/:cluster_id/errors` | Provisioning and runtime errors |
+| `GET` | `/api/v1/cluster/:cluster_id/flavors` | Flavors recorded for the cluster |
+| `GET` | `/api/v1/cluster/:cluster_id/nodegroups` | List node groups |
+| `POST` | `/api/v1/cluster/:cluster_id/nodegroups` | Add a worker node group |
+| `GET` | `/api/v1/cluster/:cluster_id/nodegroups/:nodegroup_id` | One node group |
+| `PUT` | `/api/v1/cluster/:cluster_id/nodegroups/:nodegroup_id` | Change min and max size |
+| `DELETE` | `/api/v1/cluster/:cluster_id/nodegroups/:nodegroup_id` | Delete a node group |
+| `GET` | `/api/v1/cluster/:cluster_id/nodegroups/:nodegroup_id/nodes` | Instances in the group |
+| `PUT` | `/api/v1/cluster/:cluster_id/nodegroups/:nodegroup_id/nodes/add` | Add a node |
+| `DELETE` | `/api/v1/cluster/:cluster_id/nodegroups/:nodegroup_id/nodes/:id` | Delete a node |
+| `GET` | `/liveness` | Process is up |
+| `GET` | `/readiness` | MySQL is reachable |
+
+Create accepts camelCase or snake_case field names. `Idempotency-Key` makes retries safe.
+
+## Development
+
+```sh
+make test-unit          # go test ./... -race
+make lint               # golangci-lint run
+make generate-mock-all  # regenerate mocks; CI fails if they drift
+```
+
+CI on pull requests runs `go build`, `go vet`, mock freshness, and the race-enabled test suite.
+
+Node user-data is rendered from `scripts/rke2-init-sh.tpl`. Changing agent flags means changing that template and `GenerateUserDataFromTemplate` together.
+
+## Project layout
+
+```
+cmd/api/            HTTP server
+cmd/worker/         RabbitMQ consumer and job runner
+internal/handler/   Request decoding and HTTP status mapping
+internal/service/   Cluster state machine, OpenStack clients
+internal/repository/ MySQL access
+config/             JSON config loader
+migrations/         Incremental upgrades for older databases
+scripts/vke.sql     Current full schema for a new database
+scripts/rke2-init-sh.tpl
+pkg/                Logging, MySQL, RabbitMQ, health checks
+```
+
+## Related projects
+
+These repositories are installed into every cluster by [vke-agent](https://github.com/vmindtech/vke-agent). Versions are pinned in the VKE config.
+
+| Project | Role |
+| --- | --- |
+| [vke-agent](https://github.com/vmindtech/vke-agent) | Node bootstrap. Installs RKE2, then the cloud provider, Cinder storage, and the autoscaler. |
+| [cloud-provider-vke](https://github.com/vmindtech/cloud-provider-vke) | OpenStack cloud provider. `Service` `type: LoadBalancer` becomes an Octavia load balancer. Persistent volumes are Cinder volumes. |
+| [autoscaler-vke](https://github.com/vmindtech/autoscaler-vke) | Cluster autoscaler. Adds and removes worker nodes between the node group minimum and maximum when pods are pending. |
+
+## Contributing
+
+Open an issue or a pull request against `main`. Keep changes focused, and run `make test-unit` before pushing. New cluster behavior belongs in the worker state machine, with an idempotent step and a test next to the existing `internal/service/cluster_*_test.go` files.
+
+Report security issues through [GitHub security advisories](https://github.com/vmindtech/vke/security/advisories/new) rather than a public issue. Do not commit `config-*.json`, tokens, or cloud endpoints.
+
 ## License
 
-Distributed under the APACHE-2.0 License. See `LICENSE` for more information.
-
-
-[contributors-shield]: https://img.shields.io/github/contributors/vmindtech/vke?style=for-the-badge
-[contributors-url]: https://github.com/vmindtech/vke/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/vmindtech/vke?style=for-the-badge
-[forks-url]: https://github.com/vmindtech/vke/network/members
-[stars-shield]: https://img.shields.io/github/stars/vmindtech/vke?style=for-the-badge
-[stars-url]: https://github.com/vmindtech/vke/stargazers
-[issues-shield]: https://img.shields.io/github/issues/vmindtech/vke?style=for-the-badge
-[issues-url]: https://github.com/vmindtech/vke/issues
-[license-shield]: https://img.shields.io/github/license/vmindtech/vke?style=for-the-badge
-[license-url]: https://github.com/vmindtech/vke/blob/main/LICENSE
+Apache License 2.0. See [LICENSE](LICENSE).
