@@ -5,9 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -24,8 +28,47 @@ jobs:
           go generate ./...
           git diff --exit-code
       - name: Test
-        run: go test ./... -race -covermode=atomic -coverprofile=coverage.out
+        id: tests
+        shell: bash
+        run: |
+          mkdir -p test-results
+          go test ./... -race -shuffle=on -count=1 -timeout=10m -json \
+            -covermode=atomic -coverprofile=test-results/coverage.out \
+            2> >(tee test-results/test-stderr.log >&2) | tee test-results/tests.jsonl
       - uses: actions/upload-artifact@v4
+        if: ${{ always() && steps.tests.outcome != 'skipped' }}
         with:
-          name: coverage
-          path: coverage.out
+          name: test-results
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: error
+
+  # Disabled pending dependency/toolchain remediation and a separate security PR.
+  # vulnerabilities:
+  #   name: Go vulnerability scan
+  #   runs-on: ubuntu-24.04
+  #   timeout-minutes: 15
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-go@v5
+  #       with:
+  #         go-version: '1.23'
+  #         cache: true
+  #     - name: Install govulncheck
+  #       # Pinned scanner compatible with the Go 1.23 build toolchain.
+  #       # The vulnerability database is fetched fresh on each scan.
+  #       run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+  #     - name: Scan dependencies and standard library
+  #       id: scan
+  #       shell: bash
+  #       run: |
+  #         mkdir -p security-results
+  #         # Text output preserves govulncheck's nonzero exit on reachable vulnerabilities.
+  #         govulncheck ./... 2>&1 | tee security-results/govulncheck.txt
+  #     - uses: actions/upload-artifact@v4
+  #       if: ${{ always() && steps.scan.outcome != 'skipped' }}
+  #       with:
+  #         name: vulnerability-results
+  #         path: security-results/
+  #         retention-days: 14
+  #         if-no-files-found: error
