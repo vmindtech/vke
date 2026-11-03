@@ -133,7 +133,7 @@ The worker locks a job and refreshes that lock while the step runs. A dead worke
 
 ## Requirements
 
-- Go 1.23 or newer, to build from source
+- Go 1.26.10 or newer, to build from source
 - MySQL 8
 - RabbitMQ
 - An OpenStack project that can use Nova, Neutron, Octavia, Keystone, and Cinder
@@ -330,6 +330,24 @@ v1.1.4 with Go 1.23 and retains its report for 14 days. Review the scanner pin
 when upgrading the build toolchain.
 
 Node user-data is rendered from `scripts/rke2-init-sh.tpl`. Changing agent flags means changing that template and `GenerateUserDataFromTemplate` together.
+
+### Dependency security checks
+
+The separate `VKE Security` workflow runs `govulncheck` v1.9.0 with Go 1.26.10
+and fails on reachable known vulnerabilities. It retains the text report for 14 days,
+including failed runs. The scan covers Go dependencies and the standard library;
+container OS packages are outside its scope.
+
+The `RabbitMQ integration` job uses a disposable RabbitMQ broker to verify JSON
+publishing, consumption, acknowledgements, redelivery, and delayed retries. To run
+it locally against a disposable broker, set `VKE_TEST_RABBITMQ_URL` to its localhost
+AMQP URL and run `go test -tags integration ./pkg/queue -race -count=1 -timeout=1m`.
+The test skips when that variable is absent and rejects non-local brokers.
+
+Handler regression tests check that invalid form slice indexes return errors
+without panicking and that cluster update request parsing remains compatible.
+These dependency checks do not replace staging validation against real OpenStack
+endpoints or production TLS configurations.
 
 ## Project layout
 
