@@ -18,6 +18,7 @@ import (
 	"github.com/vmindtech/vke/internal/dto/request"
 	"github.com/vmindtech/vke/internal/dto/resource"
 	"github.com/vmindtech/vke/internal/model"
+	"github.com/vmindtech/vke/internal/repository"
 	"github.com/vmindtech/vke/internal/service"
 	"github.com/vmindtech/vke/pkg/queue"
 	"github.com/vmindtech/vke/pkg/utils"
@@ -35,6 +36,13 @@ func getAuthTokenFromHeaders(c *fiber.Ctx) string {
 	}
 	return ""
 }
+
+const (
+	createClusterJobType = "CLUSTER_CREATE"
+	deleteClusterJobType = "CLUSTER_DELETE"
+)
+
+var errIdempotencyKeyInUse = errors.New("idempotency key is already used by another kind of job")
 
 type IAppHandler interface {
 	App(c *fiber.Ctx) error
@@ -112,8 +120,13 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 		idemKey = "create_cluster:" + uuid.New().String()
 	}
 
-	// If this key still maps to a job whose cluster is gone or terminal, free the unique idempotency_key for a new create.
+	// If this key still maps to a create job whose cluster is gone or terminal, free the unique idempotency_key for a new create.
 	if ej, je := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey); je == nil && ej != nil {
+		// A create request must never retire or reuse another job type (e.g. a running delete) through a client-supplied key.
+		if ej.JobType != createClusterJobType {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(
+				response.NewErrorResponseWithDetails(errIdempotencyKeyInUse, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+		}
 		cl, ce := a.appService.Repository().Cluster().GetClusterByUUID(ctx, ej.ClusterUUID)
 		if ce != nil || cl == nil ||
 			cl.ClusterStatus == service.DeletedClusterStatus ||
@@ -151,7 +164,7 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 
 	job := &model.Job{
 		JobUUID:        jobUUID,
-		JobType:        "CLUSTER_CREATE",
+		JobType:        createClusterJobType,
 		Status:         "QUEUED",
 		IdempotencyKey: idemKey,
 		ClusterUUID:    clusterUUID,
@@ -167,6 +180,10 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 		if getErr != nil {
 			return c.Status(fiber.StatusUnprocessableEntity).JSON(
 				response.NewErrorResponseWithDetails(err, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+		}
+		if existing.JobType != createClusterJobType {
+			return c.Status(fiber.StatusUnprocessableEntity).JSON(
+				response.NewErrorResponseWithDetails(errIdempotencyKeyInUse, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
 		}
 		cl, ce := a.appService.Repository().Cluster().GetClusterByUUID(ctx, existing.ClusterUUID)
 		// Same idempotency key but old cluster is gone/failed: retire old job row and insert this new job (do not republish stale job UUID).
@@ -285,13 +302,28 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 			response.NewErrorResponseWithDetails(fiber.ErrUnauthorized, utils.UnauthorizedMsg, clusterID, "", ""))
 	}
 
-	idemKey := c.Get("Idempotency-Key")
-	if idemKey == "" {
-		idemKey = "delete_cluster:" + clusterID
+	clusterView, authErr := a.appService.Cluster().GetCluster(ctx, authToken, clusterID)
+	if authErr != nil || clusterView.ProjectID == "" {
+		if authErr == nil {
+			authErr = fiber.ErrUnauthorized
+		}
+		return c.Status(fiber.StatusUnauthorized).JSON(
+			response.NewErrorResponseWithDetails(authErr, utils.UnauthorizedMsg, clusterID, "", clusterView.ProjectID))
+	}
+	projectUUID := clusterView.ProjectID
+	// The DB lookup may be case-insensitive; key, job row and payload must use the stored ID.
+	if clusterView.ClusterID != "" {
+		clusterID = clusterView.ClusterID
+	}
+
+	// Scoped to the cluster so a client-supplied key cannot collide with another cluster's job.
+	idemKey := "delete_cluster:" + clusterID
+	if clientKey := strings.TrimSpace(c.Get("Idempotency-Key")); clientKey != "" {
+		idemKey += ":" + clientKey
 	}
 	jobUUID := uuid.New().String()
 
-	// Never persist the raw OpenStack token in jobs.payload; it is only a fallback for clusters without app credentials.
+	// Never persist the raw OpenStack token in jobs.payload.
 	encKey := config.GlobalConfig.GetEncryptionConfig().Key
 	if encKey == "" {
 		return c.Status(fiber.StatusInternalServerError).JSON(
@@ -310,24 +342,20 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 
 	job := &model.Job{
 		JobUUID:        jobUUID,
-		JobType:        "CLUSTER_DELETE",
+		JobType:        deleteClusterJobType,
 		Status:         "QUEUED",
 		IdempotencyKey: idemKey,
 		ClusterUUID:    clusterID,
-		ProjectUUID:    "",
+		ProjectUUID:    projectUUID,
 		Payload:        payload,
 		Attempts:       0,
 		MaxAttempts:    10,
 		NextRunAt:      func() *time.Time { t := time.Now(); return &t }(),
 	}
-	if err := a.appService.Repository().Jobs().CreateJob(ctx, job); err != nil {
-		// idempotent retry: if same delete already queued/running/failed, return success anyway
-		if existing, getErr := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey); getErr == nil {
-			jobUUID = existing.JobUUID
-		} else {
-			return c.Status(fiber.StatusUnprocessableEntity).JSON(
-				response.NewErrorResponseWithDetails(err, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
-		}
+	jobUUID, err := enqueueDeleteJob(ctx, a.appService.Repository().Jobs(), job)
+	if err != nil {
+		return c.Status(fiber.StatusUnprocessableEntity).JSON(
+			response.NewErrorResponseWithDetails(err, utils.FailedToDeleteClusterMsg, clusterID, "", ""))
 	}
 	// The worker only consumes from RabbitMQ; a job that is not published would stay QUEUED forever.
 	rmqCfg := config.GlobalConfig.GetRabbitMQConfig()
@@ -346,6 +374,33 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 		ClusterStatus:     service.DeletingClusterStatus,
 	}
 	return c.JSON(response.NewSuccessResponse(resp))
+}
+
+// enqueueDeleteJob stores job and returns the job UUID to publish. A delete job of the same cluster under the
+// same key is reused (keeping the worker lock) with this request's payload, since the worker authorizes with
+// the payload token. Any other job under the key has its key retired.
+func enqueueDeleteJob(ctx context.Context, jobs repository.IJobsRepository, job *model.Job) (string, error) {
+	const maxCreateAttempts = 2
+	var createErr error
+	for attempt := 0; attempt < maxCreateAttempts; attempt++ {
+		if createErr = jobs.CreateJob(ctx, job); createErr == nil {
+			return job.JobUUID, nil
+		}
+		existing, err := jobs.GetJobByIdempotencyKey(ctx, job.IdempotencyKey)
+		if err != nil {
+			return "", createErr
+		}
+		if existing.JobType == job.JobType && existing.ClusterUUID == job.ClusterUUID {
+			if err := jobs.RefreshJobPayload(ctx, existing.JobUUID, job.Payload); err != nil {
+				return "", fmt.Errorf("refresh delete job payload: %w", err)
+			}
+			return existing.JobUUID, nil
+		}
+		if err := jobs.RetireIdempotencyKey(ctx, existing.JobUUID); err != nil {
+			return "", fmt.Errorf("retire foreign job for idempotency key: %w", err)
+		}
+	}
+	return "", fmt.Errorf("create delete job: %w", createErr)
 }
 
 func (a *appHandler) GetKubeConfig(c *fiber.Ctx) error {

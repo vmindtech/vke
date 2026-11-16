@@ -16,15 +16,18 @@ import (
 
 func TestCheckAuthToken(t *testing.T) {
 	tests := []struct {
-		name    string
-		status  int
-		body    string
-		wantErr string
+		name     string
+		status   int
+		body     string
+		wantErr  string
+		rejected bool
 	}{
-		{"valid project", 200, `{"project":{"id":"p1"}}`, ""},
-		{"wrong project", 200, `{"project":{"id":"p2"}}`, "project id mismatch"},
-		{"unauthorized", 401, `{}`, "401"},
-		{"invalid JSON", 200, `{`, "unexpected EOF"},
+		{"valid project", 200, `{"project":{"id":"p1"}}`, "", false},
+		{"wrong project", 200, `{"project":{"id":"p2"}}`, "project id mismatch", true},
+		{"unauthorized", 401, `{}`, "401", true},
+		{"forbidden", 403, `{}`, "403", true},
+		{"keystone unavailable", 503, `{}`, "503", false},
+		{"invalid JSON", 200, `{`, "unexpected EOF", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -33,6 +36,7 @@ func TestCheckAuthToken(t *testing.T) {
 			err := svc.CheckAuthToken(context.Background(), "tok", "p1")
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
+				assert.Equal(t, tt.rejected, errors.Is(err, ErrAuthTokenRejected))
 				return
 			}
 			require.NoError(t, err)

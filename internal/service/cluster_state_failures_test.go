@@ -132,26 +132,28 @@ func TestRunDestroyCluster_CredentialAndStatusFailures(t *testing.T) {
 			if stage == "unknown state" {
 				cluster.DeleteState = "UNKNOWN"
 			}
-			if stage == "mark deleting" {
+			if stage == "mark deleting" || stage == "authorize" {
 				cluster.ClusterStatus = ActiveClusterStatus
 			}
 			if stage == "audit" {
 				cluster.DeleteState = constants.DeleteStateCredentials
 			}
 			m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").Return(cluster, nil)
-			if stage == "authenticate" || stage == "authorize" || stage == "mark deleting" || stage == "unknown state" {
+			callerToken := ""
+			if stage != "no credentials" {
+				callerToken = "caller-tok"
+				var checkErr error
+				if stage == "authorize" {
+					checkErr = boom
+				}
+				m.identity.EXPECT().CheckAuthToken(gomock.Any(), "caller-tok", "p1").Return(checkErr)
+			}
+			if stage == "authenticate" || stage == "mark deleting" || stage == "unknown state" {
 				var authErr error
 				if stage == "authenticate" {
 					authErr = boom
 				}
 				m.identity.EXPECT().AuthenticateWithApplicationCredential(gomock.Any(), "ac-1", "app-secret").Return("tok", authErr)
-				if authErr == nil {
-					var checkErr error
-					if stage == "authorize" {
-						checkErr = boom
-					}
-					m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(checkErr)
-				}
 			}
 			if stage == "mark deleting" {
 				m.clusters.EXPECT().DeleteUpdateCluster(gomock.Any(), gomock.Any(), "cid-1").Return(boom)
@@ -160,7 +162,7 @@ func TestRunDestroyCluster_CredentialAndStatusFailures(t *testing.T) {
 				m.clusters.EXPECT().DeleteUpdateCluster(gomock.Any(), gomock.Any(), "cid-1").Return(nil)
 				m.audit.EXPECT().CreateAuditLog(gomock.Any(), gomock.Any()).Return(boom)
 			}
-			err := svc.RunDestroyCluster(context.Background(), "", "cid-1")
+			err := svc.RunDestroyCluster(context.Background(), callerToken, "cid-1")
 			switch stage {
 			case "key", "decrypt", "no credentials", "unknown state":
 				require.ErrorIs(t, err, ErrDestroyClusterPermanent)
@@ -193,8 +195,8 @@ func TestRunDestroyCluster_EachStepPreservesRetryableFailure(t *testing.T) {
 				boom := errors.New("database unavailable")
 				cluster := &model.Cluster{ClusterUUID: "cid-1", ClusterStatus: DeletingClusterStatus, DeleteState: tc.state, ClusterProjectUUID: "p1"}
 				m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").Return(cluster, nil)
+				m.identity.EXPECT().CheckAuthToken(gomock.Any(), "job-token", "p1").Return(nil)
 				if tc.kind != "" {
-					m.identity.EXPECT().CheckAuthToken(gomock.Any(), "job-token", "p1").Return(nil)
 					if tc.state == constants.DeleteStateDNS {
 						m.nodeGroupsRepo.EXPECT().GetNodeGroupsByClusterUUID(gomock.Any(), "cid-1", "", constants.ActiveNodeGroupStatus).Return(nil, nil)
 					}

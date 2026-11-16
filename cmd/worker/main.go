@@ -257,6 +257,8 @@ func handleDelivery(
 			}
 			if cl.ClusterStatus == service.DeletedClusterStatus || cl.DeleteState == constants.DeleteStateCompleted {
 				entry.WithField("clusterStatus", cl.ClusterStatus).Info("delete job succeeded and cluster removed; ack duplicate queue message")
+				// Covers a crash between marking the job succeeded and scrubbing it, and rows from older builds.
+				scrubDeleteJobToken(ctx, entry, repo, job.JobUUID)
 				return false, 0, nil
 			}
 			entry.WithFields(logrus.Fields{"clusterStatus": cl.ClusterStatus, "deleteState": cl.DeleteState}).Info("job marked succeeded but cluster not fully deleted; reconciling RunDestroyCluster")
@@ -339,14 +341,14 @@ func handleDelivery(
 	case "CLUSTER_DELETE":
 		authToken, tokenErr := deleteJobAuthToken(deletePayload)
 		if tokenErr != nil {
-			// Destroy can still proceed via the cluster's application credential; the raw token is only a fallback.
-			entry.WithError(tokenErr).Warn("could not recover auth token from delete job payload; relying on application credential")
+			entry.WithError(tokenErr).Warn("could not recover caller auth token from delete job payload")
 		}
-		// RunDestroyCluster: delete_state machine until COMPLETED; idempotent for queue retries.
+		// RunDestroyCluster checks this caller token against the cluster project before any request, in every status.
 		if err := clusterSvc.RunDestroyCluster(ctx, authToken, deletePayload.ClusterID); err != nil {
 			attempts := job.Attempts + 1
 			if isDeleteJobPermanent(err, attempts, job.MaxAttempts) {
 				_ = repo.Jobs().MarkJobFailed(ctx, job.JobUUID, err.Error(), time.Now(), attempts)
+				scrubDeleteJobToken(ctx, entry, repo, job.JobUUID)
 				persistDeleteJobFailure(ctx, entry, repo, clusterLogID)
 				entry.WithError(err).WithFields(logrus.Fields{
 					"attempts":  attempts,
@@ -367,6 +369,7 @@ func handleDelivery(
 			return true, backoff, err
 		}
 		_ = repo.Jobs().MarkJobSucceeded(ctx, job.JobUUID)
+		scrubDeleteJobToken(ctx, entry, repo, job.JobUUID)
 		entry.Info("cluster delete job succeeded")
 		return false, 0, nil
 	default:
@@ -386,6 +389,14 @@ func isDeleteJobPermanent(err error, attempts, maxAttempts int) bool {
 	return errors.Is(err, service.ErrDestroyClusterPermanent) || attempts >= maxAttempts
 }
 
+// scrubDeleteJobToken drops the caller's token from a finished delete job; a failure only leaves the
+// (encrypted, short-lived) token in place, so it is logged and not retried.
+func scrubDeleteJobToken(ctx context.Context, logger *logrus.Entry, repo repository.IRepository, jobUUID string) {
+	if err := repo.Jobs().ScrubJobAuthToken(ctx, jobUUID); err != nil {
+		logger.WithError(err).Warn("failed to remove caller auth token from finished delete job")
+	}
+}
+
 func persistDeleteJobFailure(ctx context.Context, logger *logrus.Entry, repo repository.IRepository, clusterID string) {
 	if strings.TrimSpace(clusterID) == "" {
 		return
@@ -400,7 +411,7 @@ func persistDeleteJobFailure(ctx context.Context, logger *logrus.Entry, repo rep
 	}
 }
 
-// deleteJobAuthToken returns the fallback OpenStack token from a delete payload, decrypting
+// deleteJobAuthToken returns the caller's token from a delete payload, decrypting
 // auth_token_enc when present (plain auth_token only exists in jobs enqueued by older builds).
 func deleteJobAuthToken(p request.DeleteClusterJobPayload) (string, error) {
 	if p.AuthTokenEnc == "" {

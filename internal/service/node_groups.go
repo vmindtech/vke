@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -17,6 +18,19 @@ import (
 	"github.com/vmindtech/vke/pkg/constants"
 	"gorm.io/datatypes"
 )
+
+// ErrNodeGroupNotFound is returned when the node group is missing or belongs to another cluster. The two
+// cases are deliberately indistinguishable so the endpoint cannot be used to probe other clusters.
+var ErrNodeGroupNotFound = errors.New("node group not found in cluster")
+
+// ensureNodeGroupInCluster must run after the caller was authorized for the cluster's project: the token
+// proves access to clusterUUID only, not to whatever node group ID the request names.
+func ensureNodeGroupInCluster(ng *model.NodeGroups, clusterUUID string) error {
+	if ng == nil || ng.NodeGroupUUID == "" || ng.ClusterUUID != clusterUUID {
+		return ErrNodeGroupNotFound
+	}
+	return nil
+}
 
 func labelsTaintsFromNodeGroupModel(ng model.NodeGroups) (labels []string, taints []string) {
 	if len(ng.NodeGroupLabels) > 0 {
@@ -77,6 +91,9 @@ func (nodg *nodeGroupsService) GetNodeGroups(ctx context.Context, authToken, clu
 			nodg.logger.WithFields(logrus.Fields{
 				"nodeGroupID": nodeGroupID,
 			}).WithError(err).Error("failed to get node group by uuid")
+			return nil, err
+		}
+		if err := ensureNodeGroupInCluster(nodeGroup, clusterProjectUUID.ClusterUUID); err != nil {
 			return nil, err
 		}
 		count, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, token, nodeGroup.NodeGroupUUID, clusterProjectUUID.ClusterProjectUUID)
@@ -214,6 +231,9 @@ func (nodg *nodeGroupsService) AddNode(ctx context.Context, authToken string, cl
 	nodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupUUD)
 	if err != nil {
 		nodg.logger.WithError(err).Error("failed to get node group by uuid")
+		return resource.AddNodeResponse{}, err
+	}
+	if err := ensureNodeGroupInCluster(nodeGroup, cluster.ClusterUUID); err != nil {
 		return resource.AddNodeResponse{}, err
 	}
 
@@ -426,9 +446,9 @@ func (nodg *nodeGroupsService) DeleteNode(ctx context.Context, authToken string,
 		nodg.logger.WithError(err).Error("failed to get node group")
 		return resource.DeleteNodeResponse{}, err
 	}
-	if ng == nil {
+	if err := ensureNodeGroupInCluster(ng, cluster.ClusterUUID); err != nil {
 		nodg.logger.Error("failed to get node group")
-		return resource.DeleteNodeResponse{}, fmt.Errorf("failed to get node group")
+		return resource.DeleteNodeResponse{}, err
 	}
 
 	computeCount, err := nodg.computeService.GetCountOfServerFromServerGroup(ctx, token, ng.NodeGroupUUID, cluster.ClusterProjectUUID)
@@ -495,6 +515,13 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 		}).WithError(err).Error("failed to get cluster by uuid")
 		return resource.UpdateNodeGroupResponse{}, err
 	}
+	err = nodg.identityService.CheckAuthToken(ctx, token, clusterProjectUUID.ClusterProjectUUID)
+	if err != nil {
+		nodg.logger.WithFields(logrus.Fields{
+			"clusterProjectUUID": clusterProjectUUID.ClusterProjectUUID,
+		}).WithError(err).Error("failed to check auth token")
+		return resource.UpdateNodeGroupResponse{}, err
+	}
 	getCurrentStateOfNodeGroup, err := nodg.repository.NodeGroups().GetNodeGroupByUUID(ctx, nodeGroupID)
 	if err != nil {
 		nodg.logger.WithFields(logrus.Fields{
@@ -502,11 +529,7 @@ func (nodg *nodeGroupsService) UpdateNodeGroups(ctx context.Context, authToken, 
 		}).WithError(err).Error("failed to get node group by uuid")
 		return resource.UpdateNodeGroupResponse{}, err
 	}
-	err = nodg.identityService.CheckAuthToken(ctx, token, clusterProjectUUID.ClusterProjectUUID)
-	if err != nil {
-		nodg.logger.WithFields(logrus.Fields{
-			"clusterProjectUUID": clusterProjectUUID.ClusterProjectUUID,
-		}).WithError(err).Error("failed to check auth token")
+	if err := ensureNodeGroupInCluster(getCurrentStateOfNodeGroup, clusterProjectUUID.ClusterUUID); err != nil {
 		return resource.UpdateNodeGroupResponse{}, err
 	}
 
@@ -852,6 +875,9 @@ func (nodg *nodeGroupsService) DeleteNodeGroup(ctx context.Context, authToken, c
 		nodg.logger.WithFields(logrus.Fields{
 			"nodeGroupID": nodeGroupID,
 		}).WithError(err).Error("failed to get node group")
+		return err
+	}
+	if err := ensureNodeGroupInCluster(nodeGroup, cluster.ClusterUUID); err != nil {
 		return err
 	}
 	computes, err := nodg.computeService.GetInstances(ctx, token, nodeGroup.NodeGroupUUID)

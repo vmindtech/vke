@@ -42,8 +42,8 @@ func TestRunDestroyCluster_FullMachineWithResources(t *testing.T) {
 	stored := destroyCluster(t, constants.DeleteStateInitial)
 	stored.ClusterCloudflareRecordID, stored.ClusterLoadbalancerUUID = "dns-1", "lb-1"
 	m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").DoAndReturn(func(context.Context, string) (*model.Cluster, error) { copy := *stored; return &copy, nil }).Times(7)
+	m.identity.EXPECT().CheckAuthToken(gomock.Any(), "caller-tok", "p1").Return(nil).Times(7)
 	m.identity.EXPECT().AuthenticateWithApplicationCredential(gomock.Any(), "ac-1", "app-secret").Return("tok", nil).Times(6)
-	m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(nil).Times(6)
 	m.cloudflare.EXPECT().DeleteDNSRecord(gomock.Any(), "dns-1").Return(nil)
 	expectResourceRows(m, "floating_ip", "fip-1")
 	m.network.EXPECT().DeleteFloatingIP(gomock.Any(), "tok", "fip-1").Return(nil)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,10 @@ import (
 	"github.com/vmindtech/vke/internal/dto/resource"
 	"github.com/vmindtech/vke/pkg/constants"
 )
+
+// ErrAuthTokenRejected means Keystone answered and refused the token for the project (401/403/404 or a
+// different project id). Retrying with the same token cannot succeed, unlike transport or 5xx failures.
+var ErrAuthTokenRejected = errors.New("auth token rejected for project")
 
 type IIdentityService interface {
 	CheckAuthToken(ctx context.Context, authToken, projectID string) error
@@ -57,6 +62,10 @@ func (i *identityService) CheckAuthToken(ctx context.Context, authToken, project
 		// if err != nil {
 		// 	log.Fatalln(err)
 		// }
+		switch resp.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
+			return fmt.Errorf("%w: failed to check auth token, status code: %v, error msg: %v", ErrAuthTokenRejected, resp.StatusCode, resp.Status)
+		}
 		return fmt.Errorf("failed to check auth token, status code: %v, error msg: %v", resp.StatusCode, resp.Status)
 	}
 
@@ -70,7 +79,7 @@ func (i *identityService) CheckAuthToken(ctx context.Context, authToken, project
 
 	if respDecoder.Project.ID != projectUUID {
 		i.logger.Error("failed to check auth token, project id mismatch")
-		return fmt.Errorf("failed to check auth token, project id mismatch")
+		return fmt.Errorf("%w: failed to check auth token, project id mismatch", ErrAuthTokenRejected)
 	}
 
 	return nil

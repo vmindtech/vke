@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"gorm.io/datatypes"
+	"gorm.io/gorm"
+
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/pkg/mysqldb"
 )
@@ -15,6 +18,10 @@ type IJobsRepository interface {
 	GetJobByUUID(ctx context.Context, jobUUID string) (*model.Job, error)
 	// RetireIdempotencyKey renames idempotency_key so a new job can reuse the same logical key (e.g. after cluster deleted).
 	RetireIdempotencyKey(ctx context.Context, jobUUID string) error
+	// RefreshJobPayload replaces the payload and, if the job had FAILED, requeues it with attempts reset.
+	RefreshJobPayload(ctx context.Context, jobUUID string, payload datatypes.JSON) error
+	// ScrubJobAuthToken removes the stored caller token from the payload once the job is finished.
+	ScrubJobAuthToken(ctx context.Context, jobUUID string) error
 	MarkJobQueued(ctx context.Context, jobUUID string, nextRunAt time.Time) error
 	// TryMarkJobStarted atomically claims the job. It returns false when another worker holds a
 	// non-stale RUNNING lock (duplicate queue delivery), so the caller must skip execution.
@@ -71,6 +78,32 @@ func (j *JobsRepository) RetireIdempotencyKey(ctx context.Context, jobUUID strin
 		Error
 }
 
+func (j *JobsRepository) RefreshJobPayload(ctx context.Context, jobUUID string, payload datatypes.JSON) error {
+	return j.mysqlInstance.Database().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.Job{}).
+			Where("job_uuid = ?", jobUUID).
+			Update("payload", payload).
+			Error; err != nil {
+			return err
+		}
+		return tx.Model(&model.Job{}).
+			Where("job_uuid = ? AND status = ?", jobUUID, "FAILED").
+			Updates(map[string]any{
+				"status":   "QUEUED",
+				"attempts": 0,
+			}).
+			Error
+	})
+}
+
+func (j *JobsRepository) ScrubJobAuthToken(ctx context.Context, jobUUID string) error {
+	return j.mysqlInstance.Database().WithContext(ctx).
+		Model(&model.Job{}).
+		Where("job_uuid = ?", jobUUID).
+		Update("payload", gorm.Expr("JSON_REMOVE(payload, '$.auth_token_enc', '$.auth_token')")).
+		Error
+}
+
 func (j *JobsRepository) MarkJobQueued(ctx context.Context, jobUUID string, nextRunAt time.Time) error {
 	return j.mysqlInstance.Database().WithContext(ctx).
 		Model(&model.Job{}).
@@ -111,7 +144,7 @@ func (j *JobsRepository) MarkJobSucceeded(ctx context.Context, jobUUID string) e
 		Model(&model.Job{}).
 		Where(&model.Job{JobUUID: jobUUID}).
 		Updates(map[string]any{
-			"status":    "SUCCEEDED",
+			"status":     "SUCCEEDED",
 			"last_error": "",
 		}).
 		Error
@@ -129,4 +162,3 @@ func (j *JobsRepository) MarkJobFailed(ctx context.Context, jobUUID string, last
 		}).
 		Error
 }
-
