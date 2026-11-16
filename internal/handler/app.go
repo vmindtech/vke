@@ -121,20 +121,20 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 	}
 
 	// If this key still maps to a create job whose cluster is gone or terminal, free the unique idempotency_key for a new create.
-	if ej, je := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey); je == nil && ej != nil {
+	if keyJob, keyJobErr := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey); keyJobErr == nil && keyJob != nil {
 		// A create request must never retire or reuse another job type (e.g. a running delete) through a client-supplied key.
-		if ej.JobType != createClusterJobType {
+		if keyJob.JobType != createClusterJobType {
 			return c.Status(fiber.StatusUnprocessableEntity).JSON(
 				response.NewErrorResponseWithDetails(errIdempotencyKeyInUse, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
 		}
-		cl, ce := a.appService.Repository().Cluster().GetClusterByUUID(ctx, ej.ClusterUUID)
-		if ce != nil || cl == nil ||
-			cl.ClusterStatus == service.DeletedClusterStatus ||
-			cl.ClusterStatus == service.DeletingClusterStatus ||
-			cl.ClusterStatus == service.ErrorClusterStatus {
-			if rerr := a.appService.Repository().Jobs().RetireIdempotencyKey(ctx, ej.JobUUID); rerr != nil {
+		keyJobCluster, clusterErr := a.appService.Repository().Cluster().GetClusterByUUID(ctx, keyJob.ClusterUUID)
+		if clusterErr != nil || keyJobCluster == nil ||
+			keyJobCluster.ClusterStatus == service.DeletedClusterStatus ||
+			keyJobCluster.ClusterStatus == service.DeletingClusterStatus ||
+			keyJobCluster.ClusterStatus == service.ErrorClusterStatus {
+			if retireErr := a.appService.Repository().Jobs().RetireIdempotencyKey(ctx, keyJob.JobUUID); retireErr != nil {
 				return c.Status(fiber.StatusUnprocessableEntity).JSON(
-					response.NewErrorResponseWithDetails(fmt.Errorf("stale idempotency key could not be cleared: %w", rerr), utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+					response.NewErrorResponseWithDetails(fmt.Errorf("stale idempotency key could not be cleared: %w", retireErr), utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
 			}
 		}
 	}
@@ -185,19 +185,19 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusUnprocessableEntity).JSON(
 				response.NewErrorResponseWithDetails(errIdempotencyKeyInUse, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
 		}
-		cl, ce := a.appService.Repository().Cluster().GetClusterByUUID(ctx, existing.ClusterUUID)
+		existingCluster, clusterErr := a.appService.Repository().Cluster().GetClusterByUUID(ctx, existing.ClusterUUID)
 		// Same idempotency key but old cluster is gone/failed: retire old job row and insert this new job (do not republish stale job UUID).
-		if ce != nil || cl == nil ||
-			cl.ClusterStatus == service.DeletedClusterStatus ||
-			cl.ClusterStatus == service.DeletingClusterStatus ||
-			cl.ClusterStatus == service.ErrorClusterStatus {
-			if rerr := a.appService.Repository().Jobs().RetireIdempotencyKey(ctx, existing.JobUUID); rerr != nil {
+		if clusterErr != nil || existingCluster == nil ||
+			existingCluster.ClusterStatus == service.DeletedClusterStatus ||
+			existingCluster.ClusterStatus == service.DeletingClusterStatus ||
+			existingCluster.ClusterStatus == service.ErrorClusterStatus {
+			if retireErr := a.appService.Repository().Jobs().RetireIdempotencyKey(ctx, existing.JobUUID); retireErr != nil {
 				return c.Status(fiber.StatusUnprocessableEntity).JSON(
-					response.NewErrorResponseWithDetails(fmt.Errorf("could not retire stale job for idempotency key: %w", rerr), utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+					response.NewErrorResponseWithDetails(fmt.Errorf("could not retire stale job for idempotency key: %w", retireErr), utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
 			}
-			if err2 := a.appService.Repository().Jobs().CreateJob(ctx, job); err2 != nil {
+			if recreateErr := a.appService.Repository().Jobs().CreateJob(ctx, job); recreateErr != nil {
 				return c.Status(fiber.StatusUnprocessableEntity).JSON(
-					response.NewErrorResponseWithDetails(err2, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
+					response.NewErrorResponseWithDetails(recreateErr, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
 			}
 		} else {
 			// True in-flight duplicate: same logical create, reuse job + cluster
