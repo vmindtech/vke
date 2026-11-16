@@ -10,3 +10,7 @@ const (
 	DeleteStateCredentials    = "CREDENTIALS"
 	DeleteStateCompleted      = "COMPLETED"
 )
+
+const (
+	DeleteClusterJobType = "CLUSTER_DELETE"
+)

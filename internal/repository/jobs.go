@@ -88,10 +88,8 @@ func (j *JobsRepository) RefreshJobPayload(ctx context.Context, jobUUID string, 
 		}
 		return tx.Model(&model.Job{}).
 			Where("job_uuid = ? AND status = ?", jobUUID, "FAILED").
-			Updates(map[string]any{
-				"status":   "QUEUED",
-				"attempts": 0,
-			}).
+			Select("Status", "Attempts"). // Select keeps the zero Attempts; gorm skips zero struct fields otherwise
+			Updates(&model.Job{Status: "QUEUED", Attempts: 0}).
 			Error
 	})
 }
@@ -108,10 +106,8 @@ func (j *JobsRepository) MarkJobQueued(ctx context.Context, jobUUID string, next
 	return j.mysqlInstance.Database().WithContext(ctx).
 		Model(&model.Job{}).
 		Where(&model.Job{JobUUID: jobUUID}).
-		Updates(map[string]any{
-			"status":      "QUEUED",
-			"next_run_at": nextRunAt,
-		}).
+		Select("Status", "NextRunAt").
+		Updates(&model.Job{Status: "QUEUED", NextRunAt: &nextRunAt}).
 		Error
 }
 
@@ -120,11 +116,8 @@ func (j *JobsRepository) TryMarkJobStarted(ctx context.Context, jobUUID, lockedB
 	res := j.mysqlInstance.Database().WithContext(ctx).
 		Model(&model.Job{}).
 		Where("job_uuid = ? AND (status <> ? OR locked_at IS NULL OR locked_at < ?)", jobUUID, "RUNNING", now.Add(-staleAfter)).
-		Updates(map[string]any{
-			"status":    "RUNNING",
-			"locked_by": lockedBy,
-			"locked_at": now,
-		})
+		Select("Status", "LockedBy", "LockedAt").
+		Updates(&model.Job{Status: "RUNNING", LockedBy: lockedBy, LockedAt: &now})
 	if res.Error != nil {
 		return false, res.Error
 	}
@@ -143,10 +136,8 @@ func (j *JobsRepository) MarkJobSucceeded(ctx context.Context, jobUUID string) e
 	return j.mysqlInstance.Database().WithContext(ctx).
 		Model(&model.Job{}).
 		Where(&model.Job{JobUUID: jobUUID}).
-		Updates(map[string]any{
-			"status":     "SUCCEEDED",
-			"last_error": "",
-		}).
+		Select("Status", "LastError"). // Select keeps the empty LastError so a previous error is cleared
+		Updates(&model.Job{Status: "SUCCEEDED", LastError: ""}).
 		Error
 }
 
@@ -154,11 +145,7 @@ func (j *JobsRepository) MarkJobFailed(ctx context.Context, jobUUID string, last
 	return j.mysqlInstance.Database().WithContext(ctx).
 		Model(&model.Job{}).
 		Where(&model.Job{JobUUID: jobUUID}).
-		Updates(map[string]any{
-			"status":      "FAILED",
-			"last_error":  lastErr,
-			"next_run_at": nextRunAt,
-			"attempts":    attempts,
-		}).
+		Select("Status", "LastError", "NextRunAt", "Attempts").
+		Updates(&model.Job{Status: "FAILED", LastError: lastErr, NextRunAt: &nextRunAt, Attempts: attempts}).
 		Error
 }

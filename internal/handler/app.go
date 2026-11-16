@@ -20,6 +20,7 @@ import (
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/internal/repository"
 	"github.com/vmindtech/vke/internal/service"
+	"github.com/vmindtech/vke/pkg/constants"
 	"github.com/vmindtech/vke/pkg/queue"
 	"github.com/vmindtech/vke/pkg/utils"
 )
@@ -36,11 +37,6 @@ func getAuthTokenFromHeaders(c *fiber.Ctx) string {
 	}
 	return ""
 }
-
-const (
-	createClusterJobType = "CLUSTER_CREATE"
-	deleteClusterJobType = "CLUSTER_DELETE"
-)
 
 var errIdempotencyKeyInUse = errors.New("idempotency key is already used by another kind of job")
 
@@ -123,7 +119,7 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 	// If this key still maps to a create job whose cluster is gone or terminal, free the unique idempotency_key for a new create.
 	if keyJob, keyJobErr := a.appService.Repository().Jobs().GetJobByIdempotencyKey(ctx, idemKey); keyJobErr == nil && keyJob != nil {
 		// A create request must never retire or reuse another job type (e.g. a running delete) through a client-supplied key.
-		if keyJob.JobType != createClusterJobType {
+		if keyJob.JobType != constants.CreateClusterJobType {
 			return c.Status(fiber.StatusUnprocessableEntity).JSON(
 				response.NewErrorResponseWithDetails(errIdempotencyKeyInUse, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
 		}
@@ -164,7 +160,7 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 
 	job := &model.Job{
 		JobUUID:        jobUUID,
-		JobType:        createClusterJobType,
+		JobType:        constants.CreateClusterJobType,
 		Status:         "QUEUED",
 		IdempotencyKey: idemKey,
 		ClusterUUID:    clusterUUID,
@@ -181,7 +177,7 @@ func (a *appHandler) CreateCluster(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusUnprocessableEntity).JSON(
 				response.NewErrorResponseWithDetails(err, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
 		}
-		if existing.JobType != createClusterJobType {
+		if existing.JobType != constants.CreateClusterJobType {
 			return c.Status(fiber.StatusUnprocessableEntity).JSON(
 				response.NewErrorResponseWithDetails(errIdempotencyKeyInUse, utils.FailedToCreateClusterMsg, "", "", req.ProjectID))
 		}
@@ -342,7 +338,7 @@ func (a *appHandler) DestroyCluster(c *fiber.Ctx) error {
 
 	job := &model.Job{
 		JobUUID:        jobUUID,
-		JobType:        deleteClusterJobType,
+		JobType:        constants.DeleteClusterJobType,
 		Status:         "QUEUED",
 		IdempotencyKey: idemKey,
 		ClusterUUID:    clusterID,

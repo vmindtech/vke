@@ -21,7 +21,7 @@ import (
 
 // ErrNodeGroupNotFound is returned when the node group is missing or belongs to another cluster. The two
 // cases are deliberately indistinguishable so the endpoint cannot be used to probe other clusters.
-var ErrNodeGroupNotFound = errors.New("node group not found in cluster")
+var ErrNodeGroupNotFound = errors.New(constants.ErrNodeGroupNotFound)
 
 // ensureNodeGroupInCluster must run after the caller was authorized for the cluster's project: the token
 // proves access to clusterUUID only, not to whatever node group ID the request names.

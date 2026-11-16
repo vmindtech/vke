@@ -20,7 +20,7 @@ import (
 
 // ErrAuthTokenRejected means Keystone answered and refused the token for the project (401/403/404 or a
 // different project id). Retrying with the same token cannot succeed, unlike transport or 5xx failures.
-var ErrAuthTokenRejected = errors.New("auth token rejected for project")
+var ErrAuthTokenRejected = errors.New(constants.ErrAuthTokenRejected)
 
 type IIdentityService interface {
 	CheckAuthToken(ctx context.Context, authToken, projectID string) error

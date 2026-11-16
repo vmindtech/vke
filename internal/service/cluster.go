@@ -27,7 +27,7 @@ import (
 
 // ErrKubeconfigTimeout is returned when the agent never pushed kubeconfig within the max wait window.
 // CLUSTER_CREATE jobs must not retry on this (likely network/agent unreachable); retrying only spams logs.
-var ErrKubeconfigTimeout = errors.New("kubeconfig not received within max wait")
+var ErrKubeconfigTimeout = errors.New(constants.ErrKubeconfigTimeout)
 
 // kubeconfig wait tunables; shortened in unit tests to avoid real waits.
 var (
@@ -37,13 +37,13 @@ var (
 
 // ErrStaleCreateClusterJob is returned when a CLUSTER_CREATE job targets a cluster that is already deleted or deleting
 // (e.g. stale RabbitMQ message). Worker should ack without retry, not treat as success.
-var ErrStaleCreateClusterJob = errors.New("create job obsolete: cluster deleted or deleting")
+var ErrStaleCreateClusterJob = errors.New(constants.ErrStaleCreateClusterJob)
 
 // ErrClusterNameAlreadyExists is returned when a non-deleted cluster in the same project has the requested name.
-var ErrClusterNameAlreadyExists = repository.ErrClusterNameAlreadyExists
+var ErrClusterNameAlreadyExists = errors.New(constants.ErrClusterNameAlreadyExists)
 
 // ErrDestroyClusterPermanent is a non-retryable CLUSTER_DELETE failure (missing credentials, bad config).
-var ErrDestroyClusterPermanent = errors.New("cluster deletion cannot be retried")
+var ErrDestroyClusterPermanent = errors.New(constants.ErrDestroyClusterPermanent)
 
 // Octavia LB child resources (resources.resource_type), for idempotent create + pool member tracking.
 const (
