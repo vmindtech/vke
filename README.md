@@ -133,7 +133,7 @@ The worker locks a job and refreshes that lock while the step runs. A dead worke
 
 ## Requirements
 
-- Go 1.26.10 or newer, to build from source
+- Go 1.26.11 or newer, to build from source
 - MySQL 8
 - RabbitMQ
 - An OpenStack project that can use Nova, Neutron, Octavia, Keystone, and Cinder
@@ -333,7 +333,7 @@ Node user-data is rendered from `scripts/rke2-init-sh.tpl`. Changing agent flags
 
 ### Dependency security checks
 
-The separate `VKE Security` workflow runs `govulncheck` v1.9.0 with Go 1.26.10
+The separate `VKE Security` workflow runs `govulncheck` v1.9.0 with Go 1.26.11
 and fails on reachable known vulnerabilities. It retains the text report for 14 days,
 including failed runs. The scan covers Go dependencies and the standard library;
 container OS packages are outside its scope.

@@ -22,11 +22,12 @@ import (
 	"github.com/vmindtech/vke/pkg/constants"
 	"github.com/vmindtech/vke/pkg/ctxutil"
 	"github.com/vmindtech/vke/pkg/utils"
+	"gorm.io/gorm"
 )
 
 // ErrKubeconfigTimeout is returned when the agent never pushed kubeconfig within the max wait window.
 // CLUSTER_CREATE jobs must not retry on this (likely network/agent unreachable); retrying only spams logs.
-var ErrKubeconfigTimeout = errors.New("kubeconfig not received within max wait")
+var ErrKubeconfigTimeout = errors.New(constants.ErrKubeconfigTimeout)
 
 // kubeconfig wait tunables; shortened in unit tests to avoid real waits.
 var (
@@ -36,13 +37,13 @@ var (
 
 // ErrStaleCreateClusterJob is returned when a CLUSTER_CREATE job targets a cluster that is already deleted or deleting
 // (e.g. stale RabbitMQ message). Worker should ack without retry, not treat as success.
-var ErrStaleCreateClusterJob = errors.New("create job obsolete: cluster deleted or deleting")
+var ErrStaleCreateClusterJob = errors.New(constants.ErrStaleCreateClusterJob)
 
 // ErrClusterNameAlreadyExists is returned when a non-deleted cluster in the same project has the requested name.
-var ErrClusterNameAlreadyExists = repository.ErrClusterNameAlreadyExists
+var ErrClusterNameAlreadyExists = errors.New(constants.ErrClusterNameAlreadyExists)
 
 // ErrDestroyClusterPermanent is a non-retryable CLUSTER_DELETE failure (missing credentials, bad config).
-var ErrDestroyClusterPermanent = errors.New("cluster deletion cannot be retried")
+var ErrDestroyClusterPermanent = errors.New(constants.ErrDestroyClusterPermanent)
 
 // Octavia LB child resources (resources.resource_type), for idempotent create + pool member tracking.
 const (
@@ -106,9 +107,23 @@ func (c *clusterService) InitCreateCluster(ctx context.Context, authToken string
 	if req == nil {
 		return fmt.Errorf("nil create cluster request")
 	}
-	// if already exists, treat as success (idempotent)
-	if existing, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID); err == nil && existing != nil && existing.ClusterUUID != "" {
+	// Idempotent retry of an in-flight create; the caller must belong to the cluster's project.
+	existing, err := c.repository.Cluster().GetClusterByUUID(ctx, clusterUUID)
+	switch {
+	case err == nil && existing != nil && existing.ClusterUUID != "":
+		if strings.TrimSpace(existing.ClusterProjectUUID) == "" {
+			return fmt.Errorf("cluster %s has no project", clusterUUID)
+		}
+		if err := c.identityService.CheckAuthToken(ctx, strings.Clone(authToken), existing.ClusterProjectUUID); err != nil {
+			return err
+		}
+		if existing.ClusterProjectUUID != strings.TrimSpace(req.ProjectID) {
+			return fmt.Errorf("cluster %s belongs to a different project", clusterUUID)
+		}
 		return nil
+	case err != nil && !errors.Is(err, gorm.ErrRecordNotFound):
+		// Not treated as "not found": that would create an application credential that leaks on Keystone.
+		return fmt.Errorf("load cluster %s: %w", clusterUUID, err)
 	}
 
 	nameExists, err := c.repository.Cluster().ClusterNameExists(ctx, req.ProjectID, req.ClusterName)
@@ -2531,29 +2546,13 @@ func (c *clusterService) GetClustersByProjectId(ctx context.Context, authToken, 
 	return clustersResp, nil
 }
 
-// openstackTokenForDestroyOrphan prefers the delete job user token, then cluster application credential.
-func (c *clusterService) openstackTokenForDestroyOrphan(ctx context.Context, cluster *model.Cluster, jobAuthToken string) (string, error) {
-	if strings.TrimSpace(jobAuthToken) != "" {
-		return strings.Clone(jobAuthToken), nil
-	}
-	if strings.TrimSpace(cluster.ApplicationCredentialID) == "" || strings.TrimSpace(cluster.ApplicationCredentialSecretEnc) == "" {
-		return "", fmt.Errorf("no job auth token and no application credential for cluster %s", cluster.ClusterUUID)
-	}
-	encKey := config.GlobalConfig.GetEncryptionConfig().Key
-	if encKey == "" {
-		return "", fmt.Errorf("VKE_ENCRYPTION_KEY must be set")
-	}
-	derived := sha256Sum(encKey)
-	appSecret, derr := utils.DecryptAESGCM(derived, cluster.ApplicationCredentialSecretEnc)
-	if derr != nil {
-		return "", derr
-	}
-	return c.identityService.AuthenticateWithApplicationCredential(ctx, cluster.ApplicationCredentialID, appSecret)
-}
-
 // RunDestroyCluster executes delete_state steps until COMPLETED. Invoked by RabbitMQ CLUSTER_DELETE jobs;
 // each step is persisted so retries / redelivery resume from delete_state.
+// The caller's token is checked against the cluster project on every iteration, whatever the cluster status.
 func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string, clusterID string) error {
+	if strings.TrimSpace(clusterID) == "" {
+		return fmt.Errorf("%w: missing cluster id", ErrDestroyClusterPermanent)
+	}
 	ctx = ctxutil.WithClusterUUID(ctx, clusterID)
 
 	for {
@@ -2563,19 +2562,26 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 			return err
 		}
 
+		if strings.TrimSpace(authToken) == "" {
+			return fmt.Errorf("%w: missing caller token", ErrDestroyClusterPermanent)
+		}
+		if strings.TrimSpace(cluster.ClusterProjectUUID) == "" {
+			return fmt.Errorf("%w: cluster %s has no project", ErrDestroyClusterPermanent, clusterID)
+		}
+		if err := c.identityService.CheckAuthToken(ctx, strings.Clone(authToken), cluster.ClusterProjectUUID); err != nil {
+			if errors.Is(err, ErrAuthTokenRejected) {
+				return fmt.Errorf("%w: %w", ErrDestroyClusterPermanent, err)
+			}
+			logRetryableFailure(c.logger.WithField("clusterUUID", clusterID), err, "failed to check caller token for cluster project")
+			return err
+		}
+
 		if cluster.ClusterStatus == DeletedClusterStatus || cluster.DeleteState == constants.DeleteStateCompleted {
 			// DB delete flow finished, but a prior bug/retry may have left Octavia LBs. Best-effort orphan cleanup
 			// so CLUSTER_DELETE jobs do not "succeed" while `<uuid>_vke_cluster` still exists.
 			c.logger.WithFields(logrus.Fields{"clusterUUID": clusterID}).Info("cluster already deleted in DB; attempting orphan OpenStack load balancer cleanup")
-			tok, oerr := c.openstackTokenForDestroyOrphan(ctx, cluster, authToken)
-			if oerr != nil {
-				c.logger.WithError(oerr).WithField("clusterUUID", clusterID).Warn("orphan LB cleanup skipped: no OpenStack token")
-			} else if strings.TrimSpace(tok) != "" {
-				if chk := c.identityService.CheckAuthToken(ctx, tok, cluster.ClusterProjectUUID); chk != nil {
-					c.logger.WithError(chk).WithField("clusterUUID", clusterID).Warn("orphan LB cleanup skipped: auth check failed")
-				} else if err := c.deleteLoadBalancerWithRetries(ctx, tok, cluster); err != nil {
-					return fmt.Errorf("orphan load balancer cleanup: %w", err)
-				}
+			if err := c.deleteLoadBalancerWithRetries(ctx, strings.Clone(authToken), cluster); err != nil {
+				return fmt.Errorf("orphan load balancer cleanup: %w", err)
 			}
 			return nil
 		}
@@ -2600,16 +2606,6 @@ func (c *clusterService) RunDestroyCluster(ctx context.Context, authToken string
 			}
 		} else {
 			token = strings.Clone(authToken)
-			if strings.TrimSpace(token) == "" {
-				return fmt.Errorf("%w: missing credentials for cluster destruction", ErrDestroyClusterPermanent)
-			}
-		}
-
-		if token != "" {
-			if err := c.identityService.CheckAuthToken(ctx, token, cluster.ClusterProjectUUID); err != nil {
-				logRetryableFailure(c.logger.WithField("clusterUUID", clusterID), err, "failed to check auth token")
-				return err
-			}
 		}
 
 		if cluster.ClusterStatus != DeletingClusterStatus {
