@@ -115,6 +115,9 @@ func TestHandleDelivery_SucceededDuplicates(t *testing.T) {
 			if tc.kind != "UNKNOWN" {
 				m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid").Return(&model.Cluster{ClusterStatus: tc.status, DeleteState: tc.deleteState}, nil)
 			}
+			if tc.kind == "CLUSTER_DELETE" {
+				m.jobs.EXPECT().ScrubJobAuthToken(gomock.Any(), "job-1").Return(nil)
+			}
 			retry, delay, err := handleDelivery(context.Background(), testutil.NopLogger(), m.repo, m.service, jobDelivery())
 			require.NoError(t, err)
 			assert.False(t, retry)
@@ -177,6 +180,9 @@ func TestHandleDelivery_ExecutionOutcomes(t *testing.T) {
 					return nil
 				})
 			}
+			if tc.kind == "CLUSTER_DELETE" && !tc.retry {
+				m.jobs.EXPECT().ScrubJobAuthToken(gomock.Any(), "job-1").Return(nil)
+			}
 			retry, delay, err := handleDelivery(context.Background(), testutil.NopLogger(), m.repo, m.service, jobDelivery())
 			assert.Equal(t, tc.retry, retry)
 			assert.Equal(t, tc.delay, delay)
@@ -201,6 +207,7 @@ func TestHandleDelivery_ReconcilesInconsistentSuccess(t *testing.T) {
 					m.service.EXPECT().RunCreateCluster(gomock.Any(), "cid").Return(nil)
 				} else {
 					m.service.EXPECT().RunDestroyCluster(gomock.Any(), "", "cid").Return(nil)
+					m.jobs.EXPECT().ScrubJobAuthToken(gomock.Any(), "job-1").Return(nil)
 				}
 				m.jobs.EXPECT().MarkJobSucceeded(gomock.Any(), "job-1").Return(nil)
 				retry, delay, err := handleDelivery(context.Background(), testutil.NopLogger(), m.repo, m.service, jobDelivery())
@@ -255,9 +262,15 @@ func TestHandleDelivery_DeleteWithoutRecoverableToken(t *testing.T) {
 	require.NoError(t, err)
 	m.jobs.EXPECT().GetJobByUUID(gomock.Any(), "job-1").Return(&model.Job{JobUUID: "job-1", JobType: "CLUSTER_DELETE", Payload: payload}, nil)
 	m.jobs.EXPECT().TryMarkJobStarted(gomock.Any(), "job-1", workerID(), jobLockStaleAfter).Return(true, nil)
-	m.service.EXPECT().RunDestroyCluster(gomock.Any(), "", "cid").Return(nil)
-	m.jobs.EXPECT().MarkJobSucceeded(gomock.Any(), "job-1").Return(nil)
+	// Missing caller credentials must be rejected by the service, not treated as
+	// permission to delete using the cluster's application credential.
+	m.service.EXPECT().RunDestroyCluster(gomock.Any(), "", "cid").Return(service.ErrDestroyClusterPermanent)
+	gomock.InOrder(
+		m.jobs.EXPECT().MarkJobFailed(gomock.Any(), "job-1", service.ErrDestroyClusterPermanent.Error(), gomock.Any(), 1).Return(nil),
+		m.jobs.EXPECT().ScrubJobAuthToken(gomock.Any(), "job-1").Return(nil),
+	)
+	m.errors.EXPECT().CreateError(gomock.Any(), gomock.Any()).Return(nil)
 	retry, _, err := handleDelivery(context.Background(), testutil.NopLogger(), m.repo, m.service, jobDelivery())
-	require.NoError(t, err)
+	require.ErrorIs(t, err, service.ErrDestroyClusterPermanent)
 	assert.False(t, retry)
 }

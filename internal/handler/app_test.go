@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"gorm.io/datatypes"
 
 	"github.com/vmindtech/vke/internal/dto/request"
 	"github.com/vmindtech/vke/internal/dto/resource"
@@ -298,10 +299,14 @@ func TestDestroyCluster_EncryptedJobAndQueueFailure(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			testutil.SetConfig(t, map[string]any{"VKE_ENCRYPTION_KEY": tc.key, "RABBITMQ_URL": tc.url, "RABBITMQ_QUEUE": "jobs"})
 			h, m := newHandlerMocks(t)
+			authorized := m.cluster.EXPECT().GetCluster(gomock.Any(), "tok", "cid").Return(resource.GetClusterResponse{ClusterID: "cid", ProjectID: "project"}, nil)
 			if tc.key != "" {
-				m.jobs.EXPECT().CreateJob(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, j *model.Job) error {
+				var savedPayload []byte
+				m.jobs.EXPECT().CreateJob(gomock.Any(), gomock.Any()).After(authorized).DoAndReturn(func(_ context.Context, j *model.Job) error {
 					assert.Equal(t, "CLUSTER_DELETE", j.JobType)
 					assert.Equal(t, "cid", j.ClusterUUID)
+					assert.Equal(t, "project", j.ProjectUUID)
+					savedPayload = append([]byte(nil), j.Payload...)
 					assert.Equal(t, "delete_cluster:cid", j.IdempotencyKey)
 					assert.Equal(t, "QUEUED", j.Status)
 					assert.Equal(t, 10, j.MaxAttempts)
@@ -323,7 +328,13 @@ func TestDestroyCluster_EncryptedJobAndQueueFailure(t *testing.T) {
 					if tc.lookupFail {
 						err = errors.New("lookup failed")
 					}
-					m.jobs.EXPECT().GetJobByIdempotencyKey(gomock.Any(), "delete_cluster:cid").Return(&model.Job{JobUUID: "old-job"}, err)
+					m.jobs.EXPECT().GetJobByIdempotencyKey(gomock.Any(), "delete_cluster:cid").Return(&model.Job{JobUUID: "old-job", JobType: "CLUSTER_DELETE", ClusterUUID: "cid"}, err)
+					if !tc.lookupFail {
+						m.jobs.EXPECT().RefreshJobPayload(gomock.Any(), "old-job", gomock.Any()).DoAndReturn(func(_ context.Context, _ string, payload datatypes.JSON) error {
+							assert.Equal(t, savedPayload, []byte(payload))
+							return nil
+						})
+					}
 				}
 			}
 			resp, body := handlerRequest(t, h.DestroyCluster, "/cluster/:cluster_id", "/cluster/cid", "", "tok")

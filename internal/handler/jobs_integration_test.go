@@ -21,6 +21,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/vmindtech/vke/internal/dto/request"
+	"github.com/vmindtech/vke/internal/dto/resource"
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/internal/testutil"
 	"github.com/vmindtech/vke/pkg/queue"
@@ -53,6 +54,7 @@ func TestClusterJobs_PublishToLocalBroker(t *testing.T) {
 				m.cluster.EXPECT().InitCreateCluster(gomock.Any(), "tok", gomock.Any(), gomock.Any()).Return(nil)
 				app.Post("/cluster/:cluster_id", h.CreateCluster)
 			} else {
+				m.cluster.EXPECT().GetCluster(gomock.Any(), "tok", "cid").Return(resource.GetClusterResponse{ClusterID: "cid", ProjectID: "project"}, nil)
 				app.Post("/cluster/:cluster_id", h.DestroyCluster)
 			}
 			var saved model.Job
@@ -70,12 +72,14 @@ func TestClusterJobs_PublishToLocalBroker(t *testing.T) {
 			}
 			require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 			require.NotEmpty(t, saved.JobUUID)
-			assert.Equal(t, "client-key", saved.IdempotencyKey)
 			if action == "create" {
+				assert.Equal(t, "client-key", saved.IdempotencyKey)
 				assert.Equal(t, saved.JobUUID, body.Data["job_uuid"])
 				assert.Equal(t, saved.ClusterUUID, body.Data["cluster_uuid"])
 				assert.Equal(t, "CREATING", body.Data["cluster_status"])
 			} else {
+				assert.Equal(t, "delete_cluster:cid:client-key", saved.IdempotencyKey)
+				assert.Equal(t, "project", saved.ProjectUUID)
 				assert.Equal(t, "cid", body.Data["cluster_id"])
 				assert.Equal(t, "Deleting", body.Data["cluster_status"])
 			}

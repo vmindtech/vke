@@ -244,7 +244,7 @@ func TestDeleteNode_EarlyFailures(t *testing.T) {
 	m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(nil)
 	m.nodeGroups.EXPECT().GetNodeGroupByUUID(gomock.Any(), "ng-1").Return(nil, nil)
 	_, err := svc.DeleteNode(context.Background(), "tok", "cid-1", "ng-1", "server")
-	require.ErrorContains(t, err, "failed to get node group")
+	require.ErrorContains(t, err, constants.ErrNodeGroupNotFound)
 }
 
 func TestNodeGroupListAndUpdateLookupFailures(t *testing.T) {
@@ -258,6 +258,7 @@ func TestNodeGroupListAndUpdateLookupFailures(t *testing.T) {
 			}
 			m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").Return(nodeGroupsTestCluster(), clusterErr)
 			if stage == "update group" {
+				m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(nil)
 				m.nodeGroups.EXPECT().GetNodeGroupByUUID(gomock.Any(), "ng-1").Return(nil, boom)
 			}
 			var err error

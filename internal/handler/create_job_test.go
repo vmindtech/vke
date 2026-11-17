@@ -39,7 +39,7 @@ func TestCreateCluster_IdempotencyAndPersistence(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			testutil.SetConfig(t, map[string]any{"RABBITMQ_URL": tc.queueURL, "RABBITMQ_QUEUE": "jobs"})
 			h, m := newHandlerMocks(t)
-			existing := &model.Job{JobUUID: "existing-job", ClusterUUID: "existing-cluster"}
+			existing := &model.Job{JobUUID: "existing-job", ClusterUUID: "existing-cluster", JobType: "CLUSTER_CREATE"}
 			var key string
 			m.jobs.EXPECT().GetJobByIdempotencyKey(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, k string) (*model.Job, error) {
 				key = k

@@ -98,7 +98,7 @@ func TestRepositoryUpdates(t *testing.T) {
 			return NewResourcesRepository(d).DeleteResourcesByClusterTypeAndUUID(ctx, "cid", "port", "port-1")
 		}},
 		{"job queued", "^UPDATE `jobs` SET .* WHERE `jobs`.`job_uuid` = \\?$", []any{next, "QUEUED", "job"}, func(d *repositoryDB) error { return NewJobsRepository(d).MarkJobQueued(ctx, "job", next) }},
-		{"job succeeded clears error", "^UPDATE `jobs` SET `last_error`=\\?,`status`=\\?,`updated_at`=\\? WHERE `jobs`.`job_uuid` = \\?$", []any{"", "SUCCEEDED", "job"}, func(d *repositoryDB) error { return NewJobsRepository(d).MarkJobSucceeded(ctx, "job") }},
+		{"job succeeded clears error", "^UPDATE `jobs` SET `status`=\\?,`last_error`=\\?,`updated_at`=\\? WHERE `jobs`.`job_uuid` = \\?$", []any{"", "SUCCEEDED", "job"}, func(d *repositoryDB) error { return NewJobsRepository(d).MarkJobSucceeded(ctx, "job") }},
 		{"job failed", "^UPDATE `jobs` SET .* WHERE `jobs`.`job_uuid` = \\?$", []any{int64(2), "retryable", next, "FAILED", "job"}, func(d *repositoryDB) error {
 			return NewJobsRepository(d).MarkJobFailed(ctx, "job", "retryable", next, 2)
 		}},
@@ -139,14 +139,18 @@ func TestClaimJobAndRetireIdempotencyKey(t *testing.T) {
 	}{{"acquired", 1, nil}, {"held by another worker", 0, nil}, {"database failure", 0, errors.New("failed")}} {
 		t.Run(tc.name, func(t *testing.T) {
 			start := time.Now()
-			db, _ := newRepositoryDB(t, sqlStep{query: "UPDATE `jobs` SET `locked_at`=?,`locked_by`=?,`status`=?,`updated_at`=? WHERE job_uuid = ? AND (status <> ? OR locked_at IS NULL OR locked_at < ?)", affected: tc.rows, err: tc.err, check: func(args []driver.NamedValue) {
+			db, _ := newRepositoryDB(t, sqlStep{query: "UPDATE `jobs` SET `status`=?,`locked_by`=?,`locked_at`=?,`updated_at`=? WHERE job_uuid = ? AND (status <> ? OR locked_at IS NULL OR locked_at < ?)", affected: tc.rows, err: tc.err, check: func(args []driver.NamedValue) {
 				require.Len(t, args, 7)
 				assert.Equal(t, "worker", args[1].Value)
-				assert.Equal(t, "RUNNING", args[2].Value)
+				assert.Equal(t, "RUNNING", args[0].Value)
 				assert.Equal(t, "job", args[4].Value)
 				assert.Equal(t, "RUNNING", args[5].Value)
-				assert.WithinDuration(t, start, args[0].Value.(time.Time), time.Second)
-				assert.WithinDuration(t, start.Add(-3*time.Minute), args[6].Value.(time.Time), time.Second)
+				lockedAt, ok := args[2].Value.(time.Time)
+				require.True(t, ok, "locked_at must be a timestamp")
+				assert.WithinDuration(t, start, lockedAt, time.Second)
+				staleBefore, ok := args[6].Value.(time.Time)
+				require.True(t, ok, "stale-lock cutoff must be a timestamp")
+				assert.Equal(t, lockedAt.Add(-3*time.Minute), staleBefore)
 			}})
 			got, err := NewJobsRepository(db).TryMarkJobStarted(context.Background(), "job", "worker", 3*time.Minute)
 			assert.Equal(t, tc.rows > 0, got)
