@@ -12,7 +12,6 @@ import (
 
 	"github.com/vmindtech/vke/internal/dto/resource"
 	"github.com/vmindtech/vke/internal/model"
-	"github.com/vmindtech/vke/internal/testutil"
 	"github.com/vmindtech/vke/pkg/constants"
 )
 
@@ -143,27 +142,29 @@ func TestLoadCreateRequest_FillsOnlyMissingFieldsFromLiveNodeGroups(t *testing.T
 }
 
 func TestRunDestroyCluster_CompletedClusterSweepsOrphanLBs(t *testing.T) {
-	for _, scenario := range []string{"job token", "application credential", "auth denied", "cleanup fails"} {
+	for _, scenario := range []string{"job token", "missing caller token", "auth denied", "cleanup fails"} {
 		t.Run(scenario, func(t *testing.T) {
 			svc, m := newClusterServiceForTest(t)
 			computesConfig(t)
 			fastClusterDeletion(t)
 			cluster := destroyCluster(t, constants.DeleteStateCompleted)
 			m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").Return(cluster, nil)
+			if scenario == "missing caller token" {
+				// no CheckAuthToken / application credential / OpenStack expectation: nothing may run
+				require.ErrorIs(t, svc.RunDestroyCluster(context.Background(), "", "cid-1"), ErrDestroyClusterPermanent)
+				return
+			}
 			jobToken := "tok"
-			if scenario == "application credential" {
-				jobToken = ""
-				m.identity.EXPECT().AuthenticateWithApplicationCredential(gomock.Any(), "ac-1", "app-secret").Return("tok", nil)
-			}
 			boom := errors.New("openstack unavailable")
-			var authErr error
 			if scenario == "auth denied" {
-				authErr = boom
+				m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(boom)
+				require.ErrorIs(t, svc.RunDestroyCluster(context.Background(), jobToken, "cid-1"), boom)
+				return
 			}
-			m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(authErr)
+			m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(nil)
 			if scenario == "cleanup fails" {
 				m.resources.EXPECT().GetResourceByClusterUUID(gomock.Any(), "cid-1", "load_balancer").Return(nil, boom).Times(10)
-			} else if authErr == nil {
+			} else {
 				expectResourceRows(m, "load_balancer").Times(2)
 				gomock.InOrder(
 					m.lb.EXPECT().ListLoadBalancerIDsByName(gomock.Any(), "tok", "cid-1_vke_cluster").Return([]string{"orphan-1", "orphan-1"}, nil),
@@ -193,26 +194,4 @@ func TestRunDestroyCluster_StateWriteFailureStopsNextStep(t *testing.T) {
 	boom := errors.New("database unavailable")
 	m.clusters.EXPECT().DeleteUpdateCluster(gomock.Any(), &model.Cluster{DeleteState: constants.DeleteStateLoadBalancer}, "cid-1").Return(boom)
 	require.ErrorIs(t, svc.RunDestroyCluster(context.Background(), "job-token", "cid-1"), boom)
-}
-
-func TestOpenstackTokenForDestroyOrphan_InvalidCredentials(t *testing.T) {
-	for _, scenario := range []string{"missing credentials", "missing key", "invalid secret"} {
-		t.Run(scenario, func(t *testing.T) {
-			svc, _ := newClusterServiceForTest(t)
-			testutil.SetConfig(t, map[string]any{"VKE_ENCRYPTION_KEY": flowEncKey})
-			cluster := computesCluster(t)
-			if scenario == "missing credentials" {
-				cluster.ApplicationCredentialID = " "
-			}
-			if scenario == "missing key" {
-				testutil.SetConfig(t, map[string]any{"VKE_ENCRYPTION_KEY": ""})
-			}
-			if scenario == "invalid secret" {
-				cluster.ApplicationCredentialSecretEnc = "bad"
-			}
-			token, err := svc.openstackTokenForDestroyOrphan(context.Background(), cluster, " ")
-			require.Error(t, err)
-			assert.Empty(t, token)
-		})
-	}
 }

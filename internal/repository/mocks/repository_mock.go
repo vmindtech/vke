@@ -17,6 +17,7 @@ import (
 	model "github.com/vmindtech/vke/internal/model"
 	repository "github.com/vmindtech/vke/internal/repository"
 	gomock "go.uber.org/mock/gomock"
+	datatypes "gorm.io/datatypes"
 	gorm "gorm.io/gorm"
 )
 
@@ -406,6 +407,20 @@ func (mr *MockIJobsRepositoryMockRecorder) MarkJobSucceeded(ctx, jobUUID any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkJobSucceeded", reflect.TypeOf((*MockIJobsRepository)(nil).MarkJobSucceeded), ctx, jobUUID)
 }
 
+// RefreshJobPayload mocks base method.
+func (m *MockIJobsRepository) RefreshJobPayload(ctx context.Context, jobUUID string, payload datatypes.JSON) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RefreshJobPayload", ctx, jobUUID, payload)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RefreshJobPayload indicates an expected call of RefreshJobPayload.
+func (mr *MockIJobsRepositoryMockRecorder) RefreshJobPayload(ctx, jobUUID, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshJobPayload", reflect.TypeOf((*MockIJobsRepository)(nil).RefreshJobPayload), ctx, jobUUID, payload)
+}
+
 // RetireIdempotencyKey mocks base method.
 func (m *MockIJobsRepository) RetireIdempotencyKey(ctx context.Context, jobUUID string) error {
 	m.ctrl.T.Helper()
@@ -418,6 +433,20 @@ func (m *MockIJobsRepository) RetireIdempotencyKey(ctx context.Context, jobUUID 
 func (mr *MockIJobsRepositoryMockRecorder) RetireIdempotencyKey(ctx, jobUUID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetireIdempotencyKey", reflect.TypeOf((*MockIJobsRepository)(nil).RetireIdempotencyKey), ctx, jobUUID)
+}
+
+// ScrubJobAuthToken mocks base method.
+func (m *MockIJobsRepository) ScrubJobAuthToken(ctx context.Context, jobUUID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ScrubJobAuthToken", ctx, jobUUID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ScrubJobAuthToken indicates an expected call of ScrubJobAuthToken.
+func (mr *MockIJobsRepositoryMockRecorder) ScrubJobAuthToken(ctx, jobUUID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScrubJobAuthToken", reflect.TypeOf((*MockIJobsRepository)(nil).ScrubJobAuthToken), ctx, jobUUID)
 }
 
 // TouchJobLock mocks base method.

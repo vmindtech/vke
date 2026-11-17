@@ -2,14 +2,11 @@ package repository
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/vmindtech/vke/internal/model"
 	"github.com/vmindtech/vke/pkg/mysqldb"
 )
-
-var ErrClusterNameAlreadyExists = errors.New("cluster name already exists in project")
 
 type IClusterRepository interface {
 	GetClusterByUUID(ctx context.Context, uuid string) (*model.Cluster, error)

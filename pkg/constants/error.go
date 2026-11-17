@@ -12,6 +12,7 @@ const (
 	ErrAuthTokenInvalid     = "Invalid authentication token provided"
 	ErrAuthTokenExpired     = "Authentication token has expired"
 	ErrAuthTokenMissing     = "Authentication token is missing"
+	ErrAuthTokenRejected    = "auth token rejected for project"
 
 	// Cluster Creation Errors
 	ErrClusterCreateFailed   = "Cluster creation process failed"
@@ -40,6 +41,7 @@ const (
 	ErrNodeGroupDeleteFailed  = "Failed to delete node groups"
 	ErrNodeGroupUpdateFailed  = "Failed to update node groups"
 	ErrNodeGroupScalingFailed = "Failed to scale node groups"
+	ErrNodeGroupNotFound      = "node group not found in cluster"
 
 	// Compute Errors
 	ErrComputeCreateFailed            = "Failed to create compute instance"
@@ -92,6 +94,18 @@ const (
 
 	// Unknown Errors
 	ErrUnknown = "An unknown error occurred"
+
+	// ErrKubeconfigTimeout is returned when the agent never pushed kubeconfig within the max wait window.
+	// CLUSTER_CREATE jobs must not retry on this (likely network/agent unreachable); retrying only spams logs.
+	ErrKubeconfigTimeout = "kubeconfig not received within max wait"
+	// ErrStaleCreateClusterJob is returned when a CLUSTER_CREATE job targets a cluster that is already deleted or deleting
+	// (e.g. stale RabbitMQ message). Worker should ack without retry, not treat as success.
+	ErrStaleCreateClusterJob = "create job obsolete: cluster deleted or deleting"
+
+	// ErrClusterNameAlreadyExists is returned when a non-deleted cluster in the same project has the requested name.
+	ErrClusterNameAlreadyExists = "cluster name already exists"
+	// ErrDestroyClusterPermanent is a non-retryable CLUSTER_DELETE failure (missing credentials, bad config).
+	ErrDestroyClusterPermanent = "cluster deletion cannot be retried"
 )
 
 // Error Categories for better organization

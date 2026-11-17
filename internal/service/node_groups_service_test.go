@@ -139,11 +139,11 @@ func TestUpdateNodeGroups(t *testing.T) {
 			svc, m := newNodeGroupsServiceForTest(t)
 			boom := errors.New(stage)
 			m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").Return(nodeGroupsTestCluster(), nil)
-			m.nodeGroups.EXPECT().GetNodeGroupByUUID(gomock.Any(), "ng-1").Return(nodeGroupsTestGroup(), nil)
 			if stage == "auth failure" {
 				m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(boom)
 			} else {
 				m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(nil)
+				m.nodeGroups.EXPECT().GetNodeGroupByUUID(gomock.Any(), "ng-1").Return(nodeGroupsTestGroup(), nil)
 				var writeErr error
 				if stage == "write failure" {
 					writeErr = boom
@@ -159,5 +159,50 @@ func TestUpdateNodeGroups(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, resource.UpdateNodeGroupResponse{ClusterID: "cid-1", NodeGroupID: "ng-1", MinSize: 2, MaxSize: 5, Status: NodeGroupActiveStatus}, got)
 		})
+	}
+}
+
+// The token only proves access to the cluster named in the request; a node group ID that belongs to another
+// cluster (or does not exist) must be refused before anything is read from OpenStack or written to the DB.
+func TestNodeGroupOperations_RejectNodeGroupOutsideCluster(t *testing.T) {
+	min, max := uint32(1), uint32(2)
+	operations := map[string]func(svc *nodeGroupsService) error{
+		"get": func(svc *nodeGroupsService) error {
+			_, err := svc.GetNodeGroups(context.Background(), "tok", "cid-1", "ng-1")
+			return err
+		},
+		"update": func(svc *nodeGroupsService) error {
+			_, err := svc.UpdateNodeGroups(context.Background(), "tok", "cid-1", "ng-1", request.UpdateNodeGroupRequest{MinNodes: &min, MaxNodes: &max})
+			return err
+		},
+		"add node": func(svc *nodeGroupsService) error {
+			_, err := svc.AddNode(context.Background(), "tok", "cid-1", "ng-1")
+			return err
+		},
+		"delete node": func(svc *nodeGroupsService) error {
+			_, err := svc.DeleteNode(context.Background(), "tok", "cid-1", "ng-1", "server-1")
+			return err
+		},
+		"delete node group": func(svc *nodeGroupsService) error {
+			return svc.DeleteNodeGroup(context.Background(), "tok", "cid-1", "ng-1")
+		},
+	}
+	for name, run := range operations {
+		for _, stored := range []string{"other cluster", "missing"} {
+			t.Run(name+"/"+stored, func(t *testing.T) {
+				svc, m := newNodeGroupsServiceForTest(t)
+				m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").Return(nodeGroupsTestCluster(), nil)
+				m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(nil)
+				var ng *model.NodeGroups
+				if stored == "other cluster" {
+					ng = nodeGroupsTestGroup()
+					ng.ClusterUUID = "other-cid"
+				}
+				m.nodeGroups.EXPECT().GetNodeGroupByUUID(gomock.Any(), "ng-1").Return(ng, nil)
+				// no compute / network / UpdateNodeGroups expectation: nothing may run
+
+				require.ErrorIs(t, run(svc), ErrNodeGroupNotFound)
+			})
+		}
 	}
 }

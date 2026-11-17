@@ -16,6 +16,7 @@ import (
 	"github.com/vmindtech/vke/internal/testutil"
 	"github.com/vmindtech/vke/pkg/constants"
 	"github.com/vmindtech/vke/pkg/utils"
+	"gorm.io/gorm"
 )
 
 func initCreateRequest() *request.CreateClusterRequest {
@@ -45,9 +46,56 @@ func TestInitCreateCluster_IdempotentWhenClusterExists(t *testing.T) {
 	svc, m := newClusterServiceForTest(t)
 
 	m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").
-		Return(&model.Cluster{ClusterUUID: "cid-1"}, nil)
+		Return(&model.Cluster{ClusterUUID: "cid-1", ClusterProjectUUID: "p1"}, nil)
+	m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(nil)
 
 	require.NoError(t, svc.InitCreateCluster(context.Background(), "tok", initCreateRequest(), "cid-1"))
+}
+
+func TestInitCreateCluster_ExistingClusterRejectsOtherProject(t *testing.T) {
+	svc, m := newClusterServiceForTest(t)
+
+	m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").
+		Return(&model.Cluster{ClusterUUID: "cid-1", ClusterProjectUUID: "p1"}, nil)
+	boom := errors.New("keystone 403")
+	m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(boom)
+
+	err := svc.InitCreateCluster(context.Background(), "tok", initCreateRequest(), "cid-1")
+	require.ErrorIs(t, err, boom)
+}
+
+func TestInitCreateCluster_ExistingClusterRejectsMismatchedProject(t *testing.T) {
+	svc, m := newClusterServiceForTest(t)
+
+	m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").
+		Return(&model.Cluster{ClusterUUID: "cid-1", ClusterProjectUUID: "p1"}, nil)
+	m.identity.EXPECT().CheckAuthToken(gomock.Any(), "tok", "p1").Return(nil)
+
+	req := initCreateRequest()
+	req.ProjectID = "other-project"
+	err := svc.InitCreateCluster(context.Background(), "tok", req, "cid-1")
+	require.ErrorContains(t, err, "belongs to a different project")
+}
+
+func TestInitCreateCluster_LookupFailureDoesNotCreateCredential(t *testing.T) {
+	svc, m := newClusterServiceForTest(t)
+
+	boom := errors.New("database unavailable")
+	m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").Return(nil, boom)
+
+	// no ClusterNameExists / CreateApplicationCredential expectation: a DB failure must stop here
+	err := svc.InitCreateCluster(context.Background(), "tok", initCreateRequest(), "cid-1")
+	require.ErrorIs(t, err, boom)
+}
+
+func TestInitCreateCluster_NotFoundProceedsToCreate(t *testing.T) {
+	svc, m := newClusterServiceForTest(t)
+
+	m.clusters.EXPECT().GetClusterByUUID(gomock.Any(), "cid-1").Return(nil, gorm.ErrRecordNotFound)
+	m.clusters.EXPECT().ClusterNameExists(gomock.Any(), "p1", "demo").Return(true, nil)
+
+	err := svc.InitCreateCluster(context.Background(), "tok", initCreateRequest(), "cid-1")
+	require.ErrorIs(t, err, ErrClusterNameAlreadyExists)
 }
 
 func TestInitCreateCluster_DuplicateName(t *testing.T) {
